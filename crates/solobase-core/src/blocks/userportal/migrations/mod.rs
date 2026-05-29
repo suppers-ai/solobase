@@ -29,15 +29,17 @@ mod tests {
 
     #[test]
     fn sqlite_script_creates_buttons_table_and_sort_order_index() {
-        assert!(SQL_001_SQLITE
-            .contains("CREATE TABLE IF NOT EXISTS suppers_ai__userportal__buttons"));
+        assert!(
+            SQL_001_SQLITE.contains("CREATE TABLE IF NOT EXISTS suppers_ai__userportal__buttons")
+        );
         assert!(SQL_001_SQLITE.contains("suppers_ai__userportal__buttons_sort_order_idx"));
     }
 
     #[test]
     fn postgres_script_creates_buttons_table_and_sort_order_index() {
-        assert!(SQL_001_POSTGRES
-            .contains("CREATE TABLE IF NOT EXISTS suppers_ai__userportal__buttons"));
+        assert!(
+            SQL_001_POSTGRES.contains("CREATE TABLE IF NOT EXISTS suppers_ai__userportal__buttons")
+        );
         assert!(SQL_001_POSTGRES.contains("suppers_ai__userportal__buttons_sort_order_idx"));
     }
 }

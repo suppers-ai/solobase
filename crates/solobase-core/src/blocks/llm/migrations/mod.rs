@@ -30,13 +30,8 @@ const SQL_001_POSTGRES: &str = include_str!("001_llm_schema.postgres.sql");
 /// any DDL. Schema changes require a `--run-migrations` redeploy (see
 /// `migration-state-workflow` in user memory).
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    migration_helper::apply_migrations(
-        ctx,
-        LLM_BLOCK_NAME,
-        &[SQL_001_SQLITE],
-        &[SQL_001_POSTGRES],
-    )
-    .await
+    migration_helper::apply_migrations(ctx, LLM_BLOCK_NAME, &[SQL_001_SQLITE], &[SQL_001_POSTGRES])
+        .await
 }
 
 #[cfg(test)]
