@@ -236,6 +236,14 @@ impl Block for SolobaseStorageBlock {
             Err(e) => return OutputStream::error(e),
         };
 
+        // SEC-003: keep wrap.resource meta in sync with the namespacing
+        // rewrite so the downstream wafer-core handler's cross-validation
+        // passes. The WRAP grant check at the call_block boundary has
+        // already validated the caller's original wrap.resource against
+        // their grants; this is a payload-meta sync, not a grant bypass.
+        let mut msg = msg;
+        msg.set_meta(wafer_block::meta::META_WRAP_RESOURCE, &resolved.path);
+
         // Check for path traversal
         if resolved.path.contains("..") {
             let _ = log_storage_access(
