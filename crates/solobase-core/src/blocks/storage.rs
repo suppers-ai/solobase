@@ -253,7 +253,10 @@ impl Block for SolobaseStorageBlock {
         // original wrap.resource against their grants; this is a
         // payload-meta sync, not a grant bypass.
         let mut msg = msg;
-        msg.set_meta(wafer_block::meta::META_WRAP_RESOURCE, &resolved.wrap_resource);
+        msg.set_meta(
+            wafer_block::meta::META_WRAP_RESOURCE,
+            &resolved.wrap_resource,
+        );
 
         // Check for path traversal
         if resolved.path.contains("..") {
@@ -576,8 +579,7 @@ mod tests {
             content_type: "image/png".into(),
         })
         .unwrap();
-        let (_, resolved) =
-            rewrite_request_body("storage.put", &body, "suppers-ai/files").unwrap();
+        let (_, resolved) = rewrite_request_body("storage.put", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.wrap_resource, "suppers-ai/files/smoke/a.png");
 
         // Cross-block object op — wrap_resource uses the post-resolution path
@@ -586,8 +588,7 @@ mod tests {
             key: "index.html".into(),
         })
         .unwrap();
-        let (_, resolved) =
-            rewrite_request_body("storage.get", &body, "suppers-ai/files").unwrap();
+        let (_, resolved) = rewrite_request_body("storage.get", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.wrap_resource, "wafer-run/web/public/index.html");
         assert!(resolved.cross_block);
 
