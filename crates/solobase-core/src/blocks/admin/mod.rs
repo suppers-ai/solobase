@@ -144,18 +144,15 @@ impl Block for AdminBlock {
                 // wants per-op control.
                 wafer_run::ResourceGrant::read_write("*", "*")
                     .typed(wafer_run::types::ResourceType::Crypto),
-                // Typed Storage grant for the files block. The wafer-run
-                // validator rejects typed Storage grants from non-admin blocks
-                // (runtime/lifecycle.rs::validate_and_collect_grants_for_block),
-                // so only admin may declare them.
-                // Scoped to suppers-ai/files specifically (rather than `*/*`
-                // like Network/Crypto above) so other blocks remain Storage
-                // default-deny — preserves least-privilege for the resource
-                // type whose actual production use is concentrated in one
-                // feature block. See spec
-                // docs/superpowers/specs/2026-05-24-wave-12-cors-options-and-files-grant-design.md.
-                wafer_run::ResourceGrant::read_write("suppers-ai/files", "*")
-                    .typed(wafer_run::types::ResourceType::Storage),
+                // Wave 26 (c18) made Storage WRAP namespace-aware: every
+                // block self-admits its own `{org}/{block}/*` namespace
+                // via Rule 3 without any grant. The previous
+                // `read_write("suppers-ai/files", "*")` grant the admin
+                // block used to declare on behalf of the files block was
+                // removed because the files block now reaches its own
+                // storage namespace under the new self-admit rule.
+                // Cross-block Storage grants are declared by the owning
+                // block, the same way Db grants are.
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
@@ -456,21 +453,25 @@ mod grant_tests {
     use super::AdminBlock;
 
     #[test]
-    fn admin_block_declares_typed_storage_grant_for_files() {
+    fn admin_block_no_longer_declares_storage_grant_for_files() {
+        // Wave 26 (c18): Storage WRAP became namespace-aware. The files
+        // block self-admits its own `suppers-ai/files/*` namespace via
+        // Rule 3, so the admin block no longer needs to declare a typed
+        // Storage grant on its behalf. This test pins the absence — if a
+        // future change re-introduces the grant it's almost certainly a
+        // regression from the c18 model.
         let admin = AdminBlock::new();
         let grants = admin.info().grants;
 
-        let storage_grant = grants.iter().find(|g| {
+        let storage_grant_for_files = grants.iter().find(|g| {
             g.resource_type == Some(ResourceType::Storage) && g.grantee == "suppers-ai/files"
         });
 
-        let g = storage_grant.expect(
-            "admin block must declare a typed Storage grant for suppers-ai/files \
-             (validator rejects typed Storage grants from non-admin blocks, so the \
-             files block's own declaration is silently dropped — see \
-             wafer-run/runtime/lifecycle.rs validate_and_collect_grants_for_block)",
+        assert!(
+            storage_grant_for_files.is_none(),
+            "admin block must not declare a typed Storage grant for suppers-ai/files \
+             — the files block self-admits its own namespace via WRAP Rule 3 (Wave 26 \
+             / c18). Found: {storage_grant_for_files:?}"
         );
-        assert_eq!(g.resource, "*", "files Storage grant must cover all paths");
-        assert!(g.write, "files Storage grant must allow writes");
     }
 }

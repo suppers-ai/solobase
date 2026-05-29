@@ -53,11 +53,9 @@ impl Block for FilesBlock {
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()])
-            // Storage WRAP grant for this block is declared by the admin block
-            // (solobase-core/src/blocks/admin/mod.rs). The wafer-run validator
-            // rejects typed Storage grants from non-admin blocks; only admin
-            // may declare them. See spec
-            // docs/superpowers/specs/2026-05-24-wave-12-cors-options-and-files-grant-design.md.
+            // No explicit Storage grant needed. Wave 26 (c18) made WRAP
+            // namespace-aware for Storage; this block self-admits its
+            // own `suppers-ai/files/*` namespace via Rule 3.
             .collections(vec![
                 CollectionSchema::new(BUCKETS_TABLE)
                     .field("name", "string")
@@ -287,6 +285,11 @@ mod grant_tests {
 
     #[test]
     fn files_block_does_not_declare_typed_storage() {
+        // Wave 26 (c18): files block doesn't need a typed Storage grant
+        // for its own namespace because Rule 3 self-admit covers it. A
+        // grant here would also be redundant for *cross-block* access:
+        // any block that wants to expose its storage to files declares
+        // the grant from its own side.
         let files = FilesBlock::new();
         let grants = files.info().grants;
 
@@ -296,9 +299,9 @@ mod grant_tests {
 
         assert!(
             typed_storage.is_none(),
-            "files block must not declare a typed Storage grant — the wafer-run \
-             validator rejects typed Storage grants from non-admin blocks. The \
-             grant belongs in admin/mod.rs's grants list. (got: {typed_storage:?})",
+            "files block must not declare a typed Storage grant — own-namespace \
+             access is covered by WRAP Rule 3 self-admit (Wave 26 / c18). \
+             Cross-block grants belong on the owning block's side. (got: {typed_storage:?})",
         );
     }
 }
