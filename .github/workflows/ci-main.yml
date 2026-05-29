@@ -18,77 +18,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Format & Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout wafer-run
-        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: check
-
-      - name: Check formatting
-        run: cargo +nightly fmt --all -- --check
-
-      # clippy compiles solobase, whose build.rs `include_bytes!`s the
-      # solobase-web wasm. Build it first so build.rs finds it.
-      - name: Build solobase-web wasm (build.rs prereq for clippy)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
-
-      - name: Run clippy
-        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
-
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout wafer-run
-        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: test
-
-      # The solobase crate's build.rs `include_bytes!`s the solobase-web
-      # wasm; without it `cargo test --workspace` fails before any test
-      # runs. Build the wasm-pack output (preferred path in build.rs's
-      # candidate list) before invoking cargo test.
-      - name: Build solobase-web wasm (build.rs prereq)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
-
-      - name: Run tests
-        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
-
-  wasm:
-    name: WASM Build
+  # The solobase crate's build.rs `include_bytes!`s the solobase-web wasm, so
+  # every job that compiles the workspace previously ran `wasm-pack build
+  # --release` itself. Build it once here and share `pkg/` as an artifact.
+  build-wasm:
+    name: Build solobase-web wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +44,111 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM
-        run: cd crates/solobase-web && wasm-pack build --target web --release
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
+
+      - name: Upload pkg/ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg/
+          retention-days: 1
+
+  check:
+    name: Format & Lint
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install nightly rustfmt
+        run: rustup toolchain install nightly --component rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: check
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+      # clippy compiles solobase, whose build.rs `include_bytes!`s the
+      # solobase-web wasm. Download the prebuilt pkg/ so build.rs finds it.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      - name: Run clippy
+        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
+
+  test:
+    name: Tests
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: test
+
+      # The solobase crate's build.rs `include_bytes!`s the solobase-web wasm;
+      # without it `cargo test --workspace` fails before any test runs.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      - name: Run tests
+        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
+
+  wasm:
+    name: Cloudflare wasm32 check
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: cloudflare
+
+      # build.rs prereq for any solobase crate pulled into the cloudflare build.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      # solobase-cloudflare is wasm-only (cdylib targeting CF Workers).
+      - name: Check solobase-cloudflare (wasm32)
+        run: cargo check -p solobase-cloudflare --target wasm32-unknown-unknown
 
   audit:
     name: Security Audit
@@ -157,6 +195,7 @@ jobs:
 
   cross-compile:
     name: Cross-Compile (${{ matrix.name }})
+    needs: build-wasm
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -189,10 +228,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }},wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -213,16 +249,21 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
 
-      # solobase's build.rs `include_bytes!`s the solobase-web wasm;
-      # build it (wasm32 regardless of host target) before cross-compile.
-      - name: Build solobase-web wasm (build.rs prereq)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
+      # solobase's build.rs `include_bytes!`s the solobase-web wasm; the wasm is
+      # platform-independent, so download the shared artifact rather than
+      # rebuilding it on every target (including the macOS runners).
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
 
       - name: Build
         run: cargo build -p solobase --release --target ${{ matrix.target }}
 
   coverage:
     name: Coverage
+    needs: build-wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -232,11 +273,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -247,9 +283,12 @@ jobs:
           prefix-key: coverage
 
       # solobase's build.rs `include_bytes!`s the solobase-web wasm;
-      # llvm-cov compiles the workspace, so build it first.
-      - name: Build solobase-web wasm (build.rs prereq)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
+      # llvm-cov compiles the workspace, so the prebuilt pkg/ must be present.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
 
       - name: Generate coverage
         run: cargo llvm-cov --workspace --exclude solobase-web --exclude solobase-cloudflare --lcov --output-path lcov.info

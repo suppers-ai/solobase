@@ -23,94 +23,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Format & Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Lint — no full-page html! outside ui/
-        run: bash scripts/grep-guard-html.sh
-
-      - name: Lint — WRAP-grant coverage on cross-block db::* callsites
-        run: bash scripts/audit-wrap-grants.sh
-
-      - name: Checkout wafer-run
-        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: check
-
-      - name: Check formatting
-        run: cargo +nightly fmt --all -- --check
-
-      # clippy compiles solobase, whose build.rs `include_bytes!`s the
-      # solobase-web wasm. Build it first so build.rs finds it.
-      - name: Build solobase-web wasm (build.rs prereq for clippy)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
-
-      - name: Run clippy
-        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
-
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout wafer-run
-        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: test
-
-      # The solobase crate's build.rs `include_bytes!`s the solobase-web
-      # wasm; without it `cargo test --workspace` fails before any test
-      # runs. Build the wasm-pack output (preferred path in build.rs's
-      # candidate list) before invoking cargo test.
-      - name: Build solobase-web wasm (build.rs prereq)
-        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
-
-      # Auth tests (tests/auth, tests/auth_http) run against in-memory
-      # SQLite only. A dual-backend matrix (sqlite + postgres) for the
-      # `suppers_ai__auth__*` tables is deferred until a postgres-backed
-      # test context lands in wafer-block-postgres — Plan A did not wire
-      # one, and Plans B + C reuse the same MigrationTestCtx shape so
-      # the deferral still stands. In particular the partial unique
-      # index `orgs(verified_via, verified_ref) WHERE NOT is_reserved`
-      # introduced by migration 002 needs a postgres variant before it
-      # can be exercised in a real dual-backend CI matrix — extending
-      # the harness is the right root-cause fix rather than bolting a
-      # separate job on here.
-      - name: Run tests
-        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
-
-  wasm:
-    name: WASM Build
+  # The solobase crate's build.rs `include_bytes!`s the solobase-web wasm, so
+  # every job that compiles the workspace (check/test/e2e-build) previously ran
+  # `wasm-pack build --release` itself — six redundant wasm-opt passes per run.
+  # Build it once here, publish `pkg/` as an artifact, and have downstream jobs
+  # download it instead of rebuilding.
+  build-wasm:
+    name: Build solobase-web wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +51,124 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM
-        run: cd crates/solobase-web && wasm-pack build --target web --release
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
+
+      - name: Upload pkg/ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg/
+          retention-days: 1
+
+  check:
+    name: Format & Lint
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint — no full-page html! outside ui/
+        run: bash scripts/grep-guard-html.sh
+
+      - name: Lint — WRAP-grant coverage on cross-block db::* callsites
+        run: bash scripts/audit-wrap-grants.sh
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install nightly rustfmt
+        run: rustup toolchain install nightly --component rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: check
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+      # clippy compiles solobase, whose build.rs `include_bytes!`s the
+      # solobase-web wasm. Download the prebuilt pkg/ so build.rs finds it.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      - name: Run clippy
+        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
+
+  test:
+    name: Tests
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: test
+
+      # The solobase crate's build.rs `include_bytes!`s the solobase-web wasm;
+      # without it `cargo test --workspace` fails before any test runs.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      # Auth tests (tests/auth, tests/auth_http) run against in-memory
+      # SQLite only. A dual-backend matrix (sqlite + postgres) for the
+      # `suppers_ai__auth__*` tables is deferred until a postgres-backed
+      # test context lands in wafer-block-postgres — Plan A did not wire
+      # one, and Plans B + C reuse the same MigrationTestCtx shape so
+      # the deferral still stands. In particular the partial unique
+      # index `orgs(verified_via, verified_ref) WHERE NOT is_reserved`
+      # introduced by migration 002 needs a postgres variant before it
+      # can be exercised in a real dual-backend CI matrix — extending
+      # the harness is the right root-cause fix rather than bolting a
+      # separate job on here.
+      - name: Run tests
+        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
+
+  cloudflare:
+    name: Cloudflare wasm32 check
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: cloudflare
+
+      # build.rs prereq for any solobase crate pulled into the cloudflare build.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
 
       # solobase-cloudflare is wasm-only (cdylib targeting CF Workers).
       # Excluded from host `cargo test`/`clippy` because its R2/D1 services
@@ -141,8 +177,12 @@ jobs:
       - name: Check solobase-cloudflare (wasm32)
         run: cargo check -p solobase-cloudflare --target wasm32-unknown-unknown
 
-  e2e:
-    name: E2E (Playwright)
+  # E2E is split into a single build stage plus two independent test stages so
+  # the browser-WASM smoke tests (port 8080) and the native-server visual
+  # baselines (port 8093) run in parallel instead of end-to-end in one job.
+  e2e-build:
+    name: E2E build (CLI + web assets)
+    needs: build-wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -163,32 +203,74 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
+      # build.rs prereq: the solobase build.rs `include_bytes!`s this wasm.
+      # Download the shared artifact instead of rebuilding it here.
+      - name: Download solobase-web pkg/
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-pkg
+          path: crates/solobase-web/pkg
+
+      # Debug build (not `--release`): the visual-baseline server serves
+      # server-rendered HTML and the smoke flow is browser-WASM, so the native
+      # binary's runtime speed is irrelevant — a debug compile is far cheaper.
+      # `--root out` lands the binary at out/bin/solobase for artifact upload.
+      - name: Install solobase CLI (debug)
+        run: cargo install --path crates/solobase --locked --debug --root "$GITHUB_WORKSPACE/out"
+
+      - name: Put solobase on PATH
+        run: echo "$GITHUB_WORKSPACE/out/bin" >> "$GITHUB_PATH"
+
+      # Embed × web flow (Cargo.toml + solobase.toml present): the unified
+      # CLI runs wasm-pack, then `solobase_browser::tools::bundle::run` to drop
+      # sw.js / loader.js / index.html / hashed assets into pkg/. This produces
+      # the served bundle for the smoke tests, overwriting the prereq pkg/.
+      - name: Build solobase-web (framework assets + hashed pkg/)
+        working-directory: crates/solobase-web
+        run: solobase build --target web --release
+
+      - name: Upload bundled web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: solobase-web-dist
+          path: crates/solobase-web/pkg/
+          retention-days: 1
+
+      - name: Upload solobase binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: solobase-bin
+          path: out/bin/solobase
+          retention-days: 1
+
+  e2e-smoke:
+    name: E2E smoke (browser WASM)
+    needs: e2e-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download bundled web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-web-dist
+          path: crates/solobase-web/pkg
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # `cargo install --path crates/solobase` runs the solobase build.rs,
-      # which `include_bytes!`s the solobase-web wasm. Build it first so
-      # build.rs finds it in the canonical pkg/ location.
-      - name: Pre-build solobase-web wasm (build.rs prereq)
-        working-directory: crates/solobase-web
-        run: wasm-pack build --target web --release --out-dir pkg
-
-      - name: Install solobase CLI
-        run: cargo install --path crates/solobase --locked
-
-      # Embed × web flow (Cargo.toml + solobase.toml present): the unified
-      # CLI runs wasm-pack again, then `solobase_browser::tools::bundle::run`
-      # to drop sw.js / loader.js / index.html / hashed assets into pkg/.
-      - name: Build solobase-web (framework assets + hashed pkg/)
-        working-directory: crates/solobase-web
-        run: solobase build --target web --release
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('crates/solobase-web/package-lock.json') }}
 
       - name: Install Playwright
         working-directory: crates/solobase-web
         run: |
-          npm install
+          npm ci
           npx playwright install chromium --with-deps
 
       - name: Serve pkg/ in background (smoke tests)
@@ -197,7 +279,7 @@ jobs:
           python3 -m http.server 8080 -d pkg &
           echo $! > /tmp/http-pid
           # Wait for server to accept connections
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -sf http://localhost:8080/sw.js > /dev/null; then
               break
             fi
@@ -207,6 +289,56 @@ jobs:
       - name: Run smoke tests (browser WASM, port 8080)
         working-directory: crates/solobase-web
         run: npx playwright test --config=tests/playwright.config.ts tests/e2e/smoke.spec.ts
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/http-pid ]; then
+            kill "$(cat /tmp/http-pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-smoke
+          path: crates/solobase-web/playwright-report/
+          retention-days: 7
+
+  e2e-visual:
+    name: E2E visual baselines (native server)
+    needs: e2e-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download solobase binary
+        uses: actions/download-artifact@v4
+        with:
+          name: solobase-bin
+          path: out/bin
+
+      - name: Put solobase on PATH
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/out/bin/solobase"
+          echo "$GITHUB_WORKSPACE/out/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('crates/solobase-web/package-lock.json') }}
+
+      - name: Install Playwright
+        working-directory: crates/solobase-web
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
 
       - name: Start native solobase server in background (visual-baseline tests)
         run: |
@@ -244,12 +376,9 @@ jobs:
           TEST_PORT: 8093
         run: npx playwright test --config=tests/playwright.visual-baseline.config.ts tests/e2e/visual-baseline.spec.ts
 
-      - name: Stop servers
+      - name: Stop server
         if: always()
         run: |
-          if [ -f /tmp/http-pid ]; then
-            kill "$(cat /tmp/http-pid)" 2>/dev/null || true
-          fi
           if [ -f /tmp/solobase-pid ]; then
             kill "$(cat /tmp/solobase-pid)" 2>/dev/null || true
           fi
@@ -258,7 +387,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-visual
           path: crates/solobase-web/playwright-report/
           retention-days: 7
 
