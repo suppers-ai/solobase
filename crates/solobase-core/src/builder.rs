@@ -10,12 +10,14 @@ use std::{collections::HashMap, sync::Arc};
 // distributed-slice entries land in the binary. Without these `use as _`
 // anchors the linker excludes the crate's .o file entirely and the
 // register_static_block! entries never appear in STATIC_BLOCK_REGISTRATIONS.
-use wafer_block_cors as _;
-use wafer_block_inspector as _;
-use wafer_block_readonly_guard as _;
-use wafer_block_router as _;
-use wafer_block_security_headers as _;
-use wafer_block_web as _;
+wafer_block::use_static_blocks!(
+    cors,
+    inspector,
+    readonly_guard,
+    router,
+    security_headers,
+    web,
+);
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,
     database::service::DatabaseService, image::service::ImageService, llm::service::LlmService,
