@@ -24,8 +24,12 @@
 #   - HTTP-style cross-block calls (`ctx.call_block_buffered(...)`) — they
 #     don't set `wrap.resource` meta, so WRAP doesn't gate them today.
 #     That's a separate design question; see PR #81 description.
-#   - Non-Database grants (`Network`, `Storage` resource types) — the script
-#     only checks Database access. Those grant types follow different rules.
+#   - Storage grants are audited in Phase 3.5 (added 2026-05-29).
+#   - Network grants are NOT audited. solobase/blocks/admin/mod.rs declares a
+#     default-allow `ResourceGrant::read("*", "*").typed(Network)`, which makes
+#     a meaningful "missing grant" finding impossible until the policy is
+#     locked down. See docs/superpowers/specs/2026-05-29-wave-23-wrap-audit-
+#     storage-design.md for the deferred-Network rationale.
 #   - Tables outside the `{org}__{block}__` convention (none currently exist
 #     in solobase-core but flagged if found).
 #
@@ -638,6 +642,20 @@ table_to_owner() {
   echo ""
 }
 
+# Convert a storage path (e.g. "suppers-ai/files/cloud/key.png" or
+# "@suppers-ai/files/foo") to its owner block id (suppers-ai/files).
+# Returns empty string if the path doesn't have at least two slash segments.
+storage_path_to_owner() {
+  local path="$1"
+  # Strip a leading "@" (cross-block resource indicator in source).
+  path="${path#@}"
+  if [[ "$path" =~ ^([a-z0-9_-]+)/([a-z0-9_-]+)(/|$) ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    return
+  fi
+  echo ""
+}
+
 while IFS= read -r line; do
   file="${line%%:*}"
   rest="${line#*:}"
@@ -697,6 +715,45 @@ check_coverage() {
     if [[ "$g_resource" == *\* ]]; then
       local prefix="${g_resource%\*}"
       if [[ "$table" == ${prefix}* ]]; then
+        echo "OK"; return
+      fi
+    fi
+  done
+  echo "MISSING"
+}
+
+# Returns "OK" if a typed-Storage grant covers (caller, resource);
+# otherwise "MISSING" or "NON_CONVENTIONAL_STORAGE" or "OWN_STORAGE".
+# Grant matches when:
+#   - g_type == "Storage"
+#   - grantee == caller OR grantee == "*"
+#   - g_resource == resource OR (g_resource ends with "*" AND resource starts with the prefix)
+storage_check_coverage() {
+  local caller="$1" resource="$2"
+  local owner
+  owner="$(storage_path_to_owner "$resource")"
+  if [ -z "$owner" ]; then
+    echo "NON_CONVENTIONAL_STORAGE"
+    return
+  fi
+  if [ "$caller" = "$owner" ]; then
+    echo "OWN_STORAGE"
+    return
+  fi
+  for g in "${GRANTS[@]}"; do
+    IFS='|' read -r g_owner g_grantee g_resource g_type _g_kind <<< "$g"
+    [ "$g_owner" != "$owner" ] && continue
+    [ "$g_type" != "Storage" ] && continue
+    if [ "$g_grantee" != "*" ] && [ "$g_grantee" != "$caller" ]; then
+      continue
+    fi
+    if [ "$g_resource" = "$resource" ] || [ "$g_resource" = "*" ]; then
+      echo "OK"; return
+    fi
+    # Prefix match: grant resource ends with `*`
+    if [[ "$g_resource" == *\* ]]; then
+      local prefix="${g_resource%\*}"
+      if [[ "$resource" == ${prefix}* ]]; then
         echo "OK"; return
       fi
     fi
@@ -791,14 +848,66 @@ while IFS= read -r line; do
   fi
 done < <(grep -rEn "db::(list|create|update|delete|count|get|find_one)\(" "$BLOCKS_DIR" 2>/dev/null || true)
 
+# ---------- Phase 3.5: walk storage callsites and check coverage ----------
+# Mirrors Phase 3 but for typed Storage grants.
+
+declare -i storage_total=0 storage_missing=0 storage_unresolved=0 storage_nonconv=0 storage_allowed=0
+declare -A SEEN_PAIRS_STORAGE
+STORAGE_MISSING_LINES=()
+STORAGE_UNRESOLVED_LINES=()
+STORAGE_NONCONV_LINES=()
+STORAGE_ALLOWED_LINES=()
+
+while IFS= read -r line; do
+  file="${line%%:*}"
+  rest="${line#*:}"
+  lineno="${rest%%:*}"
+  rest="${rest#*:}"
+  # Match: clients::storage::<op>(ctx, ARG, …) — the 8 wrapper fns.
+  re_storage_call='clients::storage::(get|put|delete|list|create_folder|delete_folder|list_folders|get_stream)[[:space:]]*\([[:space:]]*ctx[[:space:]]*,[[:space:]]*&?([A-Za-z_:][A-Za-z0-9_:.]*|"[^"]+")[[:space:]]*[,)]'
+  if [[ "$rest" =~ $re_storage_call ]]; then
+    arg="${BASH_REMATCH[2]}"
+    resource="$(resolve_token "$arg" "$file")"
+    caller="$(file_to_block_id "$file")"
+    pair_key="${caller}|${resource}"
+    [ -n "${SEEN_PAIRS_STORAGE[$pair_key]:-}" ] && continue
+    SEEN_PAIRS_STORAGE["$pair_key"]=1
+    storage_total=$((storage_total + 1))
+    # Honor `// audit-allow:` and `// audit-allow-file:` pragmas (shared with Phase 3).
+    if file_allows_audit_skip "$file" || has_allow_pragma "$file" "$lineno"; then
+      storage_allowed=$((storage_allowed + 1))
+      STORAGE_ALLOWED_LINES+=("${file}:${lineno}: ${caller} → ${resource}")
+      continue
+    fi
+    if [[ "$resource" == "<unresolved:"* ]]; then
+      storage_unresolved=$((storage_unresolved + 1))
+      STORAGE_UNRESOLVED_LINES+=("${file}:${lineno}: ${caller} → ${resource}")
+      continue
+    fi
+    result="$(storage_check_coverage "$caller" "$resource")"
+    case "$result" in
+      OK|OWN_STORAGE) ;;
+      MISSING)
+        storage_missing=$((storage_missing + 1))
+        owner="$(storage_path_to_owner "$resource")"
+        STORAGE_MISSING_LINES+=("${file}:${lineno}: ${caller} → ${resource} (owned by ${owner})")
+        ;;
+      NON_CONVENTIONAL_STORAGE)
+        storage_nonconv=$((storage_nonconv + 1))
+        STORAGE_NONCONV_LINES+=("${file}:${lineno}: ${caller} → ${resource}")
+        ;;
+    esac
+  fi
+done < <(grep -rEn "clients::storage::(get|put|delete|list|create_folder|delete_folder|list_folders|get_stream)\(" "$BLOCKS_DIR" 2>/dev/null || true)
+
 # ---------- Phase 4: report ----------
 
 echo
 echo "WRAP grant audit — $(date)"
 echo
-echo "Indexed: ${#CONST_VALUE[@]} constants, ${#GRANTS[@]} grant decls,"
-echo "         ${total} unique (caller, table) pairs across db::* callsites."
-echo "         ${allowed} skipped via // audit-allow: pragmas."
+echo "Indexed: ${#CONST_VALUE[@]} constants, ${#GRANTS[@]} grant decls."
+echo "Database: ${total} unique (caller, table) pairs; ${allowed} pragma-allowed."
+echo "Storage:  ${storage_total} unique (caller, resource) pairs; ${storage_allowed} pragma-allowed."
 echo
 
 if [ "${#MISSING_LINES[@]}" -gt 0 ]; then
@@ -819,8 +928,27 @@ if [ "${#NONCONV_LINES[@]}" -gt 0 ]; then
   echo
 fi
 
-if [ "$missing" -gt 0 ]; then
-  echo "::error::WRAP grant audit found ${missing} missing grant(s)."
+if [ "${#STORAGE_MISSING_LINES[@]}" -gt 0 ]; then
+  echo "MISSING storage grants (${storage_missing}):"
+  printf '  %s\n' "${STORAGE_MISSING_LINES[@]}"
+  echo
+fi
+
+if [ "${#STORAGE_UNRESOLVED_LINES[@]}" -gt 0 ]; then
+  echo "UNRESOLVED storage resources (${storage_unresolved}) — needs human review:"
+  printf '  %s\n' "${STORAGE_UNRESOLVED_LINES[@]}"
+  echo
+fi
+
+if [ "${#STORAGE_NONCONV_LINES[@]}" -gt 0 ]; then
+  echo "NON-CONVENTIONAL storage resources (${storage_nonconv}) — owner cannot be derived from path:"
+  printf '  %s\n' "${STORAGE_NONCONV_LINES[@]}"
+  echo
+fi
+
+if [ "$missing" -gt 0 ] || [ "$storage_missing" -gt 0 ]; then
+  total_missing=$((missing + storage_missing))
+  echo "::error::WRAP grant audit found ${total_missing} missing grant(s) (${missing} db + ${storage_missing} storage)."
   exit 1
 fi
 
