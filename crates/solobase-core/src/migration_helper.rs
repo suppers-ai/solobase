@@ -16,7 +16,7 @@
 //! canonical .sql files don't use either.
 
 use sha2::{Digest, Sha256};
-use wafer_core::clients::database as db;
+use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
 
 use crate::features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY};
@@ -31,6 +31,48 @@ pub const RUN_MIGRATIONS_KEY: &str = "SOLOBASE_RUN_MIGRATIONS";
 /// Full table name for the block_settings collection. Hardcoded here to
 /// avoid a circular dep on `crate::blocks::admin`.
 const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
+
+/// Read `SOLOBASE_SHARED__DATABASE__BACKEND` from the config snapshot,
+/// concatenate the matching per-backend SQL files, and forward to
+/// [`apply_if_blessed`].
+///
+/// Consolidates the backend dispatch + concatenation boilerplate that
+/// every block's `migrations/mod.rs::apply` previously open-coded:
+///
+/// ```ignore
+/// pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
+///     migration_helper::apply_migrations(
+///         ctx,
+///         "suppers-ai/messages",
+///         &[SQL_001_SQLITE],
+///         &[SQL_001_POSTGRES],
+///     )
+///     .await
+/// }
+/// ```
+///
+/// `sqlite_files` and `postgres_files` are joined with `\n` separators —
+/// the same shape `apply_if_blessed`'s statement splitter expects.
+/// Backends other than `"postgres"` (case-insensitive) fall back to
+/// `sqlite_files`, matching the `config::get_default(..., "sqlite")`
+/// behavior every consumer used to spell out.
+pub async fn apply_migrations(
+    ctx: &dyn Context,
+    block_name: &str,
+    sqlite_files: &[&str],
+    postgres_files: &[&str],
+) -> Result<(), String> {
+    let backend = config::get_default(ctx, "SOLOBASE_SHARED__DATABASE__BACKEND", "sqlite")
+        .await
+        .to_ascii_lowercase();
+    let files = if backend == "postgres" {
+        postgres_files
+    } else {
+        sqlite_files
+    };
+    let sql = files.join("\n");
+    apply_if_blessed(ctx, block_name, &sql).await
+}
 
 /// Apply `sql` against `db::ddl` iff the operator has blessed it or
 /// `SOLOBASE_RUN_MIGRATIONS=1`. Idempotent across calls: returns early

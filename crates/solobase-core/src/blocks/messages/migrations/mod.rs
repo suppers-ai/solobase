@@ -1,12 +1,6 @@
-//! Messages block migrations. Delegated to `crate::migration_helper`.
-//!
-//! Backend selection mirrors `files/migrations/mod.rs`: read
-//! `SOLOBASE_SHARED__DATABASE__BACKEND` from the config snapshot, fall back
-//! to `sqlite` when the config block is not registered. The actual apply +
-//! gating + statement splitting lives in
-//! [`crate::migration_helper::apply_if_blessed`].
+//! Messages block migrations. Backend dispatch + apply gating live in
+//! [`crate::migration_helper::apply_migrations`].
 
-use wafer_core::clients::config;
 use wafer_run::context::Context;
 
 use crate::migration_helper;
@@ -15,15 +9,13 @@ const SQL_001_SQLITE: &str = include_str!("001_messages_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_messages_schema.postgres.sql");
 
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let backend = config::get_default(ctx, "SOLOBASE_SHARED__DATABASE__BACKEND", "sqlite")
-        .await
-        .to_ascii_lowercase();
-    let sql = if backend == "postgres" {
-        SQL_001_POSTGRES
-    } else {
-        SQL_001_SQLITE
-    };
-    migration_helper::apply_if_blessed(ctx, "suppers-ai/messages", sql).await
+    migration_helper::apply_migrations(
+        ctx,
+        "suppers-ai/messages",
+        &[SQL_001_SQLITE],
+        &[SQL_001_POSTGRES],
+    )
+    .await
 }
 
 #[cfg(test)]

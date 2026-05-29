@@ -4,7 +4,6 @@
 //! `current_hash` in `suppers_ai__admin__block_settings`. Concatenated SQL of
 //! all migration scripts is hashed and tracked.
 
-use wafer_core::clients::config;
 use wafer_run::context::Context;
 
 use crate::migration_helper;
@@ -21,13 +20,23 @@ const SQL_005_SQLITE: &str = include_str!("005_jwt_blocklist.sqlite.sql");
 const SQL_005_POSTGRES: &str = include_str!("005_jwt_blocklist.postgres.sql");
 
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let backend = config::get_default(ctx, "SOLOBASE_SHARED__DATABASE__BACKEND", "sqlite")
-        .await
-        .to_ascii_lowercase();
-    let sql = if backend == "postgres" {
-        format!("{SQL_001_POSTGRES}\n{SQL_002_POSTGRES}\n{SQL_003_POSTGRES}\n{SQL_004_POSTGRES}\n{SQL_005_POSTGRES}")
-    } else {
-        format!("{SQL_001_SQLITE}\n{SQL_002_SQLITE}\n{SQL_003_SQLITE}\n{SQL_004_SQLITE}\n{SQL_005_SQLITE}")
-    };
-    migration_helper::apply_if_blessed(ctx, "suppers-ai/auth", &sql).await
+    migration_helper::apply_migrations(
+        ctx,
+        "suppers-ai/auth",
+        &[
+            SQL_001_SQLITE,
+            SQL_002_SQLITE,
+            SQL_003_SQLITE,
+            SQL_004_SQLITE,
+            SQL_005_SQLITE,
+        ],
+        &[
+            SQL_001_POSTGRES,
+            SQL_002_POSTGRES,
+            SQL_003_POSTGRES,
+            SQL_004_POSTGRES,
+            SQL_005_POSTGRES,
+        ],
+    )
+    .await
 }
