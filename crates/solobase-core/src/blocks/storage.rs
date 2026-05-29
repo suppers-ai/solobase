@@ -92,26 +92,28 @@ struct ResolvedPath {
     path: String,
     /// Whether this is a cross-block access (folder started with `@`).
     cross_block: bool,
+    /// The value the downstream wafer-core handler's SEC-003
+    /// cross-validation expects in `wrap.resource` meta. Equals `path`
+    /// for folder ops (list, create_folder, delete_folder); equals
+    /// `format!("{path}/{key}")` for object ops (put, get, delete).
+    wrap_resource: String,
 }
 
 /// Resolve a folder name: own-namespace prefixing or cross-block via `@` prefix.
+/// Sets `wrap_resource = path` by default; callers handling object ops
+/// (put/get/delete) post-process to include the object key.
 fn resolve_folder(caller: &str, folder: &str) -> ResolvedPath {
-    if let Some(absolute) = folder.strip_prefix('@') {
-        // Cross-block access: use the path after @ as-is
-        ResolvedPath {
-            path: absolute.to_string(),
-            cross_block: true,
-        }
+    let (path, cross_block) = if let Some(absolute) = folder.strip_prefix('@') {
+        (absolute.to_string(), true)
     } else if folder.is_empty() {
-        ResolvedPath {
-            path: caller.to_string(),
-            cross_block: false,
-        }
+        (caller.to_string(), false)
     } else {
-        ResolvedPath {
-            path: format!("{caller}/{folder}"),
-            cross_block: false,
-        }
+        (format!("{caller}/{folder}"), false)
+    };
+    ResolvedPath {
+        wrap_resource: path.clone(),
+        path,
+        cross_block,
     }
 }
 
@@ -153,9 +155,12 @@ fn rewrite_request_body(
 
     match kind {
         // No folder field to rewrite — handled by filtering results.
+        // list_folders has no `wrap.resource` cross-check in the wafer-core
+        // handler, so wrap_resource is unused; populate it for consistency.
         "storage.list_folders" => Ok((
             body.to_vec(),
             ResolvedPath {
+                wrap_resource: caller.to_string(),
                 path: caller.to_string(),
                 cross_block: false,
             },
@@ -176,22 +181,25 @@ fn rewrite_request_body(
         }
         "storage.put" => {
             let mut req: wire::PutRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.folder);
+            let mut resolved = resolve_folder(caller, &req.folder);
             req.folder = resolved.path.clone();
+            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
             let bytes = codec::encode(&req).map_err(encode_err)?;
             Ok((bytes, resolved))
         }
         "storage.get" => {
             let mut req: wire::GetRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.folder);
+            let mut resolved = resolve_folder(caller, &req.folder);
             req.folder = resolved.path.clone();
+            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
             let bytes = codec::encode(&req).map_err(encode_err)?;
             Ok((bytes, resolved))
         }
         "storage.delete" => {
             let mut req: wire::DeleteRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.folder);
+            let mut resolved = resolve_folder(caller, &req.folder);
             req.folder = resolved.path.clone();
+            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
             let bytes = codec::encode(&req).map_err(encode_err)?;
             Ok((bytes, resolved))
         }
@@ -235,6 +243,20 @@ impl Block for SolobaseStorageBlock {
             Ok(r) => r,
             Err(e) => return OutputStream::error(e),
         };
+
+        // SEC-003: keep wrap.resource meta in sync with the namespacing
+        // rewrite so the downstream wafer-core handler's cross-validation
+        // passes. The expected value depends on the op (folder vs
+        // folder/key composite); rewrite_request_body computes the right
+        // value per-op as `resolved.wrap_resource`. The WRAP grant check
+        // at the call_block boundary has already validated the caller's
+        // original wrap.resource against their grants; this is a
+        // payload-meta sync, not a grant bypass.
+        let mut msg = msg;
+        msg.set_meta(
+            wafer_block::meta::META_WRAP_RESOURCE,
+            &resolved.wrap_resource,
+        );
 
         // Check for path traversal
         if resolved.path.contains("..") {
@@ -531,5 +553,48 @@ mod tests {
 
         let req: wire::CreateFolderRequest = codec::decode(&rewritten).unwrap();
         assert_eq!(req.name, "suppers-ai/files/uploads");
+    }
+
+    /// SEC-003 regression — folder ops set `wrap_resource = path`;
+    /// object ops (put/get/delete) set `wrap_resource = format!("{path}/{key}")`
+    /// to match what the wafer-core storage handler's check_wrap_resource
+    /// will compare the meta against.
+    #[test]
+    fn test_rewrite_request_body_wrap_resource_per_op() {
+        // Folder op — wrap_resource == path
+        let body = codec::encode(&wire::CreateFolderRequest {
+            name: "smoke".into(),
+            public: false,
+        })
+        .unwrap();
+        let (_, resolved) =
+            rewrite_request_body("storage.create_folder", &body, "suppers-ai/files").unwrap();
+        assert_eq!(resolved.wrap_resource, "suppers-ai/files/smoke");
+
+        // Object op — wrap_resource == path + "/" + key
+        let body = codec::encode(&wire::PutRequest {
+            folder: "smoke".into(),
+            key: "a.png".into(),
+            data: vec![],
+            content_type: "image/png".into(),
+        })
+        .unwrap();
+        let (_, resolved) = rewrite_request_body("storage.put", &body, "suppers-ai/files").unwrap();
+        assert_eq!(resolved.wrap_resource, "suppers-ai/files/smoke/a.png");
+
+        // Cross-block object op — wrap_resource uses the post-resolution path
+        let body = codec::encode(&wire::GetRequest {
+            folder: "@wafer-run/web/public".into(),
+            key: "index.html".into(),
+        })
+        .unwrap();
+        let (_, resolved) = rewrite_request_body("storage.get", &body, "suppers-ai/files").unwrap();
+        assert_eq!(resolved.wrap_resource, "wafer-run/web/public/index.html");
+        assert!(resolved.cross_block);
+
+        // list_folders — no folder field; wrap_resource == caller
+        let (_, resolved) =
+            rewrite_request_body("storage.list_folders", &[], "suppers-ai/files").unwrap();
+        assert_eq!(resolved.wrap_resource, "suppers-ai/files");
     }
 }
