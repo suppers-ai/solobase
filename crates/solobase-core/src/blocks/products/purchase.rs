@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use wafer_block::db::{Filter, FilterOp, SortField};
+use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::Backend;
 
-use super::{LINE_ITEMS_TABLE, PRICING_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE};
+use super::{repo, PRICING_TABLE, PRODUCTS_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
     RecordExt,
@@ -192,7 +191,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         serde_json::Value::String(now.clone()),
     );
 
-    let purchase = match db::create(ctx, PURCHASES_TABLE, purchase_data).await {
+    let purchase = match repo::purchases::create(ctx, purchase_data).await {
         Ok(p) => p,
         Err(e) => return err_internal("Failed to create purchase", e),
     };
@@ -220,13 +219,13 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             "created_at".to_string(),
             serde_json::Value::String(now.clone()),
         );
-        if let Err(e) = db::create(ctx, LINE_ITEMS_TABLE, item_data).await {
+        if let Err(e) = repo::purchases::add_line_item(ctx, item_data).await {
             // Roll back: try to delete the purchase first; if delete fails
             // (transient DB error, foreign-key constraints from already-
             // inserted siblings, etc.), fall through to marking it `failed`
             // so it can never proceed to checkout. A dangling `pending`
             // purchase with partial line items is the worst case.
-            if let Err(del_err) = db::delete(ctx, PURCHASES_TABLE, &purchase.id).await {
+            if let Err(del_err) = repo::purchases::delete(ctx, &purchase.id).await {
                 tracing::warn!(
                     error = %del_err,
                     purchase_id = %purchase.id,
@@ -241,9 +240,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                     "updated_at".to_string(),
                     serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
                 );
-                if let Err(mark_err) =
-                    db::update(ctx, PURCHASES_TABLE, &purchase.id, fail_data).await
-                {
+                if let Err(mark_err) = repo::purchases::update(ctx, &purchase.id, fail_data).await {
                     tracing::error!(
                         error = %mark_err,
                         purchase_id = %purchase.id,
@@ -272,21 +269,8 @@ pub async fn handle_list_user(ctx: &dyn Context, msg: &Message) -> OutputStream 
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id),
     }];
-    let sort = vec![SortField {
-        field: "created_at".to_string(),
-        desc: true,
-    }];
 
-    match db::paginated_list(
-        ctx,
-        PURCHASES_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
+    match repo::purchases::list_paginated(ctx, filters, page as i64, page_size as i64).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -313,21 +297,7 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream
         });
     }
 
-    let sort = vec![SortField {
-        field: "created_at".to_string(),
-        desc: true,
-    }];
-
-    match db::paginated_list(
-        ctx,
-        PURCHASES_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
+    match repo::purchases::list_paginated(ctx, filters, page as i64, page_size as i64).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -346,7 +316,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing purchase ID");
     }
 
-    let purchase = match db::get(ctx, PURCHASES_TABLE, id).await {
+    let purchase = match repo::purchases::get(ctx, id).await {
         Ok(p) => p,
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Purchase not found"),
         Err(e) => return err_internal("Database error", e),
@@ -359,12 +329,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Get line items
-    let items_filters = vec![Filter {
-        field: "purchase_id".to_string(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(id.to_string()),
-    }];
-    let line_items = db::list_all(ctx, LINE_ITEMS_TABLE, items_filters)
+    let line_items = repo::purchases::list_line_items(ctx, id)
         .await
         .unwrap_or_default();
 
@@ -394,7 +359,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     let body: RefundReq = serde_json::from_slice(&raw).unwrap_or_default();
 
     // Verify purchase exists
-    if let Err(e) = db::get(ctx, PURCHASES_TABLE, &id).await {
+    if let Err(e) = repo::purchases::get(ctx, &id).await {
         if e.code == ErrorCode::NotFound {
             return err_not_found("Purchase not found");
         }
@@ -402,34 +367,12 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     }
 
     // Atomic status transition: completed → refunded (prevents double-refund race)
-    let now = chrono::Utc::now().to_rfc3339();
     let refunded_by = msg.user_id().to_string();
     let reason_val = body.reason.unwrap_or_default();
 
-    let stmt = wafer_sql_utils::query::build_update_where(
-        PURCHASES_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("refunded")),
-            ("refunded_at".to_string(), serde_json::json!(&now)),
-            ("refunded_by".to_string(), serde_json::json!(&refunded_by)),
-            ("refund_reason".to_string(), serde_json::json!(&reason_val)),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &[
-            Filter {
-                field: "id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(&id),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("completed"),
-            },
-        ],
-        Backend::Sqlite,
-    );
-    let rows = db::execute(ctx, &stmt).await.unwrap_or(0);
+    let rows = repo::purchases::refund_atomic(ctx, &id, &refunded_by, &reason_val)
+        .await
+        .unwrap_or(0);
 
     if rows == 0 {
         return err_bad_request(
@@ -438,7 +381,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     }
 
     // Fetch the updated record for the response
-    match db::get(ctx, PURCHASES_TABLE, &id).await {
+    match repo::purchases::get(ctx, &id).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal("Database error", e),
     }
