@@ -12,7 +12,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{PRICING_TABLE, PURCHASES_TABLE};
+use super::PRICING_TABLE;
 use crate::blocks::{
     crud,
     helpers::{
@@ -899,11 +899,6 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
         operator: FilterOp::Equal,
         value: serde_json::Value::String("active".to_string()),
     }];
-    let completed_filter = [Filter {
-        field: "status".to_string(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String("completed".to_string()),
-    }];
 
     // Fan out the 5 independent counts/sums concurrently rather than
     // serializing 5 round-trips on the request path. `futures::join!`
@@ -912,8 +907,8 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let (total_products, active_products, total_purchases, total_revenue, total_groups) = futures::join!(
         db::count(ctx, PRODUCTS_TABLE, &[]),
         db::count(ctx, PRODUCTS_TABLE, &active_filter),
-        db::count(ctx, PURCHASES_TABLE, &[]),
-        db::sum(ctx, PURCHASES_TABLE, "total_cents", &completed_filter),
+        super::repo::purchases::count_all(ctx),
+        super::repo::purchases::sum_completed_cents(ctx),
         db::count(ctx, GROUPS_TABLE, &[]),
     );
 

@@ -5,7 +5,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE};
+use super::{repo, GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE};
 use crate::{
     blocks::helpers::{err_bad_request, ok_json, RecordExt},
     ui::{
@@ -55,7 +55,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user = UserInfo::from_message(msg);
     let products_count = db::count(ctx, PRODUCTS_TABLE, &[]).await.unwrap_or(0);
     let groups_count = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
-    let purchases_count = db::count(ctx, PURCHASES_TABLE, &[]).await.unwrap_or(0);
+    let purchases_count = repo::purchases::count_all(ctx).await.unwrap_or(0);
     let pricing_count = db::count(ctx, PRICING_TABLE, &[]).await.unwrap_or(0);
 
     let content = html! {
@@ -311,19 +311,7 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         });
     }
 
-    let sort = vec![SortField {
-        field: "created_at".into(),
-        desc: true,
-    }];
-    let result = db::paginated_list(
-        ctx,
-        PURCHASES_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await;
+    let result = repo::purchases::list_paginated(ctx, filters, page as i64, page_size as i64).await;
 
     let content = html! {
         (components::page_header("Purchases", Some("Track customer orders and payments"), None))
@@ -476,19 +464,7 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id),
     }];
-    let sort = vec![SortField {
-        field: "created_at".into(),
-        desc: true,
-    }];
-    let result = db::paginated_list(
-        ctx,
-        PURCHASES_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await;
+    let result = repo::purchases::list_paginated(ctx, filters, page as i64, page_size as i64).await;
 
     let content = html! {
         (components::page_header("My Purchases", None, None))
