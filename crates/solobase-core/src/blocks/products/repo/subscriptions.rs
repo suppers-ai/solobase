@@ -29,15 +29,27 @@ pub(crate) async fn upsert_platform(
         &[
             ("id".to_string(), serde_json::json!(sub_id)),
             ("user_id".to_string(), serde_json::json!(user_id)),
-            ("stripe_customer_id".to_string(), serde_json::json!(stripe_customer_id)),
-            ("stripe_subscription_id".to_string(), serde_json::json!(stripe_subscription_id)),
+            (
+                "stripe_customer_id".to_string(),
+                serde_json::json!(stripe_customer_id),
+            ),
+            (
+                "stripe_subscription_id".to_string(),
+                serde_json::json!(stripe_subscription_id),
+            ),
             ("plan".to_string(), serde_json::json!(plan)),
             ("status".to_string(), serde_json::json!("active")),
             ("created_at".to_string(), serde_json::json!(&now)),
             ("updated_at".to_string(), serde_json::json!(&now)),
         ],
         &["user_id"],
-        &["stripe_customer_id", "stripe_subscription_id", "plan", "status", "updated_at"],
+        &[
+            "stripe_customer_id",
+            "stripe_subscription_id",
+            "plan",
+            "status",
+            "updated_at",
+        ],
         Backend::Sqlite,
     );
     db::execute(ctx, &stmt).await
@@ -85,7 +97,10 @@ pub(crate) async fn mark_past_due(
         SUBSCRIPTIONS_TABLE,
         &[
             ("status".to_string(), serde_json::json!("past_due")),
-            ("grace_period_end".to_string(), serde_json::json!(&grace_end)),
+            (
+                "grace_period_end".to_string(),
+                serde_json::json!(&grace_end),
+            ),
             ("updated_at".to_string(), serde_json::json!(&now)),
         ],
         &[Filter {
@@ -235,9 +250,7 @@ pub(crate) async fn subscription_for_user(
     };
     let stmt = build_grouped_query(cfg, Backend::Sqlite);
     match db::query(ctx, &stmt).await {
-        Ok(records) if !records.is_empty() => {
-            serde_json::to_value(&records[0].data).ok()
-        }
+        Ok(records) if !records.is_empty() => serde_json::to_value(&records[0].data).ok(),
         _ => None,
     }
 }

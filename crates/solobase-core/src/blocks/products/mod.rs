@@ -14,9 +14,9 @@ mod tests;
 pub(crate) use handlers::{
     GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE, TYPES_TABLE,
 };
-pub(crate) use repo::subscriptions::SUBSCRIPTIONS_TABLE;
 pub(crate) use pricing::TABLE as PRICING_TABLE;
 pub(crate) use purchase::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
+pub(crate) use repo::subscriptions::SUBSCRIPTIONS_TABLE;
 pub(crate) use variables::TABLE as VARIABLES_TABLE;
 use wafer_run::{
     block::{Block, BlockInfo},
