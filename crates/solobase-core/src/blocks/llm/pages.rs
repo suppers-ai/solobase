@@ -202,16 +202,16 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let groups = nav_groups::admin();
-    crate::ui::shelled_response(
-        msg,
-        display_title,
-        &site_config,
-        &groups,
-        user.as_ref(),
-        &path,
+    crate::ui::Page {
+        config: &site_config,
+        title: display_title,
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: &path,
         topbar,
-        content,
-    )
+        body: content,
+    }
+    .response(msg)
 }
 
 // ---------------------------------------------------------------------------
@@ -528,16 +528,16 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         subtitle: Some("LLM defaults and provider routing"),
         show_palette: true,
     };
-    crate::ui::shelled_response(
-        msg,
-        "LLM Settings",
-        &config,
-        &groups,
-        user.as_ref(),
-        &path,
+    crate::ui::Page {
+        config: &config,
+        title: "LLM Settings",
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: &path,
         topbar,
-        content,
-    )
+        body: content,
+    }
+    .response(msg)
 }
 
 // ---------------------------------------------------------------------------

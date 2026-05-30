@@ -1,7 +1,7 @@
 //! Page layout components — full page wrapper and centered_page escape hatch.
 //!
 //! `block_shell()` was removed in Phase 2 of the UI cleanup; pages now build
-//! chrome via `ui::shelled_response()` which delegates to `ui::shell::shell()`
+//! chrome via `ui::Page::response()` which delegates to `ui::shell::shell()`
 //! + `ui::sidebar::sidebar_grouped()`. `centered_page()` is kept as the raw
 //! escape hatch for any future standalone (non-shelled, non-auth-split) page.
 

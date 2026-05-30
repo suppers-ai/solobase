@@ -10,9 +10,8 @@ use super::service::{display_index_name, IndexRow};
 use crate::ui::{
     self, nav_groups,
     shell::{Crumb, Topbar},
-    shelled_response,
     templates::{detail_page, list_page, DetailHero, DetailMeta, PageHeader},
-    SiteConfig, UserInfo,
+    Page, SiteConfig, UserInfo,
 };
 
 /// htmx-friendly success render for `POST /b/vector/api/indexes` — re-loads
@@ -229,16 +228,16 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         subtitle: Some("Per-index counts, model, dimensions"),
         show_palette: true,
     };
-    shelled_response(
-        msg,
-        "Vector indexes",
-        &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
+    Page {
+        config: &config,
+        title: "Vector indexes",
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: msg.path(),
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 /// GET `/b/vector/{name}/` — admin-facing single-index detail page.
@@ -312,16 +311,16 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
         show_palette: true,
     };
     let groups = nav_groups::admin();
-    shelled_response(
-        msg,
-        &display,
-        &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
+    Page {
+        config: &config,
+        title: display,
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: msg.path(),
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 #[cfg(test)]

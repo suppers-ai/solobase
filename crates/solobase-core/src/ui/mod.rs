@@ -131,69 +131,62 @@ pub fn html_response(markup: maud::Markup) -> wafer_run::OutputStream {
     )
 }
 
-/// Render a full page wrapping `body` in `shell()` + `page()`. Caller
-/// passes the audience's `nav_groups` (admin or portal) and a `Topbar`.
-/// Mounts the ⌘K palette modal at the bottom of the page when
-/// `topbar.show_palette` is true.
-pub fn shelled_page(
-    title: &str,
-    config: &SiteConfig,
-    groups: &[NavGroup],
-    user: Option<&UserInfo>,
-    current_path: &str,
-    topbar: shell::Topbar<'_>,
-    body: maud::Markup,
-) -> maud::Markup {
-    use maud::{html, PreEscaped};
-    let palette_markup = if topbar.show_palette {
-        palette::palette(nav_groups::palette_entries_from_groups(groups))
-    } else {
-        html! {}
-    };
-    layout::page(
-        title,
-        config,
-        html! {
-            (shell::shell(
-                groups,
-                user,
-                current_path,
-                &config.logo_url,
-                &config.logo_icon_url,
-                topbar,
-                body,
-            ))
-            (palette_markup)
-            script { (PreEscaped(assets::palette_js())) }
-            script { (PreEscaped(assets::drawer_js())) }
-        },
-    )
+/// Declarative description of a shelled SSR page.
+///
+/// Built with named fields (rather than the former 8-positional-arg
+/// `shelled_response`) so the two `&str` fields `title` and `current_path`
+/// can't be transposed, and so the compiler enforces every field is supplied.
+/// Render it with [`Page::render`] (full `Markup`) or [`Page::response`]
+/// (htmx-aware `OutputStream`).
+pub struct Page<'a> {
+    pub config: &'a SiteConfig,
+    pub title: &'a str,
+    /// The audience's sidebar groups (admin or portal).
+    pub nav: &'a [NavGroup],
+    pub user: Option<&'a UserInfo>,
+    pub current_path: &'a str,
+    pub topbar: shell::Topbar<'a>,
+    pub body: maud::Markup,
 }
 
-/// Same as `shelled_page`, but returns an `OutputStream`. Returns the
-/// raw `body` (no chrome) when the request is an htmx partial.
-pub fn shelled_response(
-    msg: &wafer_run::types::Message,
-    title: &str,
-    config: &SiteConfig,
-    groups: &[NavGroup],
-    user: Option<&UserInfo>,
-    current_path: &str,
-    topbar: shell::Topbar<'_>,
-    body: maud::Markup,
-) -> wafer_run::OutputStream {
-    if is_htmx(msg) {
-        return html_response(body);
+impl<'a> Page<'a> {
+    /// Render the full page: `page()` wrapping `shell()` + the ⌘K palette
+    /// modal (mounted only when `topbar.show_palette` is true).
+    pub fn render(self) -> maud::Markup {
+        use maud::{html, PreEscaped};
+        let palette_markup = if self.topbar.show_palette {
+            palette::palette(nav_groups::palette_entries_from_groups(self.nav))
+        } else {
+            html! {}
+        };
+        layout::page(
+            self.title,
+            self.config,
+            html! {
+                (shell::shell(
+                    self.nav,
+                    self.user,
+                    self.current_path,
+                    &self.config.logo_url,
+                    &self.config.logo_icon_url,
+                    self.topbar,
+                    self.body,
+                ))
+                (palette_markup)
+                script { (PreEscaped(assets::palette_js())) }
+                script { (PreEscaped(assets::drawer_js())) }
+            },
+        )
     }
-    html_response(shelled_page(
-        title,
-        config,
-        groups,
-        user,
-        current_path,
-        topbar,
-        body,
-    ))
+
+    /// htmx-aware response: the raw `body` (no chrome) for an htmx partial,
+    /// else the full [`render`](Self::render) document.
+    pub fn response(self, msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+        if is_htmx(msg) {
+            return html_response(self.body);
+        }
+        html_response(self.render())
+    }
 }
 
 /// Minimal `SiteConfig` used by the status-page helpers. They render
@@ -315,7 +308,7 @@ pub fn html_response_with_toast(
 
 #[cfg(test)]
 mod tests {
-    use maud::html;
+    use maud::{html, Markup};
     use wafer_run::types::Message;
 
     use super::*;
@@ -331,33 +324,70 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shelled_page_full_render_includes_html_doctype_shell_and_body() {
-        let groups = nav_groups::admin();
-        let topbar = Topbar {
-            crumbs: vec![Crumb {
-                label: "Dashboard",
-                href: None,
-            }],
-            primary_action: None,
-            subtitle: None,
-            show_palette: true,
-        };
-        let body = html! { p { "hello" } };
-        let markup = shelled_page(
-            "Dashboard",
-            &site_config(),
-            &groups,
-            None,
-            "/b/admin/",
-            topbar,
+    fn dashboard_page<'a>(
+        config: &'a SiteConfig,
+        groups: &'a [NavGroup],
+        body: Markup,
+    ) -> Page<'a> {
+        Page {
+            config,
+            title: "Dashboard",
+            nav: groups,
+            user: None,
+            current_path: "/b/admin/",
+            topbar: Topbar {
+                crumbs: vec![Crumb {
+                    label: "Dashboard",
+                    href: None,
+                }],
+                primary_action: None,
+                subtitle: None,
+                show_palette: true,
+            },
             body,
-        );
-        let s = markup.into_string();
+        }
+    }
+
+    #[test]
+    fn page_full_render_includes_html_doctype_shell_and_body() {
+        let config = site_config();
+        let groups = nav_groups::admin();
+        let s = dashboard_page(&config, &groups, html! { p { "hello" } })
+            .render()
+            .into_string();
         assert!(s.contains("<!DOCTYPE html>"));
         assert!(s.contains(r#"class="shell""#));
         assert!(s.contains(r#"id="cmdk""#)); // palette mounted
         assert!(s.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn page_response_returns_raw_body_for_htmx_and_full_doc_otherwise() {
+        let config = site_config();
+        let groups = nav_groups::admin();
+
+        // Non-htmx → full document with chrome.
+        let full = dashboard_page(&config, &groups, html! { p { "hello" } })
+            .response(&Message::new("http.request"))
+            .collect_buffered()
+            .await
+            .unwrap();
+        let full_body = String::from_utf8(full.body).unwrap_or_default();
+        assert!(full_body.contains("<!DOCTYPE html>"));
+        assert!(full_body.contains(r#"class="shell""#));
+
+        // htmx partial → raw body, no chrome.
+        let mut htmx = Message::new("http.request");
+        htmx.set_meta("http.header.hx-request", "true");
+        let partial = dashboard_page(&config, &groups, html! { p { "hello" } })
+            .response(&htmx)
+            .collect_buffered()
+            .await
+            .unwrap();
+        let partial_body = String::from_utf8(partial.body).unwrap_or_default();
+        assert!(partial_body.contains("hello"));
+        assert!(!partial_body.contains("<!DOCTYPE html>"));
+        assert!(!partial_body.contains(r#"class="shell""#));
     }
 
     #[tokio::test]

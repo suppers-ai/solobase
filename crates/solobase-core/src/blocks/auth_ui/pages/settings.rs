@@ -165,16 +165,16 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
         subtitle: None,
         show_palette: true,
     };
-    ui::shelled_response(
-        msg,
-        "Auth Settings",
-        &site_config,
-        &groups,
-        user.as_ref(),
-        "/b/auth/admin/settings",
+    ui::Page {
+        config: &site_config,
+        title: "Auth Settings",
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: "/b/auth/admin/settings",
         topbar,
-        content,
-    )
+        body: content,
+    }
+    .response(msg)
 }
 
 const SETTINGS_JS: &str = r#"
