@@ -5,7 +5,7 @@ use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::Backend;
 
-use super::{LINE_ITEMS_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
+use super::{repo, LINE_ITEMS_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
 use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
     err_unauthorized, hex_encode, ok_json,
@@ -392,42 +392,15 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 .unwrap_or("");
 
             if !user_id.is_empty() && !plan.is_empty() {
-                let now = chrono::Utc::now().to_rfc3339();
-                // Deterministic id keyed only by user_id: two webhooks racing
-                // for the same user must hit the same primary key and the
-                // upsert-on-user_id conflict clause does the right thing.
-                // A timestamp-suffixed id would let them both insert.
-                let sub_id = format!("sub_{user_id}");
-
-                let stmt = wafer_sql_utils::upsert::build_upsert(
-                    SUBSCRIPTIONS_TABLE,
-                    &[
-                        ("id".to_string(), serde_json::json!(sub_id)),
-                        ("user_id".to_string(), serde_json::json!(user_id)),
-                        (
-                            "stripe_customer_id".to_string(),
-                            serde_json::json!(stripe_customer_id),
-                        ),
-                        (
-                            "stripe_subscription_id".to_string(),
-                            serde_json::json!(stripe_sub_id),
-                        ),
-                        ("plan".to_string(), serde_json::json!(plan)),
-                        ("status".to_string(), serde_json::json!("active")),
-                        ("created_at".to_string(), serde_json::json!(&now)),
-                        ("updated_at".to_string(), serde_json::json!(&now)),
-                    ],
-                    &["user_id"],
-                    &[
-                        "stripe_customer_id",
-                        "stripe_subscription_id",
-                        "plan",
-                        "status",
-                        "updated_at",
-                    ],
-                    Backend::Sqlite,
-                );
-                if let Err(e) = db::execute(ctx, &stmt).await {
+                if let Err(e) = repo::subscriptions::upsert_platform(
+                    ctx,
+                    user_id,
+                    stripe_customer_id,
+                    stripe_sub_id,
+                    plan,
+                )
+                .await
+                {
                     tracing::error!(error = %e, user_id = %user_id, "subscription upsert failed");
                 }
 
@@ -452,41 +425,21 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 .pointer("/items/data/0/price/lookup_key")
                 .or_else(|| data_object.pointer("/items/data/0/price/metadata/plan"))
                 .and_then(|v| v.as_str());
-            let now = chrono::Utc::now().to_rfc3339();
-
+            if let Err(e) =
+                repo::subscriptions::update_status_plan(ctx, stripe_sub_id, status, plan).await
             {
-                let sub_filter = vec![Filter {
-                    field: "stripe_subscription_id".into(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::json!(stripe_sub_id),
-                }];
-                let mut data: Vec<(String, serde_json::Value)> = vec![
-                    ("status".to_string(), serde_json::json!(status)),
-                    ("updated_at".to_string(), serde_json::json!(&now)),
-                ];
-                if let Some(plan) = plan {
-                    data.push(("plan".to_string(), serde_json::json!(plan)));
-                }
-                let stmt = wafer_sql_utils::query::build_update_where(
-                    SUBSCRIPTIONS_TABLE,
-                    &data,
-                    &sub_filter,
-                    Backend::Sqlite,
+                tracing::error!(
+                    error = %e,
+                    stripe_sub_id = %stripe_sub_id,
+                    "subscription status/plan sync failed"
                 );
-                if let Err(e) = db::execute(ctx, &stmt).await {
-                    tracing::error!(
-                        error = %e,
-                        stripe_sub_id = %stripe_sub_id,
-                        "subscription status/plan sync failed"
-                    );
-                }
             }
 
             // Sync addon totals from Stripe subscription items metadata.
             // Each addon subscription item has metadata fields: extra_projects,
             // extra_requests, extra_r2_bytes, extra_d1_bytes (set when creating
             // the subscription item via Stripe API).
-            let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
+            let user_id = repo::subscriptions::find_user_by_stripe_sub(ctx, stripe_sub_id).await;
             if let Some(ref uid) = user_id {
                 if let Some(items) = data_object.get("items") {
                     sync_addon_totals_from_items(ctx, uid, items).await;
@@ -512,27 +465,8 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if !stripe_sub_id.is_empty() {
-                let now = chrono::Utc::now().to_rfc3339();
-                let grace_end = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
-                let stmt = wafer_sql_utils::query::build_update_where(
-                    SUBSCRIPTIONS_TABLE,
-                    &[
-                        ("status".to_string(), serde_json::json!("past_due")),
-                        (
-                            "grace_period_end".to_string(),
-                            serde_json::json!(&grace_end),
-                        ),
-                        ("updated_at".to_string(), serde_json::json!(&now)),
-                    ],
-                    &[Filter {
-                        field: "stripe_subscription_id".into(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::json!(stripe_sub_id),
-                    }],
-                    Backend::Sqlite,
-                );
                 // Billing-critical: surface DB failures so Stripe retries.
-                if let Err(e) = db::execute(ctx, &stmt).await {
+                if let Err(e) = repo::subscriptions::mark_past_due(ctx, stripe_sub_id).await {
                     tracing::error!(
                         error = %e,
                         stripe_sub_id = %stripe_sub_id,
@@ -545,32 +479,12 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
 
         "customer.subscription.deleted" => {
             let stripe_sub_id = data_object.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            let now = chrono::Utc::now().to_rfc3339();
+            let user_id = repo::subscriptions::find_user_by_stripe_sub(ctx, stripe_sub_id).await;
 
-            let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
-
-            // Cancel subscription and reset all addon columns to 0
-            let stmt = wafer_sql_utils::query::build_update_where(
-                SUBSCRIPTIONS_TABLE,
-                &[
-                    ("status".to_string(), serde_json::json!("cancelled")),
-                    ("addon_projects".to_string(), serde_json::json!(0)),
-                    ("addon_requests".to_string(), serde_json::json!(0)),
-                    ("addon_r2_bytes".to_string(), serde_json::json!(0)),
-                    ("addon_d1_bytes".to_string(), serde_json::json!(0)),
-                    ("updated_at".to_string(), serde_json::json!(&now)),
-                ],
-                &[Filter {
-                    field: "stripe_subscription_id".into(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::json!(stripe_sub_id),
-                }],
-                Backend::Sqlite,
-            );
             // Cancellation is billing-critical — make Stripe retry on DB failure
             // so we don't leave a "cancelled in Stripe but still active here"
             // gap that grants free access to a paid user.
-            if let Err(e) = db::execute(ctx, &stmt).await {
+            if let Err(e) = repo::subscriptions::cancel_and_reset_addons(ctx, stripe_sub_id).await {
                 tracing::error!(
                     error = %e,
                     stripe_sub_id = %stripe_sub_id,
@@ -634,31 +548,6 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
     }
 
     ok_json(&serde_json::json!({"received": true}))
-}
-
-async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Option<String> {
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "stripe_subscription_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(stripe_sub_id),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let stmt = wafer_sql_utils::query::build_select_columns(
-        SUBSCRIPTIONS_TABLE,
-        &["user_id"],
-        &opts,
-        None,
-        Backend::Sqlite,
-    );
-    let rows = db::query(ctx, &stmt).await.ok()?;
-    rows.first()?
-        .data
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .map(String::from)
 }
 
 /// Fire a webhook for product/billing events.
@@ -947,42 +836,17 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
         }
     }
 
-    let now = chrono::Utc::now().to_rfc3339();
-    let stmt = wafer_sql_utils::query::build_update_where(
-        SUBSCRIPTIONS_TABLE,
-        &[
-            (
-                "addon_projects".to_string(),
-                serde_json::json!(total_projects),
-            ),
-            (
-                "addon_requests".to_string(),
-                serde_json::json!(total_requests),
-            ),
-            ("addon_r2_bytes".to_string(), serde_json::json!(total_r2)),
-            ("addon_d1_bytes".to_string(), serde_json::json!(total_d1)),
-            ("updated_at".to_string(), serde_json::json!(now)),
-        ],
-        &[
-            Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(user_id),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("active"),
-            },
-        ],
-        Backend::Sqlite,
-    );
-    if let Err(e) = db::execute(ctx, &stmt).await {
-        tracing::error!(
-            error = %e,
-            user_id = %user_id,
-            "syncing addon totals failed"
-        );
+    if let Err(e) = repo::subscriptions::set_addon_totals(
+        ctx,
+        user_id,
+        total_projects,
+        total_requests,
+        total_r2,
+        total_d1,
+    )
+    .await
+    {
+        tracing::error!(error = %e, user_id = %user_id, "syncing addon totals failed");
     }
 }
 
