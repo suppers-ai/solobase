@@ -65,7 +65,7 @@ for example in "${EXAMPLES[@]}"; do
 
   # Start solobase in the example directory
   cd "$EXAMPLE_DIR"
-  SUPPERS_AI__AUTH__JWT_SECRET="$SUPPERS_AI__AUTH__JWT_SECRET" "$BINARY" &
+  SUPPERS_AI__AUTH__JWT_SECRET="$SUPPERS_AI__AUTH__JWT_SECRET" SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET="test-webhook-secret" "$BINARY" serve --run-migrations &
   SERVER_PID=$!
 
   # Wait for server to be ready

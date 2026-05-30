@@ -21,10 +21,14 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     }
     std::fs::create_dir_all(&dist).map_err(|e| anyhow!("create dist/: {e}"))?;
 
-    // 3. Resolve and write the solobase-web wasm.
+    // 3. Resolve and write the solobase-web wasm and JS glue.
     let wasm_bytes = wasm::resolve_solobase_web_wasm()?;
-    let wasm_path = dist.join("solobase-web.wasm");
+    let wasm_path = dist.join("solobase_web_bg.wasm");
     std::fs::write(&wasm_path, &*wasm_bytes).map_err(|e| anyhow!("write {wasm_path:?}: {e}"))?;
+
+    let js_bytes = wasm::resolve_solobase_web_js()?;
+    let js_path = dist.join("solobase_web.js");
+    std::fs::write(&js_path, &*js_bytes).map_err(|e| anyhow!("write {js_path:?}: {e}"))?;
 
     // 4. Run the bundler — content-hash assets + render templates.
     //    This calls solobase_browser::tools::bundle::run, which writes the

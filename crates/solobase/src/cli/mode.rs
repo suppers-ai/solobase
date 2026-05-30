@@ -73,6 +73,21 @@ fn walk_up_for_cargo_toml(start: &Path) -> Option<PathBuf> {
     loop {
         let candidate = cur.join("Cargo.toml");
         if candidate.is_file() {
+            // If it's a virtual workspace Cargo.toml (defines [workspace] but not [package]),
+            // skip it and continue walking up.
+            if let Ok(text) = std::fs::read_to_string(&candidate) {
+                if let Ok(toml) = toml::from_str::<toml::Value>(&text) {
+                    if toml.get("workspace").is_some() && toml.get("package").is_none() {
+                        match cur.parent() {
+                            Some(p) => {
+                                cur = p;
+                                continue;
+                            }
+                            None => return None,
+                        }
+                    }
+                }
+            }
             return Some(candidate);
         }
         if cur.join(".git").exists() {

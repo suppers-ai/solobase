@@ -58,6 +58,7 @@ wasm = ["wafer-run/wasm"]
 llm = [
     "dep:tokio",
     "dep:tokio-stream",
+    "dep:reqwest",
     "reqwest/stream",
     "block-llm",
 ]
@@ -177,7 +178,7 @@ tokio-stream = { version = "0.1", optional = true }
 # sub-feature — required for SSE streaming in the LLM block — is added
 # by the `llm` feature, not here, because it pulls `wasm-streams 0.4`
 # on wasm32 which conflicts with `worker`'s `wasm-streams 0.5`.
-reqwest = { workspace = true }
+reqwest = { workspace = true, optional = true }
 
 # URL parsing/building for OAuth authorize_url assembly.
 url = "2"

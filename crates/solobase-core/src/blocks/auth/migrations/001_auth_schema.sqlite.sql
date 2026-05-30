@@ -6,14 +6,20 @@ DROP TABLE IF EXISTS oauth_states;
 
 -- Users (spec §3)
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__users (
-    id              TEXT PRIMARY KEY,
-    email           TEXT NOT NULL UNIQUE,
-    display_name    TEXT NOT NULL,
-    avatar_url      TEXT,
-    role            TEXT NOT NULL DEFAULT 'user',
-    email_verified  INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    id                     TEXT PRIMARY KEY,
+    email                  TEXT NOT NULL UNIQUE,
+    display_name           TEXT NOT NULL,
+    avatar_url             TEXT,
+    role                   TEXT NOT NULL DEFAULT 'user',
+    email_verified         INTEGER NOT NULL DEFAULT 0,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL,
+    verification_token     TEXT,
+    last_verification_sent TEXT,
+    last_login_at          TEXT,
+    name                   TEXT,
+    disabled               INTEGER NOT NULL DEFAULT 0,
+    deleted_at             TEXT
 );
 
 -- Local credentials (empty for OAuth-only users)
@@ -96,3 +102,18 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__bootstrap_tokens (
     created_at     TEXT NOT NULL,
     expires_at     TEXT NOT NULL
 );
+
+-- API keys
+CREATE TABLE IF NOT EXISTS suppers_ai__auth__api_keys (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    key_hash       TEXT NOT NULL UNIQUE,
+    key_prefix     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    expires_at     TEXT,
+    revoked_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS suppers_ai__auth__api_keys_user_id_idx
+    ON suppers_ai__auth__api_keys (user_id);
+

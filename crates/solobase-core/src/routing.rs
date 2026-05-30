@@ -245,7 +245,13 @@ pub async fn route_to_block(
     let path = msg.path().to_string();
 
     // Root: redirect logged-in users to portal dashboard, anonymous to login.
+    // If a static landing page (index.html) exists in storage, serve it directly via wafer-run/web.
     if path == "/" {
+        let has_landing_page = std::path::Path::new("data/storage/wafer-run/web/site/index.html").exists()
+            || std::env::var("SOLOBASE_HAS_LANDING_PAGE").map(|v| v == "true" || v == "1").unwrap_or(false);
+        if has_landing_page {
+            return ctx.call_block("wafer-run/web", msg, input).await;
+        }
         return root_redirect(msg.user_id().is_empty());
     }
 

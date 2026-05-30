@@ -9,3 +9,8 @@ pub mod cli;
 /// × web flow uses this as the default when `SOLOBASE_WEB_WASM` is unset.
 pub static SOLOBASE_WEB_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/solobase-web.wasm"));
+
+/// Precompiled solobase-web JS glue, baked at build time. The CLI's sealed
+/// × web flow uses this as the default when `SOLOBASE_WEB_JS` is unset.
+pub static SOLOBASE_WEB_JS: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/solobase-web.js"));

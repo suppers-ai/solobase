@@ -58,7 +58,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 workspace = true
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+wasm-opt = ["-Oz", "--all-features"]
 
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
