@@ -12,7 +12,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{PRICING_TABLE, PURCHASES_TABLE};
+use super::{PRICING_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
 use crate::blocks::{
     crud,
     helpers::{
@@ -35,9 +35,6 @@ pub(crate) const GROUP_TEMPLATES_TABLE: &str = "suppers_ai__products__group_temp
 
 /// Reusable product template definitions (admin-authored).
 pub(crate) const PRODUCT_TEMPLATES_TABLE: &str = "suppers_ai__products__product_templates";
-
-/// Active subscription rows (one per user subscription).
-pub(crate) const SUBSCRIPTIONS_TABLE: &str = "suppers_ai__products__subscriptions";
 
 async fn user_products_enabled(ctx: &dyn Context) -> bool {
     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
