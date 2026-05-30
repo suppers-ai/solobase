@@ -14,6 +14,7 @@ pub mod anthropic;
 pub mod config;
 pub mod openai;
 pub mod openai_compatible;
+pub(crate) mod sse;
 
 use std::{
     collections::HashMap,

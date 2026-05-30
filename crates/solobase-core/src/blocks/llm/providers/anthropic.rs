@@ -15,7 +15,10 @@ use wafer_core::interfaces::llm::service::{
     TokenUsage, ToolDefinition,
 };
 
-use super::config::ProviderConfig;
+use super::{
+    config::ProviderConfig,
+    sse::{DecodeBatch, SseFrame, SseFrameStream},
+};
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
@@ -255,7 +258,7 @@ fn encode_tool(t: &ToolDefinition) -> AnthropicTool<'_> {
 /// - `message_delta` — carries `stop_reason` + incremental usage.
 /// - `message_stop` — terminal.
 pub struct AnthropicSseDecoder {
-    buf: String,
+    frames: SseFrameStream,
     /// Per-content-block index: the tool_use id (if it was a tool_use block).
     /// Keyed by Anthropic's `index`, which is stable within a message.
     tool_blocks: Vec<Option<String>>,
@@ -270,24 +273,21 @@ const MAX_CONTENT_BLOCK_INDEX: u32 = 1024;
 impl AnthropicSseDecoder {
     pub fn new() -> Self {
         Self {
-            buf: String::new(),
+            frames: SseFrameStream::new(),
             tool_blocks: Vec::new(),
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> DecodeBatch {
-        let Ok(text) = std::str::from_utf8(bytes) else {
+        if !self.frames.feed(bytes) {
             tracing::warn!("anthropic sse: non-utf8 bytes — dropping");
             return DecodeBatch::default();
-        };
-        self.buf.push_str(text);
+        }
 
         let mut out = Vec::new();
         let mut done = false;
 
-        while let Some(sep) = self.buf.find("\n\n") {
-            let frame = self.buf[..sep].to_string();
-            self.buf.drain(..=sep + 1);
+        while let Some(frame) = self.frames.next_frame() {
             let (chunks, terminal) = self.decode_frame(&frame);
             out.extend(chunks);
             if terminal {
@@ -299,29 +299,16 @@ impl AnthropicSseDecoder {
         DecodeBatch { chunks: out, done }
     }
 
-    fn decode_frame(&mut self, frame: &str) -> (Vec<ChatChunk>, bool) {
-        let mut event_name = None;
-        let mut data_payload = String::new();
-        for line in frame.lines() {
-            let line = line.trim_start_matches('\u{feff}');
-            if let Some(rest) = line.strip_prefix("event:") {
-                event_name = Some(rest.trim().to_string());
-            } else if let Some(rest) = line.strip_prefix("data:") {
-                let rest = rest.trim_start();
-                if !data_payload.is_empty() {
-                    data_payload.push('\n');
-                }
-                data_payload.push_str(rest);
-            }
-        }
-        let event_name = event_name.unwrap_or_default();
+    fn decode_frame(&mut self, frame: &SseFrame) -> (Vec<ChatChunk>, bool) {
+        let event_name = frame.event.as_deref().unwrap_or_default();
+        let data_payload = frame.data.as_str();
         if data_payload.is_empty() {
             return (Vec::new(), false);
         }
 
-        match event_name.as_str() {
+        match event_name {
             "content_block_start" => {
-                match serde_json::from_str::<AnthropicBlockStart>(&data_payload) {
+                match serde_json::from_str::<AnthropicBlockStart>(data_payload) {
                     Ok(s) => {
                         if !self.ensure_block_slot(s.index) {
                             return (Vec::new(), false);
@@ -341,7 +328,7 @@ impl AnthropicSseDecoder {
                 }
             }
             "content_block_delta" => {
-                match serde_json::from_str::<AnthropicBlockDelta>(&data_payload) {
+                match serde_json::from_str::<AnthropicBlockDelta>(data_payload) {
                     Ok(d) => {
                         if !self.ensure_block_slot(d.index) {
                             return (Vec::new(), false);
@@ -373,7 +360,7 @@ impl AnthropicSseDecoder {
                 }
             }
             "content_block_stop" => {
-                match serde_json::from_str::<AnthropicBlockStop>(&data_payload) {
+                match serde_json::from_str::<AnthropicBlockStop>(data_payload) {
                     Ok(s) => {
                         if let Some(Some(id)) = self.tool_blocks.get(s.index as usize).cloned() {
                             (vec![ChatChunk::tool_call_complete(id)], false)
@@ -384,7 +371,7 @@ impl AnthropicSseDecoder {
                     Err(_) => (Vec::new(), false),
                 }
             }
-            "message_delta" => match serde_json::from_str::<AnthropicMessageDelta>(&data_payload) {
+            "message_delta" => match serde_json::from_str::<AnthropicMessageDelta>(data_payload) {
                 Ok(md) => {
                     let mut chunks = Vec::new();
                     if let Some(reason) = md.delta.stop_reason {
@@ -434,12 +421,6 @@ impl Default for AnthropicSseDecoder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[derive(Debug, Default, PartialEq)]
-pub struct DecodeBatch {
-    pub chunks: Vec<ChatChunk>,
-    pub done: bool,
 }
 
 // ---- Wire types for the decoder ----
