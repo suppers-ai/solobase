@@ -301,6 +301,8 @@ fn encode_response_format(r: &ResponseFormat) -> OpenAiResponseFormat<'_> {
 
 use wafer_core::interfaces::llm::service::{ChatChunk, FinishReason, TokenUsage};
 
+use super::sse::{DecodeBatch, SseFrame, SseFrameStream};
+
 /// Stateful line-by-line SSE decoder. Feed it successive chunks of response
 /// body bytes (they may split inside a frame); it buffers until a blank-line
 /// terminator and emits zero-or-more `ChatChunk`s per chunk of input.
@@ -315,7 +317,7 @@ use wafer_core::interfaces::llm::service::{ChatChunk, FinishReason, TokenUsage};
 ///  - Malformed / unknown frames are skipped silently; tracing::warn logs them
 ///    so operators can notice.
 pub struct OpenAiSseDecoder {
-    buf: String,
+    frames: SseFrameStream,
     /// Tool-call index -> in-flight id. OpenAI streams tool_calls with
     /// `index` + optional `id` + partial `function.name` + partial
     /// `function.arguments`. We emit `ToolCallStart` on first sight of
@@ -332,7 +334,7 @@ pub struct OpenAiSseDecoder {
 impl OpenAiSseDecoder {
     pub fn new() -> Self {
         Self {
-            buf: String::new(),
+            frames: SseFrameStream::new(),
             started: Vec::new(),
         }
     }
@@ -341,20 +343,15 @@ impl OpenAiSseDecoder {
     /// terminated (`[DONE]` seen). Tool-call `Complete` frames for any
     /// in-flight ids are emitted on terminal.
     pub fn push(&mut self, bytes: &[u8]) -> DecodeBatch {
-        let Ok(text) = std::str::from_utf8(bytes) else {
+        if !self.frames.feed(bytes) {
             tracing::warn!("openai sse: non-utf8 bytes — dropping");
             return DecodeBatch::default();
-        };
-        self.buf.push_str(text);
+        }
 
         let mut out = Vec::new();
         let mut done = false;
 
-        // A complete frame ends with `\n\n`. Split off whole frames, leave the
-        // tail for next push.
-        while let Some(sep) = self.buf.find("\n\n") {
-            let frame = self.buf[..sep].to_string();
-            self.buf.drain(..=sep + 1);
+        while let Some(frame) = self.frames.next_frame() {
             if let Some(outcome) = self.decode_frame(&frame) {
                 match outcome {
                     FrameOutcome::Chunks(cs) => out.extend(cs),
@@ -372,30 +369,18 @@ impl OpenAiSseDecoder {
         DecodeBatch { chunks: out, done }
     }
 
-    fn decode_frame(&mut self, frame: &str) -> Option<FrameOutcome> {
-        // Each frame is one or more `key: value` lines. OpenAI uses `data:`.
-        let mut data_payload = String::new();
-        for line in frame.lines() {
-            let line = line.trim_start_matches('\u{feff}'); // BOM guard
-            if let Some(rest) = line.strip_prefix("data:") {
-                let rest = rest.trim_start();
-                if !data_payload.is_empty() {
-                    data_payload.push('\n');
-                }
-                data_payload.push_str(rest);
-            }
-            // Other SSE fields (event:, id:, retry:) — ignored, OpenAI doesn't use them for chat.
-        }
-        if data_payload.is_empty() {
+    fn decode_frame(&mut self, frame: &SseFrame) -> Option<FrameOutcome> {
+        // OpenAI uses only the `data:` field; `event:` is ignored.
+        if frame.data.is_empty() {
             return None;
         }
-        if data_payload == "[DONE]" {
+        if frame.data == "[DONE]" {
             return Some(FrameOutcome::Done);
         }
-        match serde_json::from_str::<OpenAiStreamFrame>(&data_payload) {
-            Ok(frame) => Some(FrameOutcome::Chunks(self.translate(frame))),
+        match serde_json::from_str::<OpenAiStreamFrame>(&frame.data) {
+            Ok(parsed) => Some(FrameOutcome::Chunks(self.translate(parsed))),
             Err(e) => {
-                tracing::warn!(error = %e, payload = %data_payload, "openai sse: decode failed");
+                tracing::warn!(error = %e, payload = %frame.data, "openai sse: decode failed");
                 None
             }
         }
@@ -466,15 +451,6 @@ impl Default for OpenAiSseDecoder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Result of feeding one chunk of bytes to the decoder.
-#[derive(Debug, Default, PartialEq)]
-pub struct DecodeBatch {
-    pub chunks: Vec<ChatChunk>,
-    /// True if a `[DONE]` sentinel was observed in this batch or a prior one.
-    /// Callers should stop feeding the decoder once this is set.
-    pub done: bool,
 }
 
 enum FrameOutcome {
