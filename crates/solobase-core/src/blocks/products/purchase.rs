@@ -5,17 +5,11 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::Backend;
 
-use super::{PRICING_TABLE, PRODUCTS_TABLE};
+use super::{LINE_ITEMS_TABLE, PRICING_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
     RecordExt,
 };
-
-/// Purchase header table — one row per checkout / order.
-pub(crate) const PURCHASES_TABLE: &str = "suppers_ai__products__purchases";
-
-/// Purchase line-item table — one row per product line in a purchase.
-pub(crate) const LINE_ITEMS_TABLE: &str = "suppers_ai__products__line_items";
 
 pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]

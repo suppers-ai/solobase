@@ -5,4 +5,5 @@
 //! handlers call these functions and keep all HTTP, authz, logging, and
 //! Stripe-retry policy at the call site.
 
+pub(crate) mod purchases;
 pub(crate) mod subscriptions;
