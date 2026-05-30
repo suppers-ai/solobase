@@ -101,17 +101,14 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let redirect_uri_enc = urlencode(&redirect_uri);
     let state_enc = urlencode(&state_id);
     let challenge_enc = urlencode(&code_challenge);
-    let auth_url = match provider {
-        "google" => format!(
-            "https://accounts.google.com/o/oauth2/v2/auth?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&response_type=code&scope=openid%20email%20profile&state={state_enc}&code_challenge={challenge_enc}&code_challenge_method=S256"
+    let auth_url = match super::spec::lookup(provider) {
+        Some(spec) => spec.build_authorize_url(
+            &client_id_enc,
+            &redirect_uri_enc,
+            &state_enc,
+            &challenge_enc,
         ),
-        "github" => format!(
-            "https://github.com/login/oauth/authorize?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&scope=user:email&state={state_enc}"
-        ),
-        "microsoft" => format!(
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&response_type=code&scope=openid%20email%20profile&state={state_enc}&code_challenge={challenge_enc}&code_challenge_method=S256"
-        ),
-        _ => return err_bad_request(&format!("Unsupported provider: {provider}")),
+        None => return err_bad_request(&format!("Unsupported provider: {provider}")),
     };
 
     ok_json(&serde_json::json!({
