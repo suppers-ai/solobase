@@ -19,13 +19,15 @@ const PRODUCTS_BLOCK_NAME: &str = "suppers-ai/products";
 
 const SQL_001_SQLITE: &str = include_str!("001_products_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_products_schema.postgres.sql");
+const SQL_002_SQLITE: &str = include_str!("002_default_templates.sqlite.sql");
+const SQL_002_POSTGRES: &str = include_str!("002_default_templates.postgres.sql");
 
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     migration_helper::apply_migrations(
         ctx,
         PRODUCTS_BLOCK_NAME,
-        &[SQL_001_SQLITE],
-        &[SQL_001_POSTGRES],
+        &[SQL_001_SQLITE, SQL_002_SQLITE],
+        &[SQL_001_POSTGRES, SQL_002_POSTGRES],
     )
     .await
 }
