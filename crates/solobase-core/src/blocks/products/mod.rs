@@ -272,60 +272,17 @@ impl Block for ProductsBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if event.event_type == LifecycleType::Init {
-            // Apply block-owned schema migrations before any seeding so the
-            // default-template inserts below land on a known column set.
+            // Apply block-owned schema migrations. Migration 002 seeds the
+            // default group/product templates (the static FK-parent rows the
+            // groups/products tables require) via idempotent INSERTs, so there
+            // is no longer a per-request runtime existence-check + seed here —
+            // the hash-gate short-circuits in memory once applied.
             migrations::apply(ctx).await.map_err(|e| {
                 WaferError::new(
                     wafer_run::ErrorCode::Internal,
                     format!("products migrations: {e}"),
                 )
             })?;
-
-            // Seed default templates if they don't exist — these are required by FK constraints
-            // on the groups and products tables.
-            use wafer_core::clients::database as db;
-
-            // Default group template
-            match db::list_all(ctx, GROUP_TEMPLATES_TABLE, vec![]).await {
-                Ok(records) if records.is_empty() => {
-                    let mut data = std::collections::HashMap::new();
-                    data.insert(
-                        "name".to_string(),
-                        serde_json::Value::String("default".to_string()),
-                    );
-                    data.insert(
-                        "display_name".to_string(),
-                        serde_json::Value::String("Default".to_string()),
-                    );
-                    match db::create(ctx, GROUP_TEMPLATES_TABLE, data).await {
-                        Ok(_) => tracing::info!("seeded default group template"),
-                        Err(e) => tracing::warn!("failed to seed group template: {e}"),
-                    }
-                }
-                Ok(_) => {} // already has records
-                Err(e) => tracing::warn!("failed to list group templates: {e}"),
-            }
-
-            // Default product template
-            match db::list_all(ctx, PRODUCT_TEMPLATES_TABLE, vec![]).await {
-                Ok(records) if records.is_empty() => {
-                    let mut data = std::collections::HashMap::new();
-                    data.insert(
-                        "name".to_string(),
-                        serde_json::Value::String("default".to_string()),
-                    );
-                    data.insert(
-                        "display_name".to_string(),
-                        serde_json::Value::String("Default".to_string()),
-                    );
-                    match db::create(ctx, PRODUCT_TEMPLATES_TABLE, data).await {
-                        Ok(_) => tracing::info!("seeded default product template"),
-                        Err(e) => tracing::warn!("failed to seed product template: {e}"),
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => tracing::warn!("failed to list product templates: {e}"),
-            }
         }
         Ok(())
     }

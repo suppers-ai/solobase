@@ -488,6 +488,27 @@ mod tests {
             postgres_count, 19,
             "products postgres migration: expected 19 statements, got {postgres_count}"
         );
+
+        // 002 seeds the two default templates (one INSERT each) per backend.
+        for (label, sql) in [
+            (
+                "sqlite",
+                include_str!("blocks/products/migrations/002_default_templates.sqlite.sql"),
+            ),
+            (
+                "postgres",
+                include_str!("blocks/products/migrations/002_default_templates.postgres.sql"),
+            ),
+        ] {
+            let count = split_statements(sql)
+                .into_iter()
+                .filter(|s| has_executable_content(s))
+                .count();
+            assert_eq!(
+                count, 2,
+                "products {label} migration 002: expected 2 statements, got {count}"
+            );
+        }
     }
 
     /// Reproduces the prod failure mode this commit fixes: a block's
