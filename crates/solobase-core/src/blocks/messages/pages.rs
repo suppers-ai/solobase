@@ -38,7 +38,16 @@ fn messages_page<'a>(
         subtitle,
         show_palette: true,
     };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    crate::ui::Page {
+        config,
+        title,
+        nav: &groups,
+        user,
+        current_path: path,
+        topbar,
+        body: content,
+    }
+    .response(msg)
 }
 
 pub fn entry_card(record: &db::Record) -> Markup {
@@ -245,7 +254,7 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
     // Build crumbs locally so the conversation branch can carry a working
     // [Messages] link back to /b/messages/. The default branch keeps a
     // single crumb (matches its inline "← Back" affordance in
-    // render_default_view). Inline shelled_response here — parallel to
+    // render_default_view). Inline Page::response here — parallel to
     // T3's pages::page for LLM — so we don't have to teach messages_page
     // about variable crumb shapes (it's still used by context_list_page).
     let crumbs = if context.str_field("type") == "conversation" {
@@ -272,16 +281,16 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
         show_palette: true,
     };
     let groups = nav_groups::admin();
-    crate::ui::shelled_response(
-        msg,
-        display_title,
-        &config,
-        &groups,
-        user.as_ref(),
-        &path,
+    crate::ui::Page {
+        config: &config,
+        title: display_title,
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: &path,
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 /// Pure render helper: branches on `context.type`. Conversation contexts

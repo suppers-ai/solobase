@@ -88,7 +88,16 @@ fn files_page_with_action<'a>(
     // That keeps the storage admin pages' padding consistent with
     // `/b/admin/users`; previously the tabs sat outside `.page--list`
     // and lost the page gutter.
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    crate::ui::Page {
+        config,
+        title,
+        nav: &groups,
+        user,
+        current_path: path,
+        topbar,
+        body: content,
+    }
+    .response(msg)
 }
 
 // ---------------------------------------------------------------------------

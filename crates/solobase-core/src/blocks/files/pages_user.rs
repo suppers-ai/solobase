@@ -104,9 +104,8 @@ use crate::ui::{
     components::{button, BtnVariant, CtrlSize},
     nav_groups,
     shell::{Crumb, Topbar},
-    shelled_response,
     templates::{list_page, PageHeader},
-    SiteConfig, UserInfo,
+    Page, SiteConfig, UserInfo,
 };
 
 /// Load the calling user's buckets, decorated with live object counts.
@@ -272,16 +271,16 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
         subtitle: Some("Your buckets and their object counts."),
         show_palette: true,
     };
-    shelled_response(
-        msg,
-        "Files",
-        &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
+    Page {
+        config: &config,
+        title: "Files",
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: msg.path(),
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 /// Object as the user sees it (key, size, modified timestamp).
@@ -635,16 +634,16 @@ pub async fn object_list_page(
         subtitle: Some("Drag files here to upload, or use the Upload button."),
         show_palette: true,
     };
-    shelled_response(
-        msg,
-        &title,
-        &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
+    Page {
+        config: &config,
+        title: &title,
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: msg.path(),
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 #[derive(Clone, Debug)]
@@ -890,16 +889,16 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         subtitle: Some("Public links you've created and your storage quota."),
         show_palette: true,
     };
-    shelled_response(
-        msg,
-        "Shares",
-        &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
+    Page {
+        config: &config,
+        title: "Shares",
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: msg.path(),
         topbar,
         body,
-    )
+    }
+    .response(msg)
 }
 
 #[cfg(test)]

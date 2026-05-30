@@ -43,7 +43,16 @@ fn legalpages_page<'a>(
         subtitle: None,
         show_palette: true,
     };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    crate::ui::Page {
+        config,
+        title,
+        nav: &groups,
+        user,
+        current_path: path,
+        topbar,
+        body: content,
+    }
+    .response(msg)
 }
 
 // ---------------------------------------------------------------------------

@@ -48,7 +48,16 @@ pub(crate) fn admin_page(
     msg: &Message,
 ) -> OutputStream {
     let groups = nav_groups::admin();
-    ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    ui::Page {
+        config,
+        title,
+        nav: &groups,
+        user,
+        current_path: path,
+        topbar,
+        body: content,
+    }
+    .response(msg)
 }
 
 /// Convenience: a single top-level breadcrumb with no link.
