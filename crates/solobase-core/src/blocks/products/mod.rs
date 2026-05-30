@@ -4,6 +4,7 @@ pub(crate) mod models;
 mod pages;
 mod pricing;
 mod purchase;
+mod repo;
 mod stripe;
 mod variables;
 
@@ -11,11 +12,10 @@ mod variables;
 mod tests;
 
 pub(crate) use handlers::{
-    GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE,
-    SUBSCRIPTIONS_TABLE, TYPES_TABLE,
+    GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE, TYPES_TABLE,
 };
 pub(crate) use pricing::TABLE as PRICING_TABLE;
-pub(crate) use purchase::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
+pub(crate) use repo::purchases::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
 pub(crate) use variables::TABLE as VARIABLES_TABLE;
 use wafer_run::{
     block::{Block, BlockInfo},
