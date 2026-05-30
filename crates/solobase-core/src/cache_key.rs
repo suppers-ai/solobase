@@ -99,11 +99,7 @@ use std::collections::HashMap;
 /// Pulls the cache-key column from a row payload. Returns Some(kv_key)
 /// when the column is present and string-typed.
 pub fn write_key(table: CachedTable, row: &HashMap<String, serde_json::Value>) -> Option<String> {
-    let col = match table {
-        CachedTable::Variables => "block",
-        CachedTable::BlockSettings => "block_name",
-    };
-    let value_str = row.get(col)?.as_str()?;
+    let value_str = row.get(key_column(table))?.as_str()?;
     Some(format_key(table, value_str))
 }
 
