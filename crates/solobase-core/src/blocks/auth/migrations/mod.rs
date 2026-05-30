@@ -18,6 +18,10 @@ const SQL_004_SQLITE: &str = include_str!("004_refresh_tokens.sqlite.sql");
 const SQL_004_POSTGRES: &str = include_str!("004_refresh_tokens.postgres.sql");
 const SQL_005_SQLITE: &str = include_str!("005_jwt_blocklist.sqlite.sql");
 const SQL_005_POSTGRES: &str = include_str!("005_jwt_blocklist.postgres.sql");
+const SQL_006_SQLITE: &str = include_str!("006_user_extended_fields.sqlite.sql");
+const SQL_006_POSTGRES: &str = include_str!("006_user_extended_fields.postgres.sql");
+const SQL_007_SQLITE: &str = include_str!("007_api_keys.sqlite.sql");
+const SQL_007_POSTGRES: &str = include_str!("007_api_keys.postgres.sql");
 
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     migration_helper::apply_migrations(
@@ -29,6 +33,8 @@ pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
             SQL_003_SQLITE,
             SQL_004_SQLITE,
             SQL_005_SQLITE,
+            SQL_006_SQLITE,
+            SQL_007_SQLITE,
         ],
         &[
             SQL_001_POSTGRES,
@@ -36,6 +42,8 @@ pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
             SQL_003_POSTGRES,
             SQL_004_POSTGRES,
             SQL_005_POSTGRES,
+            SQL_006_POSTGRES,
+            SQL_007_POSTGRES,
         ],
     )
     .await

@@ -245,10 +245,16 @@ pub async fn route_to_block(
     let path = msg.path().to_string();
 
     // Root: redirect logged-in users to portal dashboard, anonymous to login.
-    // If a static landing page (index.html) exists in storage, serve it directly via wafer-run/web.
+    // When the deployment ships a static landing page, serve it directly via
+    // `wafer-run/web` instead. Gated by the `SOLOBASE_SHARED__HAS_LANDING_PAGE`
+    // config var so the decision is explicit and works identically on native
+    // and Cloudflare (no filesystem probe, which is meaningless on Workers and
+    // CWD-relative on native).
     if path == "/" {
-        let has_landing_page = std::path::Path::new("data/storage/wafer-run/web/site/index.html").exists()
-            || std::env::var("SOLOBASE_HAS_LANDING_PAGE").map(|v| v == "true" || v == "1").unwrap_or(false);
+        let has_landing_page = ctx
+            .config_get("SOLOBASE_SHARED__HAS_LANDING_PAGE")
+            .unwrap_or("false")
+            == "true";
         if has_landing_page {
             return ctx.call_block("wafer-run/web", msg, input).await;
         }
