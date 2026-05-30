@@ -14,33 +14,59 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("workspace root is two levels above crates/solobase");
 
-    // wasm-pack and cargo cdylib outputs both land under target/wasm32-...
-    // Try the canonical post-wasm-pack location first, then the raw cargo
-    // cdylib output. Filename is solobase_web.wasm (Cargo replaces - with _).
-    let candidates = [
+    // 1. WASM binary candidates
+    let wasm_candidates = [
         workspace_root.join("crates/solobase-web/pkg/solobase_web_bg.wasm"),
         workspace_root.join("target/wasm32-unknown-unknown/release/solobase_web.wasm"),
     ];
 
-    let src = candidates.iter().find(|p| p.exists()).unwrap_or_else(|| {
-        eprintln!(
-            "\nerror: solobase-web wasm not found. Tried:\n{}\n\nRun \"just build\" or:\n  \
+    let wasm_src = wasm_candidates
+        .iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| {
+            eprintln!(
+                "\nerror: solobase-web wasm not found. Tried:\n{}\n\nRun \"just build\" or:\n  \
                  cargo build -p solobase-web --release --target wasm32-unknown-unknown\nfirst.\n",
-            candidates
-                .iter()
-                .map(|p| format!("  - {}", p.display()))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        std::process::exit(1);
+                wasm_candidates
+                    .iter()
+                    .map(|p| format!("  - {}", p.display()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            std::process::exit(1);
+        });
+
+    let wasm_dst = out_dir.join("solobase-web.wasm");
+    fs::copy(wasm_src, &wasm_dst).unwrap_or_else(|e| {
+        panic!(
+            "failed to copy {} -> {}: {e}",
+            wasm_src.display(),
+            wasm_dst.display()
+        )
     });
 
-    let dst = out_dir.join("solobase-web.wasm");
-    fs::copy(src, &dst)
-        .unwrap_or_else(|e| panic!("failed to copy {} -> {}: {e}", src.display(), dst.display()));
+    // 2. JS glue file
+    let js_src = workspace_root.join("crates/solobase-web/pkg/solobase_web.js");
+    if !js_src.exists() {
+        eprintln!(
+            "\nerror: solobase-web JS glue not found at {}.\nRun \"just build\" first.\n",
+            js_src.display()
+        );
+        std::process::exit(1);
+    }
 
-    // Re-run if the source wasm changes.
-    println!("cargo:rerun-if-changed={}", src.display());
+    let js_dst = out_dir.join("solobase-web.js");
+    fs::copy(&js_src, &js_dst).unwrap_or_else(|e| {
+        panic!(
+            "failed to copy {} -> {}: {e}",
+            js_src.display(),
+            js_dst.display()
+        )
+    });
+
+    // Re-run if the source wasm or JS changes.
+    println!("cargo:rerun-if-changed={}", wasm_src.display());
+    println!("cargo:rerun-if-changed={}", js_src.display());
     // Allow override during developer iteration via env.
     println!("cargo:rerun-if-env-changed=SOLOBASE_WEB_WASM_OVERRIDE_FOR_BUILD");
 }

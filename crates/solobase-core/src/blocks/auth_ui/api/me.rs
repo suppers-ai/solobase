@@ -50,6 +50,9 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
     for key in &["name", "avatar_url"] {
         if let Some(val) = body.get(*key) {
             data.insert(key.to_string(), val.clone());
+            if *key == "name" {
+                data.insert("display_name".to_string(), val.clone());
+            }
         }
     }
     crate::blocks::helpers::stamp_updated(&mut data);

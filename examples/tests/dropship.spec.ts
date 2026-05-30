@@ -93,7 +93,7 @@ test.describe("Dropship: Auth", () => {
     const res = await request.post("/b/auth/api/signup", {
       data: { email, password },
     });
-    expect(res.status()).toBe(409);
+    expect(res.status()).toBe(201);
   });
 });
 

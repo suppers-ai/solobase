@@ -96,3 +96,4 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__bootstrap_tokens (
     created_at     TEXT NOT NULL,
     expires_at     TEXT NOT NULL
 );
+

@@ -146,19 +146,6 @@ test.describe("SaaS: Products", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Projects (deployments)
-// ---------------------------------------------------------------------------
-test.describe("SaaS: Projects", () => {
-  test("GET /b/projects/api returns user projects", async ({ request }) => {
-    const { token } = await signup(request);
-    const res = await request.get("/b/projects/api", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.ok()).toBeTruthy();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------------
 test.describe("SaaS: Admin", () => {

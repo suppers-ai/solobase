@@ -245,7 +245,19 @@ pub async fn route_to_block(
     let path = msg.path().to_string();
 
     // Root: redirect logged-in users to portal dashboard, anonymous to login.
+    // When the deployment ships a static landing page, serve it directly via
+    // `wafer-run/web` instead. Gated by the `SOLOBASE_SHARED__HAS_LANDING_PAGE`
+    // config var so the decision is explicit and works identically on native
+    // and Cloudflare (no filesystem probe, which is meaningless on Workers and
+    // CWD-relative on native).
     if path == "/" {
+        let has_landing_page = ctx
+            .config_get("SOLOBASE_SHARED__HAS_LANDING_PAGE")
+            .unwrap_or("false")
+            == "true";
+        if has_landing_page {
+            return ctx.call_block("wafer-run/web", msg, input).await;
+        }
         return root_redirect(msg.user_id().is_empty());
     }
 

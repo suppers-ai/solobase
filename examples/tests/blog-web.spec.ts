@@ -7,7 +7,13 @@ test("blog-web bundle serves index + wasm", async ({ page, request }) => {
   const idx = await request.get(`${BASE}/index.html`);
   expect(idx.status()).toBe(200);
 
-  const wasm = await request.get(`${BASE}/solobase-web.wasm`);
+  const manifestRes = await request.get(`${BASE}/asset-manifest.json`);
+  expect(manifestRes.status()).toBe(200);
+  const manifest = await manifestRes.json();
+  const wasmPath = manifest.assets["solobase_web_bg.wasm"];
+  expect(wasmPath).toBeTruthy();
+
+  const wasm = await request.get(`${BASE}${wasmPath}`);
   expect(wasm.status()).toBe(200);
   expect(wasm.headers()["content-type"]).toBe("application/wasm");
 

@@ -68,6 +68,7 @@ pub async fn insert(ctx: &dyn Context, new: NewUser) -> Result<UserRow, RepoErro
     data.insert("id".into(), json!(id));
     data.insert("email".into(), json!(new.email));
     data.insert("display_name".into(), json!(new.display_name));
+    data.insert("name".into(), json!(new.display_name));
     if let Some(a) = new.avatar_url.as_deref() {
         data.insert("avatar_url".into(), json!(a));
     }

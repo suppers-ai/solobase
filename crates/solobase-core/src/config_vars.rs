@@ -113,6 +113,14 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         .name("Dispatcher Binding")
         .input_type(InputType::Toggle),
         ConfigVar::new(
+            "SOLOBASE_SHARED__HAS_LANDING_PAGE",
+            "Serve a static landing page (wafer-run/web) at `/` instead of \
+             redirecting anonymous visitors to the login page",
+            "false",
+        )
+        .name("Has Landing Page")
+        .input_type(InputType::Toggle),
+        ConfigVar::new(
             "SOLOBASE_SHARED__EMBEDDED_SCRIPTS",
             "Comma-separated module-script URLs injected into every SSR page \
              (e.g. /webllm-engine.js for browser WebLLM). Native deployments \

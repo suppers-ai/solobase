@@ -63,9 +63,11 @@ for example in "${EXAMPLES[@]}"; do
     cp -r "$EXAMPLE_DIR/frontend/build/"* "$EXAMPLE_DIR/data/storage/wafer-run/web/site/"
   fi
 
-  # Start solobase in the example directory
+  # Start solobase in the example directory. The example ships a static
+  # landing page (copied into storage above), so declare it via
+  # SOLOBASE_SHARED__HAS_LANDING_PAGE so routing serves it at `/`.
   cd "$EXAMPLE_DIR"
-  SUPPERS_AI__AUTH__JWT_SECRET="$SUPPERS_AI__AUTH__JWT_SECRET" "$BINARY" &
+  SUPPERS_AI__AUTH__JWT_SECRET="$SUPPERS_AI__AUTH__JWT_SECRET" SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET="test-webhook-secret" SOLOBASE_SHARED__HAS_LANDING_PAGE=true "$BINARY" serve --run-migrations &
   SERVER_PID=$!
 
   # Wait for server to be ready
