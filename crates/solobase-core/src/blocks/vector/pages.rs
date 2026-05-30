@@ -50,24 +50,11 @@ use wafer_sql_utils::{introspect, query, upsert, Backend};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
-    service::{self, TABLE_PREFIX},
+    service::{self, REGISTRY_TABLE, TABLE_PREFIX},
 };
 use crate::blocks::helpers::{
     err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json,
 };
-
-/// Per-index metadata registry table.
-///
-/// One row per index, keyed by the prefixed (storage) name. Keeping this
-/// separate from `sqlite_master` lets us remember per-index knobs — the
-/// model to re-embed text with, and whether keyword search was enabled —
-/// without spelunking through DDL on every query.
-///
-/// Schema lives in `migrations/001_vector_schema.{sqlite,postgres}.sql` and
-/// is applied at block Init via `apply_if_blessed`. The column layout is:
-/// `(prefixed_name TEXT PK, model TEXT, dimensions INTEGER,
-/// keyword_search INTEGER)`.
-const REGISTRY_TABLE: &str = "suppers_ai__vector__registry";
 
 /// Route dispatcher for the `suppers-ai/vector` block.
 ///

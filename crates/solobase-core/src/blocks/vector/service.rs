@@ -30,6 +30,19 @@ pub struct IndexRow {
 /// All tables created for a vector index are named with this prefix.
 pub const TABLE_PREFIX: &str = "suppers_ai__vector__";
 
+/// Per-index metadata registry table.
+///
+/// One row per index, keyed by the prefixed (storage) name. Keeping this
+/// separate from `sqlite_master` lets us remember per-index knobs — the
+/// model to re-embed text with, and whether keyword search was enabled —
+/// without spelunking through DDL on every query.
+///
+/// Schema lives in `migrations/001_vector_schema.{sqlite,postgres}.sql` and
+/// is applied at block Init via `apply_if_blessed`. The column layout is:
+/// `(prefixed_name TEXT PK, model TEXT, dimensions INTEGER,
+/// keyword_search INTEGER)`.
+pub(crate) const REGISTRY_TABLE: &str = "suppers_ai__vector__registry";
+
 /// Convert a user-facing index name (e.g. `"docs"`) into the fully prefixed
 /// name that is actually stored in the database (e.g. `"suppers_ai__vector__docs"`).
 pub fn prefixed_index_name(user_name: &str) -> String {
@@ -150,7 +163,7 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
 pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferError> {
     let records = db::list_sorted(
         ctx,
-        "suppers_ai__vector__registry",
+        REGISTRY_TABLE,
         vec![],
         vec![SortField {
             field: "prefixed_name".to_string(),
@@ -176,7 +189,7 @@ pub async fn get_index_row(
 ) -> Result<Option<IndexRow>, WaferError> {
     let rec = match db::get_by_field(
         ctx,
-        "suppers_ai__vector__registry",
+        REGISTRY_TABLE,
         "prefixed_name",
         serde_json::Value::String(storage_name.to_string()),
     )
