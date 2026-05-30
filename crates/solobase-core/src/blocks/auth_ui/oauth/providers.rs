@@ -9,14 +9,14 @@ use crate::blocks::helpers::ok_json;
 pub async fn handle(ctx: &dyn Context) -> OutputStream {
     let mut providers = Vec::new();
 
-    for provider_name in &["google", "github", "microsoft"] {
+    for spec in super::spec::OAUTH_PROVIDERS {
         let client_id_key = format!(
             "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_ID",
-            provider_name.to_uppercase()
+            spec.name.to_uppercase()
         );
         if config::get(ctx, &client_id_key).await.is_ok() {
             providers.push(serde_json::json!({
-                "name": provider_name,
+                "name": spec.name,
                 "enabled": true
             }));
         }

@@ -14,7 +14,7 @@ use crate::blocks::{
     },
     auth_ui::redirect::is_safe_local_redirect,
     helpers::{
-        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map, urlencode,
+        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map,
         ResponseBuilder,
     },
 };
@@ -47,6 +47,11 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // match check passes even if the live config changed mid-flow.
     let redirect_uri = pkce_row.redirect_uri.clone();
 
+    let spec = match super::spec::lookup(&provider) {
+        Some(s) => s,
+        None => return err_bad_request("Unsupported OAuth provider"),
+    };
+
     let client_id = config::get_default(
         ctx,
         &format!(
@@ -71,24 +76,14 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Exchange code for token (URL-encode all values, include PKCE verifier)
-    let (token_url, token_body_str) = match provider.as_str() {
-        "google" => (
-            "https://oauth2.googleapis.com/token".to_string(),
-            format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code&code_verifier={}",
-                urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri), urlencode(&code_verifier)),
-        ),
-        "github" => (
-            "https://github.com/login/oauth/access_token".to_string(),
-            format!("code={}&client_id={}&client_secret={}&redirect_uri={}",
-                urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri)),
-        ),
-        "microsoft" => (
-            "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
-            format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code&code_verifier={}",
-                urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri), urlencode(&code_verifier)),
-        ),
-        _ => return err_bad_request("Unsupported OAuth provider"),
-    };
+    let token_url = spec.token_url;
+    let token_body_str = spec.build_token_body(
+        code,
+        &client_id,
+        &client_secret,
+        &redirect_uri,
+        &code_verifier,
+    );
 
     let mut headers = HashMap::new();
     headers.insert(
@@ -98,12 +93,18 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     headers.insert("Accept".to_string(), "application/json".to_string());
 
     let token_body_bytes = token_body_str.into_bytes();
-    let token_resp =
-        match network::do_request(ctx, "POST", &token_url, &headers, Some(&token_body_bytes)).await
-        {
-            Ok(r) => r,
-            Err(e) => return err_internal("Token exchange failed", e),
-        };
+    let token_resp = match network::do_request(
+        ctx,
+        "POST",
+        token_url,
+        &headers,
+        Some(&token_body_bytes),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return err_internal("Token exchange failed", e),
+    };
 
     let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
         Ok(d) => d,
@@ -119,21 +120,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Get user info
-    let (userinfo_url, auth_header) = match provider.as_str() {
-        "google" => (
-            "https://www.googleapis.com/oauth2/v2/userinfo".to_string(),
-            format!("Bearer {}", access_token_oauth),
-        ),
-        "github" => (
-            "https://api.github.com/user".to_string(),
-            format!("token {}", access_token_oauth),
-        ),
-        "microsoft" => (
-            "https://graph.microsoft.com/v1.0/me".to_string(),
-            format!("Bearer {}", access_token_oauth),
-        ),
-        _ => return err_internal_no_cause("Unsupported provider"),
-    };
+    let userinfo_url = spec.userinfo_url;
+    let auth_header = spec.userinfo_auth_header(access_token_oauth);
 
     let mut info_headers = HashMap::new();
     info_headers.insert("Authorization".to_string(), auth_header);
@@ -145,8 +133,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
     );
 
-    let info_resp = match network::do_request(ctx, "GET", &userinfo_url, &info_headers, None).await
-    {
+    let info_resp = match network::do_request(ctx, "GET", userinfo_url, &info_headers, None).await {
         Ok(r) => r,
         Err(e) => return err_internal("User info request failed", e),
     };
@@ -192,26 +179,21 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // GitHub's /user endpoint returns a null `email` for users who have
     // their primary email set to private. The authoritative list lives at
     // /user/emails — which is only returned when the `user:email` scope
-    // was granted. Pick the first primary verified address.
-    if email.is_empty() && provider == "github" {
+    // was granted. Pick the first primary verified address. Only providers
+    // with an `emails_url` (GitHub) carry this fallback.
+    if let (true, Some(emails_url)) = (email.is_empty(), spec.emails_url) {
         let mut emails_headers = HashMap::new();
         emails_headers.insert(
             "Authorization".to_string(),
-            format!("token {}", access_token_oauth),
+            spec.userinfo_auth_header(access_token_oauth),
         );
         emails_headers.insert("Accept".to_string(), "application/json".to_string());
         emails_headers.insert(
             "User-Agent".to_string(),
             concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
         );
-        if let Ok(emails_resp) = network::do_request(
-            ctx,
-            "GET",
-            "https://api.github.com/user/emails",
-            &emails_headers,
-            None,
-        )
-        .await
+        if let Ok(emails_resp) =
+            network::do_request(ctx, "GET", emails_url, &emails_headers, None).await
         {
             if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&emails_resp.body) {
                 if let Some(entries) = arr.as_array() {
