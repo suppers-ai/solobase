@@ -208,6 +208,39 @@ pub(crate) async fn find_user_by_stripe_sub(
         .map(String::from)
 }
 
+/// Whether the user has an `active` subscription whose `plan` equals `plan`.
+pub(crate) async fn active_plan_exists(ctx: &dyn Context, user_id: &str, plan: &str) -> bool {
+    let opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("active"),
+            },
+            Filter {
+                field: "plan".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(plan),
+            },
+        ],
+        limit: 1,
+        ..Default::default()
+    };
+    let stmt = wafer_sql_utils::query::build_select_columns(
+        SUBSCRIPTIONS_TABLE,
+        &["id"],
+        &opts,
+        None,
+        Backend::Sqlite,
+    );
+    matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
+}
+
 /// Fetch a user's subscription row with addon columns coalesced to 0 for the
 /// admin subscription-status endpoint. Errors / no-row collapse to `None`
 /// (preserves the original `handle_subscription` behaviour).
