@@ -26,12 +26,43 @@ pub fn classify_table(table: &str) -> Option<CachedTable> {
     }
 }
 
-use wafer_block::db::{FilterOp, ListOptions};
+use wafer_block::db::{Filter, FilterOp, ListOptions};
 
 /// Minimum `limit` value treated as "all matching rows". Matches the
 /// `D1ConfigSource` and admin block list shapes. Anything smaller is
 /// treated as paginated and bypasses cache.
 const FULL_LIMIT_THRESHOLD: i64 = 10_000;
+
+/// The block-identifying column for each cached table's canonical list
+/// query. Single source of truth shared by [`read_key`] (the classifier)
+/// and [`block_list_opts`] (the constructor) so the two can't drift.
+fn key_column(table: CachedTable) -> &'static str {
+    match table {
+        CachedTable::Variables => "block",
+        CachedTable::BlockSettings => "block_name",
+    }
+}
+
+/// Build the canonical "load all rows for one block" [`ListOptions`] that
+/// [`read_key`] recognizes as cacheable.
+///
+/// Single source of truth for the cached query shape: callers that want a
+/// KV-cached per-block read (the `D1ConfigSource`, the Cloudflare auto-gen
+/// secret seeder) construct their `ListOptions` here instead of open-coding
+/// the shape, so they can't silently drift out of cache coverage.
+pub fn block_list_opts(table: CachedTable, value: &str) -> ListOptions {
+    ListOptions {
+        filters: vec![Filter {
+            field: key_column(table).to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(value.to_string()),
+        }],
+        limit: FULL_LIMIT_THRESHOLD,
+        offset: 0,
+        skip_count: true,
+        ..Default::default()
+    }
+}
 
 /// Returns Some(kv_key) iff `opts` matches the canonical
 /// "load all rows for one block" shape.
@@ -48,11 +79,7 @@ pub fn read_key(table: CachedTable, opts: &ListOptions) -> Option<String> {
     if !matches!(f.operator, FilterOp::Equal) {
         return None;
     }
-    let expected_col = match table {
-        CachedTable::Variables => "block",
-        CachedTable::BlockSettings => "block_name",
-    };
-    if f.field != expected_col {
+    if f.field != key_column(table) {
         return None;
     }
     let value_str = f.value.as_str()?;
@@ -139,6 +166,21 @@ mod tests {
             read_key(CachedTable::BlockSettings, &opts),
             Some("cfg:v1:block_settings:wafer-run/registry".to_string())
         );
+    }
+
+    #[test]
+    fn block_list_opts_roundtrips_through_read_key() {
+        // The constructor must always produce a shape the classifier
+        // recognizes — this is the contract that keeps cached callers (the
+        // D1 config source, the CF auto-gen seeder) on the cache fast path.
+        for table in [CachedTable::Variables, CachedTable::BlockSettings] {
+            let opts = block_list_opts(table, "SUPPERS_AI__AUTH");
+            assert_eq!(
+                read_key(table, &opts),
+                Some(format_key(table, "SUPPERS_AI__AUTH")),
+                "block_list_opts must round-trip through read_key for {table:?}"
+            );
+        }
     }
 
     #[test]

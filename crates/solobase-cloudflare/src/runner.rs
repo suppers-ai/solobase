@@ -15,7 +15,7 @@ pub(crate) const KV_BINDING: &str = "CONFIG_CACHE";
 use std::{collections::HashMap, sync::Arc};
 
 pub(crate) use solobase_core::blocks::admin::BLOCK_SETTINGS_TABLE;
-use solobase_core::{blocks::admin::VARIABLES_TABLE, features::BlockSettings};
+use solobase_core::{blocks::admin::VARIABLES_TABLE, cache_key, features::BlockSettings};
 use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::interfaces::database::service::DatabaseService;
 
@@ -199,18 +199,26 @@ async fn seed_one(
     block_name: &str,
     var: &wafer_block::ConfigVar,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let exists_opts = ListOptions {
-        filters: vec![Filter {
-            field: "key".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(var.key.clone()),
-        }],
-        limit: 1,
-        skip_count: true,
-        ..Default::default()
-    };
+    // `block` column matches what admin migration 002 backfills from `key`
+    // (key's first two `__`-delimited segments). We compute it from the
+    // block name via the canonical helper so both paths converge on the
+    // same SCREAMING_SNAKE prefix even if a key were ever introduced with
+    // a non-matching shape. Computed up front so the existence check below
+    // can filter on it.
+    let block_col = crate::config_source::D1ConfigSource::screaming_block(block_name);
+
+    // Existence check via the per-block list shape the KV cache recognizes
+    // (`cache_key::block_list_opts`). This shares the cache entry
+    // `D1ConfigSource` populates for this block on init, so on a warm isolate
+    // it's a KV hit instead of an uncached `key`-filtered D1 read on every
+    // request. We then match `var.key` in memory.
+    let exists_opts = cache_key::block_list_opts(cache_key::CachedTable::Variables, &block_col);
     let listed = db.list(VARIABLES_TABLE, &exists_opts).await?;
-    if !listed.records.is_empty() {
+    if listed
+        .records
+        .iter()
+        .any(|r| r.data.get("key").and_then(|v| v.as_str()) == Some(var.key.as_str()))
+    {
         return Ok(());
     }
 
@@ -218,12 +226,6 @@ async fn seed_one(
     getrandom::getrandom(&mut bytes).map_err(|e| format!("getrandom: {e}"))?;
     let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
-    // `block` column matches what admin migration 002 backfills from `key`
-    // (key's first two `__`-delimited segments). We compute it from the
-    // block name via the canonical helper so both paths converge on the
-    // same SCREAMING_SNAKE prefix even if a key were ever introduced with
-    // a non-matching shape.
-    let block_col = crate::config_source::D1ConfigSource::screaming_block(block_name);
     let now = chrono::Utc::now().to_rfc3339();
     let id = format!("var_{}", uuid::Uuid::new_v4());
 
