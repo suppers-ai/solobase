@@ -25,6 +25,24 @@ use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok
 const DEFAULT_RATE_LIMIT_MAX: u32 = 100;
 const DEFAULT_RATE_LIMIT_WINDOW_SECS: u64 = 3600;
 
+/// Default Mailgun API base URL (US region). EU accounts use
+/// `https://api.eu.mailgun.net`. Single source of truth for the
+/// `SUPPERS_AI__EMAIL__MAILGUN_BASE_URL` config var default, the admin settings
+/// form, and the runtime fallback in [`resolve_base_url`].
+pub(crate) const DEFAULT_MAILGUN_BASE_URL: &str = "https://api.mailgun.net";
+
+/// Resolve the configured Mailgun base URL to an effective host: fall back to
+/// the US default when unset/blank and trim any trailing slash (so the
+/// `{base}/v3/...` join never produces a `//v3` double slash).
+pub(crate) fn resolve_base_url(configured: &str) -> &str {
+    let trimmed = configured.trim();
+    if trimmed.is_empty() {
+        DEFAULT_MAILGUN_BASE_URL
+    } else {
+        trimmed.trim_end_matches('/')
+    }
+}
+
 pub struct EmailBlock {
     limiter: UserRateLimiter,
 }
@@ -66,6 +84,13 @@ impl Block for EmailBlock {
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "Reply-to address", "")
                     .name("Reply-To Address")
                     .optional(),
+                ConfigVar::new(
+                    "SUPPERS_AI__EMAIL__MAILGUN_BASE_URL",
+                    "Mailgun API base URL (US: https://api.mailgun.net, EU: https://api.eu.mailgun.net)",
+                    DEFAULT_MAILGUN_BASE_URL,
+                )
+                .name("Mailgun Base URL")
+                .optional(),
                 ConfigVar::new(
                     "SUPPERS_AI__EMAIL__RATE_LIMIT_MAX",
                     "Maximum emails per caller per window (0 disables rate limiting)",
@@ -353,7 +378,9 @@ async fn send_email(
     // Call network block via the typed client. The buffered helper consumes
     // the two-frame response (header + body) and returns a typed
     // `NetworkResponse` whose `status_code` we use to decide success.
-    let url = format!("https://api.mailgun.net/v3/{}/messages", domain);
+    let configured = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_BASE_URL", "").await;
+    let base = resolve_base_url(&configured);
+    let url = format!("{base}/v3/{domain}/messages");
     let mut headers = HashMap::new();
     headers.insert(
         "Authorization".to_string(),
@@ -599,6 +626,25 @@ mod tests {
         fn clone_arc(&self) -> Arc<dyn Context> {
             Arc::new(self.clone())
         }
+    }
+
+    // ---- resolve_base_url ---------------------------------------------------
+
+    #[test]
+    fn resolve_base_url_falls_back_and_trims() {
+        // Unset / blank → US default.
+        assert_eq!(resolve_base_url(""), DEFAULT_MAILGUN_BASE_URL);
+        assert_eq!(resolve_base_url("   "), DEFAULT_MAILGUN_BASE_URL);
+        // EU region passes through unchanged.
+        assert_eq!(
+            resolve_base_url("https://api.eu.mailgun.net"),
+            "https://api.eu.mailgun.net"
+        );
+        // Trailing slash trimmed so the `{base}/v3/...` join stays single-slash.
+        assert_eq!(
+            resolve_base_url("https://api.mailgun.net/"),
+            "https://api.mailgun.net"
+        );
     }
 
     // ---- validate_recipient -------------------------------------------------
