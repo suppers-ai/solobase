@@ -3,7 +3,10 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{err_bad_request, ok_json},
+    blocks::{
+        email::DEFAULT_MAILGUN_BASE_URL,
+        helpers::{err_bad_request, ok_json},
+    },
     ui::icons,
 };
 
@@ -45,6 +48,13 @@ const EMAIL_SETTINGS_KEYS: &[EmailSettingField] = &[
         label: "Reply-To Address",
         help: "Reply-to address for emails. Leave empty to omit.",
         default: "",
+        sensitive: false,
+    },
+    EmailSettingField {
+        key: "SUPPERS_AI__EMAIL__MAILGUN_BASE_URL",
+        label: "Mailgun Base URL",
+        help: "API base URL. Leave empty for US (https://api.mailgun.net); use https://api.eu.mailgun.net for EU accounts.",
+        default: DEFAULT_MAILGUN_BASE_URL,
         sensitive: false,
     },
 ];
