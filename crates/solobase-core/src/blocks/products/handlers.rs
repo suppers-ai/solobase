@@ -12,7 +12,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{PRICING_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
+use super::{PRICING_TABLE, PURCHASES_TABLE};
 use crate::blocks::{
     crud,
     helpers::{
@@ -887,56 +887,7 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if user_id.is_empty() {
         return err_unauthorized("Not authenticated");
     }
-
-    use wafer_sql_utils::{
-        aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
-        Backend,
-    };
-
-    // Build COALESCE(addon_*, 0) into the SQL via the aggregate builder so we
-    // don't have to post-process null cells in Rust. group_by is empty —
-    // the row is implicitly grouped by the user_id filter + LIMIT 1.
-    let coalesced = |alias: &str, field: &str| AggregateColumn {
-        func: AggFunc::Coalesce(serde_json::json!(0)),
-        field: Some(field.into()),
-        alias: alias.into(),
-        cast_as: None,
-        inner_expr: None,
-    };
-    let cfg = GroupedQueryConfig {
-        table: SUBSCRIPTIONS_TABLE.into(),
-        select_columns: vec![
-            "id".into(),
-            "plan".into(),
-            "status".into(),
-            "stripe_subscription_id".into(),
-            "grace_period_end".into(),
-            "created_at".into(),
-            "updated_at".into(),
-        ],
-        aggregates: vec![
-            coalesced("addon_projects", "addon_projects"),
-            coalesced("addon_requests", "addon_requests"),
-            coalesced("addon_r2_bytes", "addon_r2_bytes"),
-            coalesced("addon_d1_bytes", "addon_d1_bytes"),
-        ],
-        filters: vec![Filter {
-            field: "user_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(user_id),
-        }],
-        group_by: vec![],
-        order_by: vec![],
-        limit: Some(1),
-    };
-    let stmt = build_grouped_query(cfg, Backend::Sqlite);
-    let rows = db::query(ctx, &stmt).await;
-
-    let sub = match rows {
-        Ok(records) if !records.is_empty() => Some(records[0].data.clone()),
-        _ => None,
-    };
-
+    let sub = super::repo::subscriptions::subscription_for_user(ctx, &user_id).await;
     ok_json(&serde_json::json!({"subscription": sub}))
 }
 
