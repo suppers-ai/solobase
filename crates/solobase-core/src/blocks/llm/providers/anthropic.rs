@@ -15,8 +15,10 @@ use wafer_core::interfaces::llm::service::{
     TokenUsage, ToolDefinition,
 };
 
-use super::config::ProviderConfig;
-use super::sse::{DecodeBatch, SseFrame, SseFrameStream};
+use super::{
+    config::ProviderConfig,
+    sse::{DecodeBatch, SseFrame, SseFrameStream},
+};
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
