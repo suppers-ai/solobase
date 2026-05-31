@@ -33,6 +33,12 @@ use wafer_block::db::{Filter, FilterOp, ListOptions};
 /// treated as paginated and bypasses cache.
 const FULL_LIMIT_THRESHOLD: i64 = 10_000;
 
+/// Reserved cache-key value for the full-table `block_settings` read —
+/// `runner::load_block_settings`'s eager filterless list. Real block names
+/// are always `{org}/{block}` (slash-delimited), so this slash-free
+/// sentinel can never collide with a per-block key.
+const ALL_ROWS_SENTINEL: &str = "__all__";
+
 /// The block-identifying column for each cached table's canonical list
 /// query. Single source of truth shared by [`read_key`] (the classifier)
 /// and [`block_list_opts`] (the constructor) so the two can't drift.
@@ -64,26 +70,43 @@ pub fn block_list_opts(table: CachedTable, value: &str) -> ListOptions {
     }
 }
 
-/// Returns Some(kv_key) iff `opts` matches the canonical
-/// "load all rows for one block" shape.
+/// Returns Some(kv_key) iff `opts` matches a cacheable read shape:
+/// either the canonical "load all rows for one block" single-filter shape,
+/// or — for `block_settings` only — the eager filterless full-table read
+/// (`runner::load_block_settings`).
 pub fn read_key(table: CachedTable, opts: &ListOptions) -> Option<String> {
-    if opts.filters.len() != 1
-        || !opts.skip_count
+    // Shape gate shared by both read kinds: an unsorted, unpaginated,
+    // count-skipping "give me every matching row" list.
+    if !opts.skip_count
         || opts.offset != 0
         || opts.limit < FULL_LIMIT_THRESHOLD
         || !opts.sort.is_empty()
     {
         return None;
     }
-    let f = &opts.filters[0];
-    if !matches!(f.operator, FilterOp::Equal) {
-        return None;
+    match opts.filters.len() {
+        // Full-table read. Only `block_settings` issues this (the eager
+        // `load_block_settings` list with no filter); cache it under the
+        // all-rows sentinel. Variables is always read per-block, so a
+        // filterless variables list is not a recognized shape.
+        0 => match table {
+            CachedTable::BlockSettings => Some(format_key(table, ALL_ROWS_SENTINEL)),
+            CachedTable::Variables => None,
+        },
+        // Per-block read keyed on the table's identity column.
+        1 => {
+            let f = &opts.filters[0];
+            if !matches!(f.operator, FilterOp::Equal) {
+                return None;
+            }
+            if f.field != key_column(table) {
+                return None;
+            }
+            let value_str = f.value.as_str()?;
+            Some(format_key(table, value_str))
+        }
+        _ => None,
     }
-    if f.field != key_column(table) {
-        return None;
-    }
-    let value_str = f.value.as_str()?;
-    Some(format_key(table, value_str))
 }
 
 fn format_key(table: CachedTable, value: &str) -> String {
@@ -101,6 +124,32 @@ use std::collections::HashMap;
 pub fn write_key(table: CachedTable, row: &HashMap<String, serde_json::Value>) -> Option<String> {
     let value_str = row.get(key_column(table))?.as_str()?;
     Some(format_key(table, value_str))
+}
+
+/// All KV keys a single-row write (create / update / delete) to `row` in
+/// `table` must invalidate.
+///
+/// Always includes the per-row key when the identity column is extractable.
+/// For `block_settings` it additionally includes the all-rows key, because
+/// `load_block_settings`'s cached full-table read depends on every row — so
+/// any insert / toggle / delete must drop it. The all-rows key is emitted
+/// unconditionally for `block_settings` (even when the per-row key can't be
+/// extracted) so the full-table cache can never be left stale.
+pub fn invalidate_keys(
+    table: CachedTable,
+    row: &HashMap<String, serde_json::Value>,
+) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(k) = write_key(table, row) {
+        keys.push(k);
+    }
+    if table == CachedTable::BlockSettings {
+        let all = format_key(table, ALL_ROWS_SENTINEL);
+        if !keys.contains(&all) {
+            keys.push(all);
+        }
+    }
+    keys
 }
 
 #[cfg(test)]
@@ -300,5 +349,112 @@ mod tests {
     fn write_key_empty_row_returns_none() {
         let r: HashMap<String, serde_json::Value> = HashMap::new();
         assert_eq!(write_key(CachedTable::Variables, &r), None);
+    }
+
+    // --- Full-table block_settings read (the eager `load_block_settings`) ---
+
+    /// The shape `load_block_settings` actually issues: no filter, full
+    /// limit, skip_count, no offset, no sort.
+    fn full_table_opts() -> ListOptions {
+        ListOptions {
+            offset: 0,
+            limit: 10_000,
+            skip_count: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn read_key_block_settings_full_table_shape() {
+        assert_eq!(
+            read_key(CachedTable::BlockSettings, &full_table_opts()),
+            Some("cfg:v1:block_settings:__all__".to_string())
+        );
+    }
+
+    #[test]
+    fn read_key_variables_full_table_returns_none() {
+        // Variables is always read per-block; a filterless variables list is
+        // not a recognized cache shape.
+        assert_eq!(read_key(CachedTable::Variables, &full_table_opts()), None);
+    }
+
+    #[test]
+    fn read_key_full_table_bad_shape_returns_none() {
+        for mutate in [
+            |o: &mut ListOptions| o.skip_count = false,
+            |o: &mut ListOptions| o.offset = 100,
+            |o: &mut ListOptions| o.limit = 50,
+            |o: &mut ListOptions| {
+                o.sort.push(wafer_block::db::SortField {
+                    field: "block_name".into(),
+                    desc: false,
+                })
+            },
+        ] {
+            let mut opts = full_table_opts();
+            mutate(&mut opts);
+            assert_eq!(read_key(CachedTable::BlockSettings, &opts), None);
+        }
+    }
+
+    /// The all-rows sentinel must never collide with a real per-block key,
+    /// because block names are slash-delimited and the sentinel is not.
+    #[test]
+    fn full_table_key_distinct_from_per_block_keys() {
+        let all = read_key(CachedTable::BlockSettings, &full_table_opts());
+        let per_block = read_key(
+            CachedTable::BlockSettings,
+            &canonical_opts("block_name", "suppers-ai/admin"),
+        );
+        assert!(all.is_some() && per_block.is_some());
+        assert_ne!(all, per_block);
+    }
+
+    // --- invalidate_keys ---
+
+    #[test]
+    fn invalidate_keys_variables_only_per_row() {
+        let r = row(
+            "block",
+            serde_json::Value::String("SUPPERS_AI__AUTH".into()),
+        );
+        assert_eq!(
+            invalidate_keys(CachedTable::Variables, &r),
+            vec!["cfg:v1:variables:SUPPERS_AI__AUTH".to_string()]
+        );
+    }
+
+    #[test]
+    fn invalidate_keys_variables_missing_column_is_empty() {
+        let r = row("key", serde_json::Value::String("JWT_SECRET".into()));
+        assert!(invalidate_keys(CachedTable::Variables, &r).is_empty());
+    }
+
+    #[test]
+    fn invalidate_keys_block_settings_includes_per_row_and_all() {
+        let r = row(
+            "block_name",
+            serde_json::Value::String("wafer-run/registry".into()),
+        );
+        assert_eq!(
+            invalidate_keys(CachedTable::BlockSettings, &r),
+            vec![
+                "cfg:v1:block_settings:wafer-run/registry".to_string(),
+                "cfg:v1:block_settings:__all__".to_string(),
+            ]
+        );
+    }
+
+    /// Even when the per-row key can't be extracted, the full-table key must
+    /// still be invalidated so the cached `load_block_settings` read can't go
+    /// stale.
+    #[test]
+    fn invalidate_keys_block_settings_missing_column_still_drops_all() {
+        let r = row("id", serde_json::Value::String("bs_123".into()));
+        assert_eq!(
+            invalidate_keys(CachedTable::BlockSettings, &r),
+            vec!["cfg:v1:block_settings:__all__".to_string()]
+        );
     }
 }

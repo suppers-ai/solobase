@@ -80,6 +80,26 @@ impl KvCachedD1DatabaseService {
     pub fn new(inner: Arc<dyn DatabaseService>, kv: Arc<dyn KvBackend>) -> Self {
         Self { inner, kv }
     }
+
+    /// Delete every cache key in `keys`, logging (but never failing on) KV
+    /// errors. The underlying mutation has already committed by the time this
+    /// runs; a failed invalidation just leaves the stale entry to expire on
+    /// its 24 h TTL. `op` names the originating write for log correlation.
+    async fn invalidate_all(&self, collection: &str, keys: &[String], op: &str) {
+        for key in keys {
+            if let Err(e) = self.kv.delete(key).await {
+                tracing::warn!(
+                    table = %collection,
+                    key = %key,
+                    error = %e,
+                    op,
+                    "kv invalidate failed; relying on TTL"
+                );
+            } else {
+                tracing::debug!(table = %collection, key = %key, op, "cache_invalidate");
+            }
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -251,27 +271,19 @@ impl DatabaseService for KvCachedD1DatabaseService {
         data: HashMap<String, serde_json::Value>,
     ) -> Result<Record, DatabaseError> {
         let cached = cache_key::classify_table(collection);
-        let invalidate_key = cached.and_then(|t| cache_key::write_key(t, &data));
+        let invalidate = cached
+            .map(|t| cache_key::invalidate_keys(t, &data))
+            .unwrap_or_default();
 
         let record = self.inner.create(collection, data).await?;
 
-        if let Some(key) = invalidate_key {
-            if let Err(e) = self.kv.delete(&key).await {
-                tracing::warn!(
-                    table = %collection,
-                    key = %key,
-                    error = %e,
-                    "kv invalidate after create failed; relying on TTL"
-                );
-            } else {
-                tracing::debug!(table = %collection, key = %key, "cache_invalidate_after_create");
-            }
-        } else if cached.is_some() {
+        if invalidate.is_empty() && cached.is_some() {
             tracing::warn!(
                 table = %collection,
                 "cached table write with no extractable cache-key column; relying on TTL"
             );
         }
+        self.invalidate_all(collection, &invalidate, "create").await;
 
         Ok(record)
     }
@@ -283,9 +295,9 @@ impl DatabaseService for KvCachedD1DatabaseService {
         data: HashMap<String, serde_json::Value>,
     ) -> Result<Record, DatabaseError> {
         let cached = cache_key::classify_table(collection);
-        let invalidate_key = if let Some(t) = cached {
+        let invalidate = if let Some(t) = cached {
             match self.inner.get(collection, id).await {
-                Ok(row) => cache_key::write_key(t, &row.data),
+                Ok(row) => cache_key::invalidate_keys(t, &row.data),
                 Err(e) => {
                     tracing::warn!(
                         table = %collection,
@@ -293,36 +305,25 @@ impl DatabaseService for KvCachedD1DatabaseService {
                         error = %e,
                         "pre-read for cache-key failed; skipping invalidation"
                     );
-                    None
+                    Vec::new()
                 }
             }
         } else {
-            None
+            Vec::new()
         };
 
         let record = self.inner.update(collection, id, data).await?;
 
-        if let Some(key) = invalidate_key {
-            if let Err(e) = self.kv.delete(&key).await {
-                tracing::warn!(
-                    table = %collection,
-                    key = %key,
-                    error = %e,
-                    "kv invalidate after update failed; relying on TTL"
-                );
-            } else {
-                tracing::debug!(table = %collection, key = %key, "cache_invalidate_after_update");
-            }
-        }
+        self.invalidate_all(collection, &invalidate, "update").await;
 
         Ok(record)
     }
 
     async fn delete(&self, collection: &str, id: &str) -> Result<(), DatabaseError> {
         let cached = cache_key::classify_table(collection);
-        let invalidate_key = if let Some(t) = cached {
+        let invalidate = if let Some(t) = cached {
             match self.inner.get(collection, id).await {
-                Ok(row) => cache_key::write_key(t, &row.data),
+                Ok(row) => cache_key::invalidate_keys(t, &row.data),
                 Err(e) => {
                     tracing::warn!(
                         table = %collection,
@@ -330,27 +331,16 @@ impl DatabaseService for KvCachedD1DatabaseService {
                         error = %e,
                         "pre-read for cache-key failed; skipping invalidation"
                     );
-                    None
+                    Vec::new()
                 }
             }
         } else {
-            None
+            Vec::new()
         };
 
         self.inner.delete(collection, id).await?;
 
-        if let Some(key) = invalidate_key {
-            if let Err(e) = self.kv.delete(&key).await {
-                tracing::warn!(
-                    table = %collection,
-                    key = %key,
-                    error = %e,
-                    "kv invalidate after delete failed; relying on TTL"
-                );
-            } else {
-                tracing::debug!(table = %collection, key = %key, "cache_invalidate_after_delete");
-            }
-        }
+        self.invalidate_all(collection, &invalidate, "delete").await;
 
         Ok(())
     }
