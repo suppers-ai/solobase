@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 pub(crate) use solobase_core::blocks::admin::BLOCK_SETTINGS_TABLE;
 use solobase_core::{blocks::admin::VARIABLES_TABLE, cache_key, features::BlockSettings};
-use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_block::db::ListOptions;
 use wafer_core::interfaces::database::service::DatabaseService;
 
 /// Read the admin block-settings collection and convert to `BlockSettings`.
@@ -57,6 +57,20 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
         })
         .collect();
 
+    // `block_name` → row `id`, so the `SeedOp::Update` branch can do a
+    // single-row `db.update` (which the KV wrapper invalidates) instead of
+    // `db.update_where` (which hard-errors on cached tables, so a changed
+    // `ENABLED_DEFAULTS` hash would never propagate to existing rows).
+    let id_by_block: HashMap<String, String> = record_list
+        .records
+        .iter()
+        .filter_map(|r| {
+            let name = r.data.get("block_name")?.as_str()?.to_string();
+            let id = r.data.get("id")?.as_str()?.to_string();
+            Some((name, id))
+        })
+        .collect();
+
     // Plan + apply. Steady state: empty decisions → zero D1 writes.
     let decisions = solobase_core::features::plan_seed_decisions(&existing);
     let any_writes = !decisions.is_empty();
@@ -86,16 +100,19 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
                 }
             }
             SeedOp::Update => {
-                let filters = vec![Filter {
-                    field: "block_name".to_string(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::Value::String(d.block_name.to_string()),
-                }];
+                // Update is planned only for rows already present in
+                // `existing`, so the id should always resolve; skip
+                // defensively (rather than fall back to update_where, which
+                // would hard-error) if a row somehow lacks one.
+                let Some(id) = id_by_block.get(d.block_name) else {
+                    worker::console_log!("warn: seed update {} skipped: no row id", d.block_name);
+                    continue;
+                };
                 let mut data: HashMap<String, serde_json::Value> = HashMap::new();
                 data.insert("enabled".into(), enabled_val);
                 data.insert("seed_defaults_hash".into(), hash_val);
                 data.insert("updated_at".into(), serde_json::Value::String(now));
-                if let Err(e) = db.update_where(BLOCK_SETTINGS_TABLE, &filters, data).await {
+                if let Err(e) = db.update(BLOCK_SETTINGS_TABLE, id, data).await {
                     worker::console_log!("warn: seed update {} failed: {e}", d.block_name);
                 }
             }
