@@ -18,7 +18,7 @@ pub mod block_settings {
     use wafer_block::db::{Filter, FilterOp, ListOptions};
     use wafer_core::clients::database as db;
     use wafer_run::context::Context;
-    use wafer_sql_utils::{query, upsert, Backend};
+    use wafer_sql_utils::{query, Backend};
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 
@@ -56,35 +56,41 @@ pub mod block_settings {
     ///
     /// Uses an upsert keyed on `block_name`, so it works whether or not a row
     /// already exists.
+    ///
+    /// Routes through the structured [`db::upsert`] (get-by-field →
+    /// `update` | `create`) rather than a raw `db::execute(build_upsert(...))`.
+    /// The structured path hits `DatabaseService::{create,update}`, which the
+    /// Cloudflare `KvCachedD1DatabaseService` invalidates — so toggling a block
+    /// clears the cached `block_settings` read (both the per-block key and the
+    /// full-table all-rows key). A raw `EXECUTE` bypasses that invalidation and
+    /// would leave the eager `load_block_settings` cache stale until its TTL.
+    /// `created_at` is intentionally omitted: it is preserved on update and
+    /// synthesized by the backend on insert.
     pub async fn set_enabled(
         ctx: &dyn Context,
         block_name: &str,
         enabled: bool,
     ) -> Result<(), String> {
         let enabled_int: i64 = if enabled { 1 } else { 0 };
-        let now = super::helpers::now_rfc3339();
-        let stmt = upsert::build_upsert(
+        let mut data = super::json_map(serde_json::json!({
+            "block_name": block_name,
+            "enabled": enabled_int,
+            // Admin-UI write — mark this row as user-owned so the boot-time
+            // seed never overwrites it.
+            "seed_defaults_hash": crate::features::USER_EDITED_SENTINEL,
+        }));
+        super::helpers::stamp_updated(&mut data);
+
+        db::upsert(
+            ctx,
             TABLE,
-            &[
-                ("block_name".to_string(), serde_json::json!(block_name)),
-                ("enabled".to_string(), serde_json::json!(enabled_int)),
-                ("created_at".to_string(), serde_json::json!(&now)),
-                ("updated_at".to_string(), serde_json::json!(&now)),
-                // Admin-UI write — mark this row as user-owned so the
-                // boot-time seed never overwrites it.
-                (
-                    "seed_defaults_hash".to_string(),
-                    serde_json::json!(crate::features::USER_EDITED_SENTINEL),
-                ),
-            ],
-            &["block_name"],
-            &["enabled", "updated_at", "seed_defaults_hash"],
-            Backend::Sqlite,
-        );
-        db::execute(ctx, &stmt)
-            .await
-            .map(|_| ())
-            .map_err(|e| format!("block_settings::set_enabled failed: {e}"))
+            "block_name",
+            serde_json::json!(block_name),
+            data,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("block_settings::set_enabled failed: {e}"))
     }
 }
 
