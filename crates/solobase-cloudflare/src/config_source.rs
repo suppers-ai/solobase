@@ -15,11 +15,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use solobase_core::blocks::admin::VARIABLES_TABLE;
-use wafer_block::{
-    db::{Filter, FilterOp, ListOptions},
-    ConfigVar,
-};
+use solobase_core::{blocks::admin::VARIABLES_TABLE, cache_key};
+use wafer_block::ConfigVar;
 use wafer_core::interfaces::database::service::DatabaseService;
 use wafer_run::{ConfigError, ConfigSource, EnvBlockConfig};
 
@@ -81,8 +78,8 @@ impl D1ConfigSource {
     }
 
     /// Fetch all rows in the variables table whose `block` column equals
-    /// `screaming_block`. Uses [`DatabaseService::list`] with a single
-    /// [`FilterOp::Equal`] filter; the new index on `(block)` (migration
+    /// `screaming_block`. Uses the canonical KV-cacheable list shape from
+    /// [`cache_key::block_list_opts`]; the index on `(block)` (migration
     /// 002) makes this an indexed lookup, not a scan.
     ///
     /// Tolerates `no such column: block` on pre-migration-002 D1s (fresh
@@ -94,17 +91,7 @@ impl D1ConfigSource {
         &self,
         screaming_block: &str,
     ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "block".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(screaming_block.to_string()),
-            }],
-            limit: 10_000,
-            offset: 0,
-            skip_count: true,
-            ..Default::default()
-        };
+        let opts = cache_key::block_list_opts(cache_key::CachedTable::Variables, screaming_block);
         let rows = match self.db.list(VARIABLES_TABLE, &opts).await {
             Ok(rows) => rows,
             Err(e) if e.to_string().contains("no such column: block") => {
