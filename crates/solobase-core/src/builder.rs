@@ -290,12 +290,24 @@ impl SolobaseBuilder {
 
     pub fn build(self) -> Result<(Wafer, Arc<SolobaseStorageBlock>), RuntimeError> {
         // 1. Validate required services
-        let database = self.database.ok_or("database service required")?;
-        let storage = self.storage.ok_or("storage service required")?;
-        let config = self.config.ok_or("config service required")?;
-        let crypto = self.crypto.ok_or("crypto service required")?;
-        let network = self.network.ok_or("network service required")?;
-        let logger = self.logger.ok_or("logger service required")?;
+        let database = self
+            .database
+            .ok_or_else(|| RuntimeError::Config("database service required".into()))?;
+        let storage = self
+            .storage
+            .ok_or_else(|| RuntimeError::Config("storage service required".into()))?;
+        let config = self
+            .config
+            .ok_or_else(|| RuntimeError::Config("config service required".into()))?;
+        let crypto = self
+            .crypto
+            .ok_or_else(|| RuntimeError::Config("crypto service required".into()))?;
+        let network = self
+            .network
+            .ok_or_else(|| RuntimeError::Config("network service required".into()))?;
+        let logger = self
+            .logger
+            .ok_or_else(|| RuntimeError::Config("logger service required".into()))?;
 
         // 2. Read JWT secret before registering config block
         let jwt_secret = config
@@ -314,7 +326,7 @@ impl SolobaseBuilder {
         wafer_core::service_blocks::database::register_with(&mut wafer, database)?;
         wafer
             .add_alias("db", "wafer-run/database")
-            .map_err(|e| format!("add_alias db: {e}"))?;
+            .map_err(|e| RuntimeError::Config(format!("add_alias db: {e}")))?;
 
         // `Arc::from(&'static str)` allocates the inline buffer once; no
         // `String::to_string` round-trip needed for a literal identifier.
@@ -323,7 +335,7 @@ impl SolobaseBuilder {
         wafer.register_block("wafer-run/storage", storage_block.clone())?;
         wafer
             .add_alias("storage", "wafer-run/storage")
-            .map_err(|e| format!("add_alias storage: {e}"))?;
+            .map_err(|e| RuntimeError::Config(format!("add_alias storage: {e}")))?;
 
         let config_ref = config.clone();
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
@@ -539,8 +551,9 @@ impl SolobaseBuilder {
                 wasm::WasmiBlock,
             };
 
-            let cwd = std::env::current_dir()
-                .map_err(|e| format!("failed to get current directory: {e}"))?;
+            let cwd = std::env::current_dir().map_err(|e| {
+                RuntimeError::Config(format!("failed to get current directory: {e}"))
+            })?;
 
             // Discover and load WASM blocks.
             let wasm_paths = discover_wasm_blocks(&cwd.join("blocks"));
@@ -561,9 +574,9 @@ impl SolobaseBuilder {
                 };
                 let name = block.info().name.clone();
                 tracing::info!(name = %name, path = %wasm_path.display(), "discovered WASM block");
-                wafer
-                    .register_block(&name, Arc::new(block))
-                    .map_err(|e| format!("auto-discovered block '{name}': {e}"))?;
+                wafer.register_block(&name, Arc::new(block)).map_err(|e| {
+                    RuntimeError::Wasm(format!("auto-discovered block '{name}': {e}"))
+                })?;
             }
 
             // Discover and load flow JSON files.
@@ -621,7 +634,7 @@ fn register_vector_block(wafer: &mut Wafer, db_path: Option<&str>) -> Result<(),
     use wafer_core::interfaces::vector::service::{EmbeddingService, VectorService};
 
     let Some(db_path) = db_path else {
-        return Err(RuntimeError::from(
+        return Err(RuntimeError::Config(
             "native-embedding feature is enabled but no sqlite_db_path was \
              provided to SolobaseBuilder — call .sqlite_db_path(...) before \
              .build()"
@@ -632,7 +645,7 @@ fn register_vector_block(wafer: &mut Wafer, db_path: Option<&str>) -> Result<(),
     // Dedicated connection for the vector service — see module docs on
     // `sqlite_db_path` for why a second connection is fine.
     let vec_conn = rusqlite::Connection::open(db_path).map_err(|e| {
-        RuntimeError::from(format!(
+        RuntimeError::Config(format!(
             "failed to open SQLite connection at '{db_path}' for vector service: {e}"
         ))
     })?;
