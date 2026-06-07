@@ -11,7 +11,7 @@ use wafer_block::{
         input::InputStream,
         output::{OutputStream, TerminalNotResponse},
     },
-    ErrorCode, Message, MetaGet, MetaEntry,
+    ErrorCode, Message, MetaEntry, MetaGet,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
