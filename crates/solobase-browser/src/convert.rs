@@ -11,7 +11,7 @@ use wafer_block::{
         input::InputStream,
         output::{OutputStream, TerminalNotResponse},
     },
-    ErrorCode, Message, MetaAccess, MetaEntry,
+    ErrorCode, Message, MetaEntry, MetaGet,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -198,12 +198,12 @@ fn apply_response_meta(headers: &Headers, meta: &[wafer_block::MetaEntry]) -> Re
 }
 
 fn get_status_code(meta: &[wafer_block::MetaEntry], default_code: u16) -> u16 {
-    if let Some(code) = MetaAccess::get(meta, META_RESP_STATUS) {
+    if let Some(code) = MetaGet::get(meta, META_RESP_STATUS) {
         if let Ok(n) = code.parse::<u16>() {
             return n;
         }
     }
-    if let Some(code) = MetaAccess::get(meta, "http.status") {
+    if let Some(code) = MetaGet::get(meta, "http.status") {
         if let Ok(n) = code.parse::<u16>() {
             return n;
         }
@@ -357,8 +357,8 @@ pub async fn output_to_response(mut output: OutputStream) -> Result<web_sys::Res
     // them and the loop below falls through to `collect_buffered`.
     let (leading_meta, next_event) = drain_leading_meta(&mut output).await;
 
-    let leading_ct = MetaAccess::get(&leading_meta, META_RESP_CONTENT_TYPE)
-        .or_else(|| MetaAccess::get(&leading_meta, "Content-Type"));
+    let leading_ct = MetaGet::get(&leading_meta, META_RESP_CONTENT_TYPE)
+        .or_else(|| MetaGet::get(&leading_meta, "Content-Type"));
 
     if let (Some(ct), Some(StreamEvent::Chunk(first))) = (leading_ct, &next_event) {
         if is_streaming_content_type(ct) {
@@ -442,8 +442,8 @@ fn finalise_buffered(
             let headers = Headers::new()?;
             apply_response_meta(&headers, &buf.meta)?;
 
-            let has_ct = MetaAccess::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
-                || MetaAccess::contains_key(&buf.meta, "Content-Type");
+            let has_ct = MetaGet::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
+                || MetaGet::contains_key(&buf.meta, "Content-Type");
             if !has_ct {
                 headers.set("Content-Type", "application/json")?;
             }
@@ -499,8 +499,8 @@ fn finalise_buffered(
             let headers = Headers::new()?;
             apply_response_meta(&headers, &buf.meta)?;
 
-            let has_ct = MetaAccess::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
-                || MetaAccess::contains_key(&buf.meta, "Content-Type");
+            let has_ct = MetaGet::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
+                || MetaGet::contains_key(&buf.meta, "Content-Type");
             if !has_ct {
                 headers.set("Content-Type", "application/json")?;
             }
@@ -522,8 +522,8 @@ fn build_streaming_response(
     let headers = Headers::new()?;
     apply_response_meta(&headers, &leading_meta)?;
 
-    let has_ct = MetaAccess::contains_key(&leading_meta, META_RESP_CONTENT_TYPE)
-        || MetaAccess::contains_key(&leading_meta, "Content-Type");
+    let has_ct = MetaGet::contains_key(&leading_meta, META_RESP_CONTENT_TYPE)
+        || MetaGet::contains_key(&leading_meta, "Content-Type");
     if !has_ct {
         // Streaming bodies without an explicit Content-Type fall back to
         // octet-stream rather than the JSON default the buffered path uses.

@@ -129,7 +129,7 @@ fn lookup_manifest(asset_id: &str) -> Option<ExternalAsset> {
 
 /// Factory: returns an `Arc<dyn LoadAssetCallback>` that bridges `load_asset`
 /// calls to the Service Worker via postMessage. Install via
-/// `wafer.set_asset_loader(solobase_browser::make_sw_asset_loader())`
+/// `wafer.set_asset_loader(&solobase_browser::make_sw_asset_loader())`
 /// before calling `wafer.seal()`.
 pub fn make_sw_asset_loader() -> std::sync::Arc<dyn wafer_run::LoadAssetCallback> {
     std::sync::Arc::new(SwAssetLoader::new())

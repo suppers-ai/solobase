@@ -12,8 +12,9 @@ use wafer_core::clients::{
     database as db,
     llm::{
         self as llm_client, ChatChunk, ChatContent, ChatMessage, ChatParams, ChatRequest, ChatRole,
-        ChunkDelta, LoadModelRequest, NativeTypedFrameStream, StatusRequest, UnloadModelRequest,
+        ChunkDelta, LoadModelRequest, StatusRequest, UnloadModelRequest,
     },
+    NativeTypedFrameStream,
 };
 use wafer_run::{
     context::Context,
