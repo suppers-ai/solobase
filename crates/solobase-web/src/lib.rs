@@ -115,7 +115,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     let (mut wafer, storage_block) = builder
         .build()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
+    wafer.set_asset_loader(&solobase_browser::make_sw_asset_loader());
 
     wafer
         .seal()
