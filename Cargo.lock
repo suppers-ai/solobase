@@ -5904,6 +5904,7 @@ dependencies = [
  "async-trait",
  "parking_lot",
  "percent-encoding",
+ "serde",
  "serde_json",
  "tracing",
  "wafer-block",
@@ -5938,6 +5939,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn",
 ]
 
@@ -5955,7 +5957,6 @@ dependencies = [
  "tracing",
  "wafer-block-macro",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -6064,6 +6065,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio-util",
  "tracing",
+ "url",
  "wafer-block",
  "wafer-block-macro",
  "wafer-schema",
@@ -6099,7 +6101,6 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "url",
  "wafer-block",
  "wafer-block-macro",
  "wafer-flow",
@@ -6114,6 +6115,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -6122,6 +6124,7 @@ version = "0.1.0"
 dependencies = [
  "sea-query",
  "serde_json",
+ "thiserror 2.0.18",
  "wafer-block",
  "wafer-schema",
 ]

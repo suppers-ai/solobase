@@ -85,8 +85,12 @@ async fn daily_counts_30d(
     }];
     filters.extend(extra_filters);
 
-    let stmt = aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
-    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
+    let rows = match aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite) {
+        Ok(stmt) => db::query(ctx, &stmt).await.unwrap_or_default(),
+        // `date_field` is the constant "created_at", so a build error is
+        // unreachable here; fall back to an empty series defensively.
+        Err(_) => Vec::new(),
+    };
 
     let counts: HashMap<String, i64> = rows
         .iter()
