@@ -34,9 +34,6 @@ block-legalpages = ["solobase-core/block-legalpages"]
 block-messages = ["solobase-core/block-messages"]
 block-products = ["solobase-core/block-products"]
 block-userportal = ["solobase-core/block-userportal"]
-# Reserved for the future wasmi-on-wasm "user-uploaded blocks" feature.
-# Disabled in v1; kept here for parity with solobase-native.
-custom-blocks = []
 
 [dependencies]
 # WAFER runtime
