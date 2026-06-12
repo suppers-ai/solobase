@@ -10,9 +10,8 @@ use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
     blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
     ui::{
-        self, components, icons, nav_groups,
+        components, icons, nav_groups,
         shell::{Crumb, Topbar},
-        sidebar::nav_icon,
         SiteConfig, UserInfo,
     },
 };
@@ -21,24 +20,6 @@ pub(crate) mod migrations;
 mod pages;
 
 const TABLE: &str = "suppers_ai__userportal__buttons";
-
-/// Known icon names available for button configuration.
-const ICON_OPTIONS: &[(&str, &str)] = &[
-    ("package", "Package"),
-    ("shopping-cart", "Shopping Cart"),
-    ("folder", "Folder"),
-    ("key", "Key"),
-    ("server", "Server"),
-    ("globe", "Globe"),
-    ("users", "Users"),
-    ("user", "User"),
-    ("settings", "Settings"),
-    ("shield", "Shield"),
-    ("file-text", "File"),
-    ("bar-chart", "Chart"),
-    ("dollar-sign", "Dollar"),
-    ("dashboard", "Dashboard"),
-];
 
 pub struct UserPortalBlock;
 
@@ -205,8 +186,10 @@ impl UserPortalBlock {
         match (action, sub) {
             ("retrieve", "/admin/settings") => admin_settings_page(ctx, &msg).await,
             ("create", "/admin/settings") => handle_save_settings(ctx, input).await,
-            ("retrieve", "/admin/buttons") => admin_buttons_page(ctx, &msg).await,
-            ("create", "/admin/buttons") => handle_create_button(ctx, input).await,
+            ("retrieve", "/admin/buttons") => pages::admin_buttons::admin_buttons_page(ctx, &msg).await,
+            ("create", "/admin/buttons") => {
+                pages::admin_buttons::handle_create_button(ctx, input).await
+            }
             ("retrieve", s) if s.starts_with("/admin/buttons/") && s.ends_with("/edit") => {
                 let id = s
                     .strip_prefix("/admin/buttons/")
@@ -215,21 +198,21 @@ impl UserPortalBlock {
                 if id.is_empty() {
                     return err_not_found("not found");
                 }
-                handle_edit_button_form(ctx, id).await
+                pages::admin_buttons::handle_edit_button_form(ctx, id).await
             }
             ("update", s) if s.starts_with("/admin/buttons/") => {
                 let id = s.strip_prefix("/admin/buttons/").unwrap_or("");
                 if id.is_empty() {
                     return err_not_found("not found");
                 }
-                handle_update_button(ctx, input, id).await
+                pages::admin_buttons::handle_update_button(ctx, input, id).await
             }
             ("delete", s) if s.starts_with("/admin/buttons/") => {
                 let id = s.strip_prefix("/admin/buttons/").unwrap_or("");
                 if id.is_empty() {
                     return err_not_found("not found");
                 }
-                handle_delete_button(ctx, id).await
+                pages::admin_buttons::handle_delete_button(ctx, id).await
             }
             _ => err_not_found("not found"),
         }
@@ -321,311 +304,6 @@ async fn handle_update_profile(
     // Plain form POST → 303 See Other so the browser follows up with a GET
     // and the back/forward stack stays clean.
     helpers::redirect(303, "/b/userportal/profile")
-}
-
-// ---------------------------------------------------------------------------
-// Admin: Buttons management page
-// ---------------------------------------------------------------------------
-
-async fn admin_buttons_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let buttons = load_buttons(ctx).await;
-
-    let content = html! {
-        (components::page_header(
-            "Portal Buttons",
-            Some("Configure navigation buttons shown on the user profile page"),
-            None,
-        ))
-
-        // Add button form
-        div .card style="margin-bottom:1.5rem;padding:1.25rem" {
-            h3 style="margin:0 0 1rem;font-size:1rem" { "Add Button" }
-            form
-                hx-post="/b/userportal/admin/buttons"
-                hx-target="#buttons-table"
-                hx-swap="outerHTML"
-                style="display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:0.75rem;align-items:end"
-            {
-                div .form-group style="margin:0" {
-                    label .form-label for="label" { "Label" }
-                    input .form-input #label type="text" name="label"
-                        placeholder="e.g. My Products" required;
-                }
-                div .form-group style="margin:0" {
-                    label .form-label for="path" { "Path" }
-                    input .form-input #path type="text" name="path"
-                        placeholder="e.g. /b/products/mine" required;
-                }
-                div .form-group style="margin:0" {
-                    label .form-label for="icon" { "Icon" }
-                    select .form-input #icon name="icon" {
-                        @for &(value, display) in ICON_OPTIONS {
-                            option value=(value) { (display) }
-                        }
-                    }
-                }
-                div .form-group style="margin:0" {
-                    label .form-label for="sort_order" { "Order" }
-                    input .form-input #sort_order type="number" name="sort_order"
-                        value="0" style="width:5rem";
-                }
-                button .btn .btn-primary type="submit" style="white-space:nowrap" {
-                    (icons::plus()) " Add"
-                }
-            }
-        }
-
-        // Buttons table
-        (render_buttons_table(&buttons))
-    };
-
-    render_page(
-        "Portal Buttons",
-        &site_config,
-        "/b/userportal/admin/buttons",
-        user.as_ref(),
-        "Portal Buttons",
-        content,
-        msg,
-    )
-}
-
-fn render_buttons_table(buttons: &[wafer_core::clients::database::Record]) -> maud::Markup {
-    html! {
-        div #buttons-table {
-            @if buttons.is_empty() {
-                (components::empty_state(
-                    icons::package(),
-                    "No buttons configured",
-                    "Add a button above to show navigation links on the user profile page.",
-                    None,
-                ))
-            } @else {
-                div .table-container {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Label" }
-                                th { "Icon" }
-                                th { "Path" }
-                                th { "Order" }
-                                th style="width:6rem" { "Actions" }
-                            }
-                        }
-                        tbody {
-                            @for btn in buttons {
-                                tr {
-                                    td .font-medium { (btn.str_field("label")) }
-                                    td {
-                                        span .nav-icon style="display:inline-flex" {
-                                            (nav_icon(btn.str_field("icon")))
-                                        }
-                                        " "
-                                        span .text-muted .text-sm { (btn.str_field("icon")) }
-                                    }
-                                    td { code { (btn.str_field("path")) } }
-                                    td { (btn.i64_field("sort_order")) }
-                                    td {
-                                        div style="display:flex;gap:0.25rem" {
-                                            button .btn .btn-ghost .btn-sm
-                                                hx-get=(format!("/b/userportal/admin/buttons/{}/edit", btn.id))
-                                                hx-target=(format!("#edit-modal-{}", btn.id))
-                                                hx-swap="innerHTML"
-                                                title="Edit"
-                                            {
-                                                (icons::edit())
-                                            }
-                                            button .btn .btn-ghost .btn-sm
-                                                hx-delete=(format!("/b/userportal/admin/buttons/{}", btn.id))
-                                                hx-target="#buttons-table"
-                                                hx-swap="outerHTML"
-                                                hx-confirm="Delete this button?"
-                                                title="Delete"
-                                                style="color:var(--danger)"
-                                            {
-                                                (icons::trash())
-                                            }
-                                        }
-                                        div id=(format!("edit-modal-{}", btn.id)) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Admin: Button CRUD handlers
-// ---------------------------------------------------------------------------
-
-async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    let raw = input.collect_to_bytes().await;
-    let body = parse_form_body(&raw);
-
-    let label = body.get("label").map(|s| s.as_str()).unwrap_or("").trim();
-    let path = body.get("path").map(|s| s.as_str()).unwrap_or("").trim();
-    let icon = body
-        .get("icon")
-        .map(|s| s.as_str())
-        .unwrap_or("package")
-        .trim();
-    let sort_order: i64 = body
-        .get("sort_order")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    if label.is_empty() || path.is_empty() {
-        return err_bad_request("Label and path are required");
-    }
-
-    let mut data = super::helpers::json_map(serde_json::json!({
-        "label": label,
-        "path": path,
-        "icon": icon,
-        "sort_order": sort_order,
-    }));
-    super::helpers::stamp_created(&mut data);
-
-    if let Err(e) = db::create(ctx, TABLE, data).await {
-        return err_internal("Failed to create button", e.message);
-    }
-
-    // Re-render buttons table
-    let buttons = load_buttons(ctx).await;
-    ui::html_response(render_buttons_table(&buttons))
-}
-
-/// Validate that `id` is safe to interpolate into inline HTML/JS strings
-/// (DOM IDs, `getElementById` arguments, etc.). Rejects anything outside
-/// `[A-Za-z0-9_-]` and any string longer than 64 chars or empty.
-///
-/// Used by SEC-058: the userportal edit-button form inlines the record ID
-/// into a `script` block via `PreEscaped`, so it must not contain quotes,
-/// angle brackets, backslashes, or any other JS-syntax-significant chars.
-fn is_safe_dom_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStream {
-    // SEC-058: the modal auto-show script below uses `PreEscaped(format!(...))`
-    // to inject the record ID into inline JS. A record returned from
-    // `db::get` should always have a well-formed ID (UUIDv7), but defensively
-    // reject any caller-supplied path segment that isn't strict
-    // `[a-zA-Z0-9_-]{1,64}` so the JS string interpolation can never be
-    // poisoned even if a future code path looks the record up by a
-    // non-validated identifier.
-    if !is_safe_dom_id(id) {
-        return err_not_found("Button not found");
-    }
-    let record = match db::get(ctx, TABLE, id).await {
-        Ok(r) => r,
-        Err(_) => return err_not_found("Button not found"),
-    };
-
-    let current_icon = record.str_field("icon");
-
-    let markup = html! {
-        (components::modal(&format!("edit-btn-{id}"), "Edit Button", html! {
-            form
-                hx-put=(format!("/b/userportal/admin/buttons/{id}"))
-                hx-target="#buttons-table"
-                hx-swap="outerHTML"
-                style="display:flex;flex-direction:column;gap:0.75rem"
-            {
-                div .form-group style="margin:0" {
-                    label .form-label { "Label" }
-                    input .form-input type="text" name="label"
-                        value=(record.str_field("label")) required;
-                }
-                div .form-group style="margin:0" {
-                    label .form-label { "Path" }
-                    input .form-input type="text" name="path"
-                        value=(record.str_field("path")) required;
-                }
-                div .form-group style="margin:0" {
-                    label .form-label { "Icon" }
-                    select .form-input name="icon" {
-                        @for &(value, display) in ICON_OPTIONS {
-                            option value=(value) selected[value == current_icon] { (display) }
-                        }
-                    }
-                }
-                div .form-group style="margin:0" {
-                    label .form-label { "Order" }
-                    input .form-input type="number" name="sort_order"
-                        value=(record.i64_field("sort_order"));
-                }
-                div style="display:flex;gap:0.5rem;justify-content:flex-end" {
-                    button .btn .btn-secondary type="button"
-                        onclick=(format!("document.getElementById('edit-btn-{id}').style.display='none'"))
-                    { "Cancel" }
-                    button .btn .btn-primary type="submit" { "Save" }
-                }
-            }
-        }))
-        // Auto-show the modal
-        script { (maud::PreEscaped(format!(
-            "document.getElementById('edit-btn-{id}').style.display='flex';"
-        ))) }
-    };
-
-    ui::html_response(markup)
-}
-
-async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -> OutputStream {
-    let raw = input.collect_to_bytes().await;
-    let body = parse_form_body(&raw);
-
-    let label = body.get("label").map(|s| s.as_str()).unwrap_or("").trim();
-    let path = body.get("path").map(|s| s.as_str()).unwrap_or("").trim();
-    let icon = body
-        .get("icon")
-        .map(|s| s.as_str())
-        .unwrap_or("package")
-        .trim();
-    let sort_order: i64 = body
-        .get("sort_order")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    if label.is_empty() || path.is_empty() {
-        return err_bad_request("Label and path are required");
-    }
-
-    let mut data = super::helpers::json_map(serde_json::json!({
-        "label": label,
-        "path": path,
-        "icon": icon,
-        "sort_order": sort_order,
-    }));
-    stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, TABLE, id, data).await {
-        return err_internal("Failed to update button", e.message);
-    }
-
-    // Re-render buttons table
-    let buttons = load_buttons(ctx).await;
-    ui::html_response(render_buttons_table(&buttons))
-}
-
-async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
-    if let Err(e) = db::delete(ctx, TABLE, id).await {
-        return err_internal("Failed to delete button", e.message);
-    }
-
-    let buttons = load_buttons(ctx).await;
-    ui::html_response(render_buttons_table(&buttons))
 }
 
 // ---------------------------------------------------------------------------
