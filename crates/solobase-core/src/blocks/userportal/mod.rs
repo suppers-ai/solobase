@@ -186,7 +186,9 @@ impl UserPortalBlock {
         match (action, sub) {
             ("retrieve", "/admin/settings") => admin_settings_page(ctx, &msg).await,
             ("create", "/admin/settings") => handle_save_settings(ctx, input).await,
-            ("retrieve", "/admin/buttons") => pages::admin_buttons::admin_buttons_page(ctx, &msg).await,
+            ("retrieve", "/admin/buttons") => {
+                pages::admin_buttons::admin_buttons_page(ctx, &msg).await
+            }
             ("create", "/admin/buttons") => {
                 pages::admin_buttons::handle_create_button(ctx, input).await
             }

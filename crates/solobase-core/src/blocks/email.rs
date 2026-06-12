@@ -283,7 +283,9 @@ async fn handle_send_template(
                     "#dc2626",
                     &body,
                     Some((&settings_url, "Update Payment Method", "#dc2626")),
-                    Some("If you've already updated your payment method, you can ignore this email."),
+                    Some(
+                        "If you've already updated your payment method, you can ignore this email.",
+                    ),
                 ),
                 format!(
                     "Your {app_name} payment failed. Update your payment method within {days} days."
