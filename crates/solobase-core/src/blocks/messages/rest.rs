@@ -135,6 +135,7 @@ pub async fn delete_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
     match service::delete_context(ctx, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Context not found"),
         Err(e) => err_internal("delete_context failed", e),
     }
 }
