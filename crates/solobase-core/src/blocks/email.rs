@@ -241,13 +241,12 @@ async fn handle_send_template(
             );
             (
                 format!("Verify your {app_name} email"),
-                format!(
-                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
-<h2 style="color:#1e293b">Verify your email</h2>
-<p style="color:#64748b;line-height:1.6">Click the button below to verify your email address. This link expires in 24 hours.</p>
-<a href="{url}" style="display:inline-block;background:#0ea5e9;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Verify Email</a>
-<p style="color:#94a3b8;font-size:0.813rem">If you didn't create an account, you can ignore this email.</p>
-</div>"#
+                email_shell(
+                    "Verify your email",
+                    "#1e293b",
+                    r#"<p style="color:#64748b;line-height:1.6">Click the button below to verify your email address. This link expires in 24 hours.</p>"#,
+                    Some((&url, "Verify Email", "#0ea5e9")),
+                    Some("If you didn't create an account, you can ignore this email."),
                 ),
                 format!("Verify your {app_name} email: {url}"),
             )
@@ -261,13 +260,12 @@ async fn handle_send_template(
             );
             (
                 format!("Reset your {app_name} password"),
-                format!(
-                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
-<h2 style="color:#1e293b">Reset your password</h2>
-<p style="color:#64748b;line-height:1.6">Click the button below to reset your password. This link expires in 1 hour.</p>
-<a href="{url}" style="display:inline-block;background:#0ea5e9;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Reset Password</a>
-<p style="color:#94a3b8;font-size:0.813rem">If you didn't request a password reset, you can ignore this email.</p>
-</div>"#
+                email_shell(
+                    "Reset your password",
+                    "#1e293b",
+                    r#"<p style="color:#64748b;line-height:1.6">Click the button below to reset your password. This link expires in 1 hour.</p>"#,
+                    Some((&url, "Reset Password", "#0ea5e9")),
+                    Some("If you didn't request a password reset, you can ignore this email."),
                 ),
                 format!("Reset your {app_name} password: {url}"),
             )
@@ -275,19 +273,20 @@ async fn handle_send_template(
         "payment_failed" => {
             let days = req.days_remaining.unwrap_or(7);
             let settings_url = format!("{base_url}/b/admin/#settings");
+            let body = format!(
+                r#"<p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>"#
+            );
             (
                 format!("{app_name}: Payment failed — action required"),
-                format!(
-                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
-<h2 style="color:#dc2626">Payment failed</h2>
-<p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>
-<a href="{settings_url}" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
-<p style="color:#94a3b8;font-size:0.813rem">If you've already updated your payment method, you can ignore this email.</p>
-</div>"#
+                email_shell(
+                    "Payment failed",
+                    "#dc2626",
+                    &body,
+                    Some((&settings_url, "Update Payment Method", "#dc2626")),
+                    Some("If you've already updated your payment method, you can ignore this email."),
                 ),
                 format!(
-                    "Your {app_name} payment failed. Update your payment method within {} days.",
-                    days
+                    "Your {app_name} payment failed. Update your payment method within {days} days."
                 ),
             )
         }
@@ -301,19 +300,17 @@ async fn handle_send_template(
             let pricing_url = format!("{site_url}/pricing/");
             let dashboard_url = format!("{base_url}/b/admin/");
             let docs_url = format!("{site_url}/docs/");
-            (
-                format!("Welcome to {app_name}!"),
-                format!(
-                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
-<h2 style="color:#1e293b">{greeting}</h2>
-<p style="color:#64748b;line-height:1.6">Your {app_name} account is ready. Here's how to get started:</p>
+            let body = format!(
+                r#"<p style="color:#64748b;line-height:1.6">Your {app_name} account is ready. Here's how to get started:</p>
 <ol style="color:#64748b;line-height:1.8">
 <li>Choose a plan on the <a href="{pricing_url}" style="color:#0ea5e9">pricing page</a></li>
 <li>Create your first project from the <a href="{dashboard_url}" style="color:#0ea5e9">dashboard</a></li>
 <li>Read the <a href="{docs_url}" style="color:#0ea5e9">documentation</a></li>
-</ol>
-</div>"#
-                ),
+</ol>"#
+            );
+            (
+                format!("Welcome to {app_name}!"),
+                email_shell(&greeting, "#1e293b", &body, None, None),
                 format!("Welcome to {app_name}! Get started: {dashboard_url}"),
             )
         }
@@ -324,6 +321,40 @@ async fn handle_send_template(
 
     let sent = send_email(ctx, &req.to, &subject, &html, Some(&text)).await;
     ok_json(&SendResp { sent })
+}
+
+/// Shared HTML wrapper for the templated emails: the outer card `div`
+/// (font stack, max-width, padding), a colored `<h2>` heading, the
+/// caller-provided body HTML, an optional CTA button
+/// (`(url, label, background-color)`), and an optional small-print footnote.
+/// Keeps the repeated inline-style markup in one place so each template arm
+/// only supplies its content.
+fn email_shell(
+    heading: &str,
+    heading_color: &str,
+    body_html: &str,
+    cta: Option<(&str, &str, &str)>,
+    footnote: Option<&str>,
+) -> String {
+    let mut out = format!(
+        r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
+<h2 style="color:{heading_color}">{heading}</h2>
+{body_html}"#
+    );
+    if let Some((url, label, background)) = cta {
+        out.push('\n');
+        out.push_str(&format!(
+            r#"<a href="{url}" style="display:inline-block;background:{background};color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">{label}</a>"#
+        ));
+    }
+    if let Some(note) = footnote {
+        out.push('\n');
+        out.push_str(&format!(
+            r#"<p style="color:#94a3b8;font-size:0.813rem">{note}</p>"#
+        ));
+    }
+    out.push_str("\n</div>");
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +380,13 @@ async fn send_email(
     };
 
     if api_key.is_empty() || domain.is_empty() {
-        // Email not configured — log but don't fail
+        // Email not configured — don't fail the caller, but make the
+        // resulting {"sent": false} diagnosable from the logs.
+        tracing::warn!(
+            to = %to,
+            "email not sent: Mailgun is not configured (SUPPERS_AI__EMAIL__MAILGUN_API_KEY \
+             and/or SUPPERS_AI__EMAIL__MAILGUN_DOMAIN unset)"
+        );
         return false;
     }
 
@@ -390,8 +427,21 @@ async fn send_email(
     );
 
     match net::do_request(ctx, "POST", &url, &headers, Some(body.as_bytes())).await {
-        Ok(resp) => (200..300).contains(&resp.status_code),
-        Err(_) => false,
+        Ok(resp) => {
+            let sent = (200..300).contains(&resp.status_code);
+            if !sent {
+                tracing::warn!(
+                    status = resp.status_code,
+                    to = %to,
+                    "email not sent: Mailgun returned non-2xx status"
+                );
+            }
+            sent
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, to = %to, "email not sent: Mailgun request failed");
+            false
+        }
     }
 }
 
@@ -644,6 +694,37 @@ mod tests {
         assert_eq!(
             resolve_base_url("https://api.mailgun.net/"),
             "https://api.mailgun.net"
+        );
+    }
+
+    // ---- email_shell ----------------------------------------------------------
+
+    #[test]
+    fn email_shell_renders_heading_body_cta_and_footnote() {
+        let html = email_shell(
+            "Test heading",
+            "#1e293b",
+            "<p>body content</p>",
+            Some(("https://x.test/go", "Go Now", "#0ea5e9")),
+            Some("Small print."),
+        );
+        assert!(html.starts_with(r#"<div style="font-family:"#));
+        assert!(html.ends_with("</div>"));
+        assert!(html.contains(r##"<h2 style="color:#1e293b">Test heading</h2>"##));
+        assert!(html.contains("<p>body content</p>"));
+        assert!(html.contains(r#"<a href="https://x.test/go""#));
+        assert!(html.contains("background:#0ea5e9"));
+        assert!(html.contains(">Go Now</a>"));
+        assert!(html.contains("Small print."));
+    }
+
+    #[test]
+    fn email_shell_omits_cta_and_footnote_when_absent() {
+        let html = email_shell("H", "#1e293b", "<p>b</p>", None, None);
+        assert!(!html.contains("<a href="), "no CTA expected: {html}");
+        assert!(
+            !html.contains("font-size:0.813rem"),
+            "no footnote expected: {html}"
         );
     }
 
