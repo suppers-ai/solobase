@@ -1,7 +1,7 @@
 use maud::{html, PreEscaped};
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, AuthLevel, CollectionSchema, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, CollectionSchema, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{

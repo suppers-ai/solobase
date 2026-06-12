@@ -4,7 +4,7 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ResourceGrant, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use crate::{
     blocks::helpers::{self, err_not_found},

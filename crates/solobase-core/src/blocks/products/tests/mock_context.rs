@@ -65,7 +65,7 @@ impl MockContext {
             "database.execute" => self.db_execute(data),
             "database.query" => self.db_query(data),
             _ => Err(WaferError::new(
-                "not_implemented",
+                ErrorCode::Unimplemented,
                 format!("unhandled db op: {kind}"),
             )),
         }
@@ -78,7 +78,7 @@ impl MockContext {
             Some(v) => codec::encode(&cfg_wire::GetResponse { value: v.clone() })
                 .map_err(|e| WaferError::new(ErrorCode::Internal, e.message)),
             None => Err(WaferError::new(
-                "not_found",
+                ErrorCode::NotFound,
                 format!("config key '{}' not found", req.key),
             )),
         }
@@ -553,7 +553,7 @@ impl Context for MockContext {
             "wafer-run/database" => self.handle_db_call(&kind, &data),
             "wafer-run/config" => self.handle_config_call(&kind, &data),
             _ => Err(WaferError::new(
-                "not_found",
+                ErrorCode::NotFound,
                 format!("block '{}' not found", block_name),
             )),
         };

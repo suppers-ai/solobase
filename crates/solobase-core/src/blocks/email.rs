@@ -11,7 +11,7 @@ use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, ConfigVar, InputType, InstanceMode, LifecycleEvent, LifecycleType, WaferError};
+use wafer_run::{Block, BlockInfo, context::Context, ConfigVar, InputStream, InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError};
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
 use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok_json};
@@ -541,7 +541,7 @@ mod tests {
     };
 
     use wafer_block::{codec, wire::config as cfg_wire};
-    use wafer_run::{context::Context, Message, InputStream, OutputStream};
+    use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
     use super::*;
 
@@ -589,7 +589,7 @@ mod tests {
                     Ok(r) => r,
                     Err(e) => {
                         return OutputStream::error(wafer_run::WaferError::new(
-                            "internal", e.message,
+                            ErrorCode::Internal, e.message,
                         ));
                     }
                 };
@@ -608,7 +608,7 @@ mod tests {
                 };
             }
             OutputStream::error(wafer_run::WaferError::new(
-                "not_found",
+                ErrorCode::NotFound,
                 format!("unhandled call: {block_name}/{}", msg.kind),
             ))
         }

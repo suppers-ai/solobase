@@ -70,15 +70,19 @@ async fn load_tables(ctx: &dyn Context) -> Vec<TableSummary> {
         if name.is_empty() {
             continue;
         }
-        let count_sql = introspect::build_table_row_count(&name, Backend::Sqlite);
-        let row_count = db::query_raw(ctx, &count_sql, &[])
-            .await
-            .ok()
-            .and_then(|r| {
-                r.first()
-                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-            })
-            .unwrap_or(0);
+        // The name comes from the backend's own table listing; a build error
+        // (invalid identifier) is treated like a failed count query: 0 rows.
+        let row_count = match introspect::build_table_row_count(&name, Backend::Sqlite) {
+            Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
+                .await
+                .ok()
+                .and_then(|r| {
+                    r.first()
+                        .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+                })
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
         out.push(TableSummary { name, row_count });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -242,19 +246,25 @@ async fn schema_panel(ctx: &dyn Context, table: Option<&str>) -> Markup {
         };
     };
 
-    let (info_sql, info_args) = introspect::build_table_info(name, Backend::Sqlite);
-    let columns = db::query_raw(ctx, &info_sql, &info_args)
-        .await
-        .unwrap_or_default();
-    let count_sql = introspect::build_table_row_count(name, Backend::Sqlite);
-    let row_count = db::query_raw(ctx, &count_sql, &[])
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+    // The selected name is user input; an invalid identifier renders the same
+    // empty state as a table the backend can't introspect.
+    let columns = match introspect::build_table_info(name, Backend::Sqlite) {
+        Ok((info_sql, info_args)) => db::query_raw(ctx, &info_sql, &info_args)
+            .await
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let row_count = match introspect::build_table_row_count(name, Backend::Sqlite) {
+        Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
+            .await
+            .ok()
+            .and_then(|r| {
+                r.first()
+                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+            })
+            .unwrap_or(0),
+        Err(_) => 0,
+    };
 
     html! {
         div .db-panel {

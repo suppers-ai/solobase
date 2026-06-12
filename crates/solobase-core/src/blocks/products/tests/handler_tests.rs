@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use wafer_run::ErrorCode;
 
 use super::mock_context::*;
 use crate::blocks::products::handlers;
