@@ -33,13 +33,11 @@ wafer-run = { git = "https://github.com/wafer-run/wafer-run", branch = "main", d
 wafer-block = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-core = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-sql-utils = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-config = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-cors = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-crypto = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-http-listener = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-inspector = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-local-storage = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-logger = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-network = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-readonly-guard = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-router = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }

@@ -55,7 +55,6 @@ solobase-core = { path = "../solobase-core", default-features = false, features 
 ] }
 
 # Config service (needed for EnvConfigService::new() and ConfigService::set())
-wafer-block-config = { workspace = true }
 
 # Async traits
 async-trait = "0.1"

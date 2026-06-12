@@ -77,7 +77,7 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
     let features = load_block_settings(&infra.db_path);
 
     // 7. Build WAFER runtime via SolobaseBuilder
-    let config_service = wafer_block_config::service::EnvConfigService::new();
+    let config_service = wafer_core::service_blocks::config::EnvConfigService::new();
     for (key, value) in &vars {
         config_service.set(key, value);
     }
