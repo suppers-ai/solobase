@@ -1,7 +1,7 @@
 use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, OutputStream, Message};
 
 use super::{admin_page, crumb};
 use crate::{

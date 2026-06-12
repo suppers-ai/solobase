@@ -10,7 +10,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use wafer_block::stream::StreamEvent;
 use wafer_core::interfaces::network::service::NetworkService;
-use wafer_run::{block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream};
+use wafer_run::{Block, context::Context, BlockInfo, InputStream, OutputStream, LifecycleEvent, Message, WaferError};
 
 /// A network block that logs outbound requests.
 pub struct SolobaseNetworkBlock {

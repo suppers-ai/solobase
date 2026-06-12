@@ -2,7 +2,7 @@
 
 use sha2::{Digest, Sha256};
 use wafer_core::clients::config;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::{
     auth::repo::oauth_pkce::{self, NewPkceState},

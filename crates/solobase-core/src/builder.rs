@@ -24,7 +24,7 @@ use wafer_core::interfaces::{
     logger::service::LoggerService, network::service::NetworkService,
     storage::service::StorageService,
 };
-use wafer_run::{block::Block, RuntimeError, Wafer};
+use wafer_run::{Block, RuntimeError, Wafer};
 
 use crate::{
     blocks::{router::SolobaseRouterBlock, storage::SolobaseStorageBlock},
@@ -546,10 +546,7 @@ impl SolobaseBuilder {
         {
             use std::sync::Arc;
 
-            use wafer_run::{
-                discovery::{discover_flows, discover_wasm_blocks},
-                wasm::WasmiBlock,
-            };
+            use wafer_run::{discovery::{discover_flows, discover_wasm_blocks}, wasm::WasmiBlock};
 
             let cwd = std::env::current_dir().map_err(|e| {
                 RuntimeError::Config(format!("failed to get current directory: {e}"))

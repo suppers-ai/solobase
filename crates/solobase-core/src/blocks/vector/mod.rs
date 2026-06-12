@@ -4,12 +4,7 @@ pub mod pages;
 pub mod pages_ui;
 pub mod service;
 
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, AuthLevel, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use crate::blocks::helpers;
 

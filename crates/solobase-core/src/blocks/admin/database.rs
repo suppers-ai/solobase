@@ -1,5 +1,5 @@
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream, Message};
 use wafer_sql_utils::{introspect, Backend};
 
 use crate::blocks::helpers::{

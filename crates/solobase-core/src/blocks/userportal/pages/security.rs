@@ -2,7 +2,7 @@
 //! + email verification status.
 
 use maud::html;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::{

@@ -13,13 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use wafer_run::{
-    block::Block,
-    context::Context,
-    streams::output::{BufferedResponse, TerminalNotResponse},
-    types::{ErrorCode, Message, ResourceGrant, WaferError},
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, context::Context, streams::output::{BufferedResponse, TerminalNotResponse}, ErrorCode, Message, ResourceGrant, WaferError, InputStream, OutputStream};
 
 /// Minimal test context backed by a real in-memory SQLite database.
 ///
@@ -199,7 +193,7 @@ impl Context for TestContext {
                 let rt = if rt_str.is_empty() {
                     None
                 } else {
-                    wafer_run::types::ResourceType::parse(rt_str)
+                    wafer_run::ResourceType::parse(rt_str)
                 };
                 if let Err(e) = wafer_block::wrap::check_access(
                     Some(caller.as_str()),
@@ -505,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn registered_block_is_dispatched_through_call_block() {
         use async_trait::async_trait;
-        use wafer_run::{block::Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent};
+        use wafer_run::{Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent};
 
         struct EchoBlock;
 

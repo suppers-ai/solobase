@@ -7,10 +7,7 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use wafer_core::{clients::crypto, interfaces::auth::service::TokenScope};
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 
 use super::{
     repo::{self, pats},

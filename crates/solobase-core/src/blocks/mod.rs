@@ -56,13 +56,13 @@ pub mod vector;
 ///
 /// Used by `collect_all_config_vars()` to discover declared config
 /// variables before block registration runs.
-pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
-    use wafer_run::block::Block as _;
+pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
+    use wafer_run::Block as _;
 
     // `unused_mut` fires when every optional feature is off and no later
     // `.push(...)` exists to mutate the vec.
     #[allow(unused_mut)]
-    let mut infos: Vec<wafer_run::block::BlockInfo> = vec![
+    let mut infos: Vec<wafer_run::BlockInfo> = vec![
         admin::AdminBlock::new().info(),
         auth_ui::AuthUiBlock::default().info(),
         email::EmailBlock::new().info(),

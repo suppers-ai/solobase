@@ -15,10 +15,7 @@
 //! bootstrap is a first-run mechanism only, never a "re-seed" trigger.
 
 use wafer_core::clients::crypto;
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 
 use super::{
     config::AuthConfig,

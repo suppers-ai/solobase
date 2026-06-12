@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{crypto, database as db};
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, Message, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::API_KEYS_TABLE,

@@ -11,12 +11,7 @@ use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, ConfigVar, InputType, InstanceMode, LifecycleEvent, LifecycleType, WaferError};
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
 use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok_json};
@@ -546,7 +541,7 @@ mod tests {
     };
 
     use wafer_block::{codec, wire::config as cfg_wire};
-    use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+    use wafer_run::{context::Context, Message, InputStream, OutputStream};
 
     use super::*;
 

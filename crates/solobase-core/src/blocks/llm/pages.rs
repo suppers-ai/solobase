@@ -8,7 +8,7 @@
 use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, OutputStream, Message};
 
 use super::SETTINGS_TABLE;
 use crate::{

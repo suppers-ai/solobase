@@ -4,12 +4,7 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ResourceGrant, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use crate::{
     blocks::helpers::{self, err_not_found},
@@ -35,7 +30,7 @@ impl Default for MessagesBlock {
 impl Block for MessagesBlock {
     fn info(&self) -> BlockInfo {
         use wafer_block::types::ResourceGrant;
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{CollectionSchema, AuthLevel};
 
         BlockInfo::new(
             "suppers-ai/messages",

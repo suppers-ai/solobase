@@ -1,12 +1,7 @@
 use maud::{html, PreEscaped};
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, AuthLevel, CollectionSchema, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
@@ -788,7 +783,7 @@ mod cross_block_tests {
 
     use serde_json::json;
     use wafer_core::clients::database as db;
-    use wafer_run::block::Block;
+    use wafer_run::Block;
 
     use super::*;
     use crate::test_support::{anon_msg, output_json, TestContext};

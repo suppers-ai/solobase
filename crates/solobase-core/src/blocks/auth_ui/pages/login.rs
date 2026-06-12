@@ -1,7 +1,7 @@
 //! GET /b/auth/login — relocated from auth/pages/mod.rs::login_page in Task 5.
 
 use maud::{html, PreEscaped};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{
     login_script, oauth_button_script, oauth_provider_configured, oauth_provider_icon,

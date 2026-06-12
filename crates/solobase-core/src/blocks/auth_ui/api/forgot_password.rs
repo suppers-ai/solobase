@@ -1,7 +1,7 @@
 //! POST /b/auth/api/forgot-password — relocated from auth/login.rs in Task 5.
 
 use wafer_core::clients::{crypto, database as db};
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, Message, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::USERS_TABLE,

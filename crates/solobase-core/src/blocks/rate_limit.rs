@@ -267,7 +267,7 @@ pub fn rate_limited_response(retry_after: u64) -> OutputStream {
     OutputStream::error(wafer_run::WaferError {
         code: wafer_code,
         message: full_message,
-        meta: vec![wafer_run::types::MetaEntry {
+        meta: vec![wafer_run::MetaEntry {
             key: "resp.header.Retry-After".to_string(),
             value: retry_after.to_string(),
         }],
@@ -314,7 +314,7 @@ pub async fn check_rate_limit(
 pub async fn check_user_rate_limit(
     limiter: &UserRateLimiter,
     ctx: &dyn wafer_run::context::Context,
-    msg: &wafer_run::types::Message,
+    msg: &wafer_run::Message,
 ) -> RateLimitOutcome {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
@@ -331,7 +331,7 @@ pub async fn check_user_rate_limit(
 
 #[cfg(test)]
 mod tests {
-    use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+    use wafer_run::{context::Context, Message, InputStream, OutputStream};
 
     use super::*;
 

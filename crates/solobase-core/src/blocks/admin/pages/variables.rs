@@ -1,6 +1,6 @@
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db};
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream, Message};
 
 use crate::{
     blocks::{

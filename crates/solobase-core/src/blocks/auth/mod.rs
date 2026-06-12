@@ -358,9 +358,9 @@ pub(crate) mod helpers {
 pub async fn authenticate_api_key(
     ctx: &dyn wafer_run::context::Context,
     api_key: &str,
-    msg: &mut wafer_run::types::Message,
+    msg: &mut wafer_run::Message,
 ) {
-    use wafer_run::meta::*;
+    use wafer_run::*;
 
     use crate::blocks::helpers::{sha256_hex, RecordExt};
 

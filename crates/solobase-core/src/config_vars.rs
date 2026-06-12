@@ -6,7 +6,7 @@
 //! Use `collect_all_config_vars()` to get the complete set of all known config
 //! variables (shared + block-declared) for seeding, validation, and UI rendering.
 
-use wafer_run::types::{ConfigVar, InputType};
+use wafer_run::{ConfigVar, InputType};
 
 /// Shared config variables readable by all blocks, writable only by admin.
 ///
@@ -138,7 +138,7 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
 }
 
 /// Collect all known config variables: shared + all block-declared.
-pub fn collect_all_config_vars(block_infos: &[wafer_run::block::BlockInfo]) -> Vec<ConfigVar> {
+pub fn collect_all_config_vars(block_infos: &[wafer_run::BlockInfo]) -> Vec<ConfigVar> {
     let mut all = shared_config_vars();
     for info in block_infos {
         all.extend(info.config_keys.iter().cloned());

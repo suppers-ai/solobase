@@ -8,7 +8,7 @@ use wafer_block::{
     wire::{config as cfg_wire, database as db_wire},
 };
 use wafer_core::clients::database::{Record, RecordList};
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message, WaferError};
 
 /// In-memory database: collection name → Vec<Record>
 type Db = HashMap<String, Vec<Record>>;

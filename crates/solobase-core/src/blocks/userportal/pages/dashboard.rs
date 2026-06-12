@@ -8,7 +8,7 @@
 
 use maud::{html, Markup};
 use wafer_core::clients::database::Record;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::helpers::{RecordExt, ResponseBuilder},

@@ -28,7 +28,7 @@ pub use settings::*;
 pub use storage::*;
 pub use users::*;
 pub use variables::*;
-use wafer_run::{types::*, OutputStream};
+use wafer_run::{OutputStream, Message};
 
 use crate::ui::{
     self, nav_groups,

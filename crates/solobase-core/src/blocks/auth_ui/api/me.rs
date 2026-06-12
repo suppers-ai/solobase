@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, Message, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{helpers::get_user_roles, USERS_TABLE},

@@ -17,12 +17,7 @@ pub(crate) use handlers::{
 pub(crate) use pricing::TABLE as PRICING_TABLE;
 pub(crate) use repo::purchases::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
 pub(crate) use variables::TABLE as VARIABLES_TABLE;
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ConfigVar, InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
@@ -49,7 +44,7 @@ impl ProductsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
             .instance_mode(InstanceMode::Singleton)

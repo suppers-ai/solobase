@@ -9,7 +9,7 @@ use solobase_core::blocks::auth::{
     service::{hash_token, AuthServiceImpl, BlockState},
 };
 use wafer_core::interfaces::auth::service::{AuthError, AuthService, TokenScope};
-use wafer_run::{context::Context, types::Message};
+use wafer_run::{context::Context, Message};
 
 use crate::common::MigrationTestCtx;
 

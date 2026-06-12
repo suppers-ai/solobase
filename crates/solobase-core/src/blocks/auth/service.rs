@@ -13,7 +13,7 @@ use std::sync::{Arc, OnceLock};
 use wafer_core::interfaces::auth::service::{
     AuthError, AuthService, Role, TokenScope, UserId, UserProfile,
 };
-use wafer_run::{context::Context, types::Message};
+use wafer_run::{context::Context, Message};
 
 use super::{
     cache::OrgAdminCache,

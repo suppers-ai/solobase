@@ -28,12 +28,7 @@ pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
 /// WRAP grant rows (block-to-resource access tokens).
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
+use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ErrorCode, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
 pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 use crate::blocks::helpers::{err_not_found, ok_json};
@@ -56,7 +51,7 @@ impl Default for AdminBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
@@ -134,7 +129,7 @@ impl Block for AdminBlock {
                 // Default: allow all blocks to make outbound network requests.
                 // Remove this grant via the admin UI to restrict network access.
                 wafer_run::ResourceGrant::read("*", "*")
-                    .typed(wafer_run::types::ResourceType::Network),
+                    .typed(wafer_run::ResourceType::Network),
                 // Default: allow all blocks to perform any crypto operation
                 // (hash/compare_hash/sign/verify/random_bytes). The runtime
                 // already isolates JWT signing keys per caller via HKDF
@@ -143,7 +138,7 @@ impl Block for AdminBlock {
                 // restrict sign/verify to specific blocks) if a deployment
                 // wants per-op control.
                 wafer_run::ResourceGrant::read_write("*", "*")
-                    .typed(wafer_run::types::ResourceType::Crypto),
+                    .typed(wafer_run::ResourceType::Crypto),
                 // Wave 26 (c18) made Storage WRAP namespace-aware: every
                 // block self-admits its own `{org}/{block}/*` namespace
                 // via Rule 3 without any grant. The previous
@@ -448,7 +443,7 @@ mod tests {
 
 #[cfg(test)]
 mod grant_tests {
-    use wafer_run::{block::Block, types::ResourceType};
+    use wafer_run::{Block, ResourceType};
 
     use super::AdminBlock;
 

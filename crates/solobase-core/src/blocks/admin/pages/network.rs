@@ -1,7 +1,7 @@
 use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, OutputStream, Message};
 use wafer_sql_utils::{query, Backend};
 
 use crate::{

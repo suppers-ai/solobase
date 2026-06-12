@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use wafer_run::{types::Message, InputStream};
+use wafer_run::{Message, InputStream};
 
 use super::mock_context::*;
 use crate::blocks::{helpers::hex_encode, products::stripe};

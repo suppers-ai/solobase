@@ -7,10 +7,7 @@
 
 use wafer_block::db::SortField;
 use wafer_core::clients::database as db;
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 use wafer_sql_utils::{introspect, Backend};
 
 /// Per-row data fed to the vector index list table renderer.

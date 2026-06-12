@@ -17,7 +17,7 @@
 
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{
     providers::config::ProviderConfig,
@@ -554,9 +554,7 @@ fn model_row(model: &serde_json::Value) -> Markup {
 mod tests {
     use std::sync::Arc;
 
-    use wafer_run::{
-        context::Context, streams::output::TerminalNotResponse, types::ErrorCode, InputStream,
-    };
+    use wafer_run::{context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream};
 
     use super::*;
     use crate::blocks::llm::providers::{config::ProviderProtocol, ProviderLlmService};
@@ -593,9 +591,9 @@ mod tests {
 
     fn user_msg(path: &str) -> Message {
         let mut m = Message::new(format!("retrieve:{path}"));
-        m.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
-        m.set_meta(wafer_run::meta::META_REQ_RESOURCE, path);
-        m.set_meta(wafer_run::meta::META_AUTH_USER_ID, "regular-user");
+        m.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
+        m.set_meta(wafer_run::META_REQ_RESOURCE, path);
+        m.set_meta(wafer_run::META_AUTH_USER_ID, "regular-user");
         m.set_meta("auth.user_roles", "user");
         // Prefer JSON 403 over the styled HTML page so the test can
         // assert on the error code directly.

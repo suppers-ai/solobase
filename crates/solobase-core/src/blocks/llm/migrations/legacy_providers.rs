@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::database::{self as db, Record};
-use wafer_run::{context::Context, types::ErrorCode};
+use wafer_run::{context::Context, ErrorCode};
 
 use super::super::{
     providers::{

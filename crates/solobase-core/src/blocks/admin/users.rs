@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message};
 
 use super::USER_ROLES_TABLE;
 use crate::blocks::{

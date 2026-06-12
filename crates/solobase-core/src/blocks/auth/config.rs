@@ -15,10 +15,7 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::config as config_client;
-use wafer_run::{
-    context::Context,
-    types::{ConfigVar, InputType},
-};
+use wafer_run::{context::Context, ConfigVar, InputType};
 
 /// `SOLOBASE_SHARED__AUTH__SESSION_LIFETIME_DAYS` — how many days a freshly
 /// issued session cookie stays valid.

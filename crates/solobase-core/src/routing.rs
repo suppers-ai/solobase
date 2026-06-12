@@ -4,7 +4,7 @@
 //! All solobase blocks are registered in the Wafer registry at boot; routing
 //! dispatches via `ctx.call_block` without any factory indirection.
 
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream, Message};
 
 use crate::{blocks::helpers, features::FeatureConfig};
 

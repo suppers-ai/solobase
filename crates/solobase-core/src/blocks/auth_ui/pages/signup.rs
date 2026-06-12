@@ -1,7 +1,7 @@
 //! GET /b/auth/signup — relocated from auth/pages/mod.rs::signup_page in Task 5.
 
 use maud::{html, PreEscaped};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{pw_field, pw_toggle_js, site_config};
 use crate::{
