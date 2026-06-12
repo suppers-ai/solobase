@@ -5,7 +5,7 @@
 
 use maud::{html, Markup, PreEscaped};
 
-use super::super::helpers::url_path_encode;
+use super::super::helpers::{url_path_encode, RecordExt};
 
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.
@@ -181,7 +181,7 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
             .into_iter()
             .filter_map(|r| {
                 let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
-                let cnt = r.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                let cnt = r.i64_field("cnt");
                 Some((bucket, cnt))
             })
             .collect(),
@@ -518,14 +518,7 @@ async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRo
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
-                size: r
-                    .data
-                    .get("size")
-                    .and_then(|v| {
-                        v.as_i64()
-                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                    })
-                    .unwrap_or(0),
+                size: r.i64_field("size"),
                 modified: r
                     .data
                     .get("uploaded_at")
@@ -776,14 +769,7 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
                     .get("expires_at")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-                access_count: r
-                    .data
-                    .get("access_count")
-                    .and_then(|v| {
-                        v.as_i64()
-                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                    })
-                    .unwrap_or(0),
+                access_count: r.i64_field("access_count"),
             })
             .collect(),
         Err(e) => {

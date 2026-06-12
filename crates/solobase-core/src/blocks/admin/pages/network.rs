@@ -5,7 +5,10 @@ use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::{query, Backend};
 
 use crate::{
-    blocks::admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
+    blocks::{
+        admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
+        helpers::RecordExt,
+    },
     ui::{components, icons},
 };
 
@@ -240,8 +243,8 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
             }
             tbody {
                 @for record in display_rows {
-                    @let status_code = record.data.get("status_code").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
-                    @let duration = record.data.get("duration_ms").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
+                    @let status_code = record.i64_field("status_code");
+                    @let duration = record.i64_field("duration_ms");
                     @let client_ip = record.data.get("client_ip").and_then(|v| v.as_str()).unwrap_or("");
                     @let user_id = record.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
                     @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");

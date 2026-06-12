@@ -6,7 +6,7 @@ use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 use crate::blocks::{
     helpers::{
         err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
-        ResponseBuilder,
+        RecordExt, ResponseBuilder,
     },
     rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
 };
@@ -116,11 +116,7 @@ pub async fn handle_direct_access(
     // accesses with `max_access_count = 1` both pass the check and double-
     // serve the file. With the cap inside the WHERE clause, at most one
     // updater wins per row and rowcount 0 ⇒ cap reached.
-    let max = share
-        .data
-        .get("max_access_count")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let max = share.i64_field("max_access_count");
     match increment_access_count_atomic(ctx, &share.id, max).await {
         Ok(true) => {}
         Ok(false) => return err_forbidden("Share link access limit reached"),

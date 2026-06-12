@@ -10,6 +10,8 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, WaferError};
 use wafer_sql_utils::{introspect, Backend};
 
+use crate::blocks::helpers::RecordExt;
+
 /// Per-row data fed to the vector index list table renderer.
 ///
 /// Lives in the service layer alongside the loader (`list_index_rows`) so
@@ -111,25 +113,9 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
         .to_string();
     // The SQLite service stores all auto-created columns as TEXT, so the
     // numeric registry values arrive as JSON strings (e.g. `"384"`)
-    // rather than numbers. Try a number first for backends that round-trip
-    // them faithfully, then fall back to parsing the string.
-    let dimensions = rec
-        .data
-        .get("dimensions")
-        .and_then(|v| {
-            v.as_u64()
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .unwrap_or(0) as u32;
-    let keyword_search = rec
-        .data
-        .get("keyword_search")
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .map(|n| n != 0)
-        .unwrap_or(false);
+    // rather than numbers. The RecordExt accessors handle both shapes.
+    let dimensions = rec.u64_field("dimensions") as u32;
+    let keyword_search = rec.bool_field("keyword_search");
 
     // Vectors live in `{prefixed}_meta` (see `pages.rs::ingest`/`reindex`),
     // not in the registry's `prefixed_name` table. Counting that meta

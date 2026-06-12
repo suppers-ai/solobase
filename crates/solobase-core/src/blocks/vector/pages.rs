@@ -125,11 +125,10 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
-        dimensions: parsed.get("dimensions").and_then(|v| {
-            v.as_u64()
-                .map(|n| n as u32)
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        }),
+        dimensions: parsed
+            .get("dimensions")
+            .and_then(crate::blocks::helpers::json_as_u64)
+            .and_then(|n| u32::try_from(n).ok()),
         metric: parsed
             .get("metric")
             .and_then(|v| v.as_str())
