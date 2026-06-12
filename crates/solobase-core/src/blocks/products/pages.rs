@@ -94,12 +94,8 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         operator: FilterOp::IsNull,
         value: serde_json::Value::Null,
     }];
-    if !search.is_empty() {
-        filters.push(Filter {
-            field: "name".into(),
-            operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{search}%")),
-        });
+    if let Some(search) = super::handlers::name_like_filter(&search) {
+        filters.push(search);
     }
 
     let sort = vec![SortField {
