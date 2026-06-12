@@ -1,5 +1,6 @@
 mod migrations;
 mod pages;
+mod service;
 
 use std::collections::HashMap;
 
@@ -121,14 +122,7 @@ impl LegalPagesBlock {
                 .get("published_at")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let version = record
-                .data
-                .get("version")
-                .and_then(|v| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-                .unwrap_or(1);
+            let version = service::doc_version(record).unwrap_or(1);
             let meta = if !published_at.is_empty() {
                 format!(
                     "Last updated: {}",
@@ -263,57 +257,33 @@ impl LegalPagesBlock {
             return err_bad_request("Missing document ID");
         }
 
-        // Get current document
+        // Fetch the document first: its `doc_type` drives version
+        // computation and which published siblings get archived.
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
             Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Document not found"),
             Err(e) => return err_internal("Database error", e),
         };
-
         let doc_type = doc
             .data
             .get("doc_type")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("");
 
-        // Unpublish other documents of same type
-        let existing = db::list_all(
+        match service::publish_document(
             ctx,
-            COLLECTION,
-            vec![
-                Filter {
-                    field: "doc_type".to_string(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::Value::String(doc_type),
-                },
-                Filter {
-                    field: "status".to_string(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::Value::String("published".to_string()),
-                },
-            ],
+            service::PublishRequest {
+                doc_type,
+                doc_id: id,
+                title: None,
+                content: None,
+                version: 0,
+                created_by: msg.user_id(),
+            },
         )
-        .await;
-        if let Ok(records) = existing {
-            for r in records {
-                let upd = json_map(serde_json::json!({"status": "archived"}));
-                if let Err(e) = db::update(ctx, COLLECTION, &r.id, upd).await {
-                    tracing::warn!("Failed to archive previous legal page version: {e}");
-                }
-            }
-        }
-
-        // Publish this one
-        let now = helpers::now_rfc3339();
-        let data = json_map(serde_json::json!({
-            "status": "published",
-            "published_at": now,
-            "updated_at": now
-        }));
-
-        match db::update(ctx, COLLECTION, id, data).await {
-            Ok(record) => ok_json(&record),
+        .await
+        {
+            Ok(published) => ok_json(&published.record),
             Err(e) => err_internal("Database error", e),
         }
     }
