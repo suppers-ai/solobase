@@ -9,18 +9,15 @@ use wafer_run::{context::Context, Message, OutputStream};
 use crate::{
     blocks::{
         auth::USERS_TABLE,
-        helpers::{RecordExt, ResponseBuilder},
+        helpers::{redirect, RecordExt},
     },
-    ui::{self, components, SiteConfig, UserInfo},
+    ui::{components, SiteConfig, UserInfo},
 };
 
 pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return ResponseBuilder::new()
-            .status(302)
-            .set_header("Location", "/b/auth/login")
-            .body(Vec::new(), "text/plain");
+        return redirect(302, "/b/auth/login");
     }
 
     let site_config = SiteConfig::load(ctx).await;
@@ -72,19 +69,7 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let markup = ui::layout::page(
-        "Profile",
-        &site_config,
-        ui::templates::account_card_page(
-            ui::templates::AccountCard {
-                logo_url: &site_config.logo_url,
-                title: "Profile",
-                back_href: Some("/b/userportal/"),
-            },
-            body,
-        ),
-    );
-    ui::html_response(markup)
+    super::account_page(&site_config, "Profile", Some("/b/userportal/"), body)
 }
 
 #[cfg(test)]

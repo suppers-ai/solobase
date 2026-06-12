@@ -320,10 +320,7 @@ async fn handle_update_profile(
 
     // Plain form POST → 303 See Other so the browser follows up with a GET
     // and the back/forward stack stays clean.
-    crate::blocks::helpers::ResponseBuilder::new()
-        .status(303)
-        .set_header("Location", "/b/userportal/profile")
-        .body(Vec::new(), "text/plain")
+    helpers::redirect(303, "/b/userportal/profile")
 }
 
 // ---------------------------------------------------------------------------

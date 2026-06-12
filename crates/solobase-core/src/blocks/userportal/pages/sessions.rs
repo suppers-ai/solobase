@@ -6,10 +6,9 @@ use wafer_run::{context::Context, Message, OutputStream};
 use crate::{
     blocks::{
         auth::{repo::sessions, service::hash_token},
-        helpers::{hex_encode, ResponseBuilder},
+        helpers::{hex_encode, redirect, ResponseBuilder},
     },
     ui::{
-        self,
         components::{badge, BadgeVariant},
         SiteConfig,
     },
@@ -18,10 +17,7 @@ use crate::{
 pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return ResponseBuilder::new()
-            .status(302)
-            .set_header("Location", "/b/auth/login")
-            .body(Vec::new(), "text/plain");
+        return redirect(302, "/b/auth/login");
     }
 
     // DB errors are tracing::warn'd (per repo convention) and we render the
@@ -44,19 +40,7 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let config = SiteConfig::load(ctx).await;
-    let markup = ui::layout::page(
-        "Sessions",
-        &config,
-        ui::templates::account_card_page(
-            ui::templates::AccountCard {
-                logo_url: &config.logo_url,
-                title: "Sessions",
-                back_href: Some("/b/userportal/"),
-            },
-            body,
-        ),
-    );
-    ui::html_response(markup)
+    super::account_page(&config, "Sessions", Some("/b/userportal/"), body)
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
