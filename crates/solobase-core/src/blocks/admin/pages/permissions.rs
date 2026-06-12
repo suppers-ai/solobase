@@ -2,26 +2,20 @@ use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
 
-use super::{network::network_rules_tab, storage::storage_rules_tab};
 use crate::{
-    blocks::admin::{
-        NETWORK_RULES_TABLE as NETWORK_RULES, STORAGE_RULES_TABLE as STORAGE_RULES,
-        WRAP_GRANTS_TABLE as WRAP_GRANTS,
-    },
+    blocks::admin::WRAP_GRANTS_TABLE as WRAP_GRANTS,
     ui::{components, icons},
 };
 
 /// Render JUST the permissions settings body. The parent `settings_page`
 /// handler wraps this in `form_page` + the shell.
 ///
-/// Internal sub-tabs use `?subtab=database|storage|network|all` to avoid
-/// colliding with the parent path-segment tab system (`/settings/{tab}`).
+/// Internal sub-tabs use `?subtab=database|all` to avoid colliding with
+/// the parent path-segment tab system (`/settings/{tab}`).
 pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let subtab = msg.query("subtab");
     let active_subtab = match subtab {
         "database" => "database",
-        "storage" => "storage",
-        "network" => "network",
         _ => "all",
     };
 
@@ -39,27 +33,11 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::database()) " Database & Config" }
-            a .tab .(if active_subtab == "storage" { "active" } else { "" })
-                href="/b/admin/settings/permissions?subtab=storage"
-                hx-get="/b/admin/settings/permissions?subtab=storage"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::hard_drive()) " Storage" }
-            a .tab .(if active_subtab == "network" { "active" } else { "" })
-                href="/b/admin/settings/permissions?subtab=network"
-                hx-get="/b/admin/settings/permissions?subtab=network"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::globe()) " Network" }
         }
 
         div #permissions-content {
             @if active_subtab == "database" {
                 (permissions_database_tab(ctx, msg).await)
-            } @else if active_subtab == "storage" {
-                (permissions_storage_tab(ctx, msg).await)
-            } @else if active_subtab == "network" {
-                (permissions_network_tab(ctx, msg).await)
             } @else {
                 (permissions_all_tab(ctx, msg).await)
             }
@@ -411,8 +389,8 @@ struct PermRow {
     type_label: String,
     /// Human-readable sentence ("`<grantee>` can read `<owner>`'s `<resource>`").
     sentence: String,
-    /// Origin: "code" (declared in BlockInfo.grants) or "custom" (DB-backed
-    /// grants / storage rules / network rules).
+    /// Origin: "code" (declared in BlockInfo.grants) or "custom"
+    /// (DB-backed WRAP grants).
     origin: &'static str,
     /// Sort key — typically the owner block name (for code rows) or the
     /// grantee (for custom rows). Used for secondary sort within a group.
@@ -422,8 +400,8 @@ struct PermRow {
     order: u8,
 }
 
-/// "All" tab: combines data from DB grants, storage rules, and network rules
-/// into one unified table with human-readable descriptions.
+/// "All" tab: combines code-declared and custom WRAP grants into one
+/// unified table with human-readable descriptions.
 async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
 
@@ -507,96 +485,6 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
         });
     }
 
-    // 3. Storage rules
-    let storage_rules = db::list_all(ctx, STORAGE_RULES, vec![])
-        .await
-        .unwrap_or_default();
-    for rule in &storage_rules {
-        let rule_type = rule
-            .data
-            .get("rule_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("allow");
-        let source = rule
-            .data
-            .get("source_block")
-            .and_then(|v| v.as_str())
-            .unwrap_or("*");
-        let target = rule
-            .data
-            .get("target_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let access = rule
-            .data
-            .get("access")
-            .and_then(|v| v.as_str())
-            .unwrap_or("readwrite");
-        let source_display = if source == "*" { "All blocks" } else { source };
-        let verb = if rule_type == "block" {
-            "is blocked from"
-        } else {
-            match access {
-                "read" => "can read",
-                "write" => "can write to",
-                _ => "can read and write",
-            }
-        };
-        let sentence = format!("{} {} storage path {}", source_display, verb, target);
-        all_rows.push(PermRow {
-            type_label: "Storage".into(),
-            sentence,
-            origin: "custom",
-            sort_key: source.to_string(),
-            order: 0,
-        });
-    }
-
-    // 4. Network rules
-    let network_rules = db::list_all(ctx, NETWORK_RULES, vec![])
-        .await
-        .unwrap_or_default();
-    for rule in &network_rules {
-        let rule_type = rule
-            .data
-            .get("rule_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("block");
-        let pattern = rule
-            .data
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let scope = rule
-            .data
-            .get("scope")
-            .and_then(|v| v.as_str())
-            .unwrap_or("global");
-        let block_name = rule
-            .data
-            .get("block_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let source_display = if scope == "global" || block_name.is_empty() {
-            "All blocks".to_string()
-        } else {
-            block_name.to_string()
-        };
-        let verb = if rule_type == "block" {
-            "is blocked from reaching"
-        } else {
-            "is allowed to reach"
-        };
-        let sentence = format!("{} {} {}", source_display, verb, pattern);
-        all_rows.push(PermRow {
-            type_label: "Network".into(),
-            sentence,
-            origin: "custom",
-            sort_key: source_display.clone(),
-            order: 0,
-        });
-    }
-
     // Sort: custom (0) before code (1), then by sort_key
     all_rows.sort_by(|a, b| {
         a.order
@@ -658,14 +546,4 @@ async fn permissions_database_tab(ctx: &dyn Context, msg: &Message) -> Markup {
         (grants_custom_tab(ctx, msg).await)
         (grants_code_tab(ctx))
     }
-}
-
-/// "Storage" tab: delegates to the existing storage_rules_tab.
-async fn permissions_storage_tab(ctx: &dyn Context, msg: &Message) -> Markup {
-    storage_rules_tab(ctx, msg).await
-}
-
-/// "Network" tab: delegates to the existing network_rules_tab.
-async fn permissions_network_tab(ctx: &dyn Context, msg: &Message) -> Markup {
-    network_rules_tab(ctx, msg).await
 }

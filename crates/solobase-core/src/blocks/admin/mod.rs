@@ -21,10 +21,6 @@ pub use settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 /// have run before the runner seeds `auto_generate` secrets).
 pub const ADMIN_BLOCK_ID: &str = "suppers-ai/admin";
 
-/// Storage-permission rule rows (bucket/key pattern → ACL).
-pub(crate) const STORAGE_RULES_TABLE: &str = "suppers_ai__admin__storage_rules";
-/// Network-permission rule rows (egress allow/deny by URL pattern).
-pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
 /// WRAP grant rows (block-to-resource access tokens).
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
@@ -159,8 +155,8 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/users").summary("User management").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/variables").summary("Config management").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/blocks").summary("Block management").auth(AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/network").summary("Network monitoring and rules").auth(AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/storage").summary("Storage isolation and rules").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/network").summary("Network monitoring").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/storage").summary("Storage isolation and access logs").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/logs").summary("System and audit logs").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/email").summary("Email settings").auth(AuthLevel::Admin),
                 BlockEndpoint::post("/b/admin/email").summary("Save email settings").auth(AuthLevel::Admin),

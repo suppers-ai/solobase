@@ -5,29 +5,23 @@ use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::{query, Backend};
 
 use crate::{
-    blocks::admin::{NETWORK_RULES_TABLE as NETWORK_RULES, REQUEST_LOGS_TABLE as REQUEST_LOGS},
+    blocks::admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
     ui::{components, icons},
 };
 
 /// Render JUST the network monitoring body. The parent `settings_page`
 /// handler wraps this in `form_page` + the shell.
 pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
-    let tab = msg.query("tab");
-    let active_tab = match tab {
-        "rules" => "rules",
-        _ => "inbound",
-    };
-
     html! {
         div .filter-bar style="margin-bottom:0.5rem" {
             button .btn .btn-secondary .btn-sm
-                hx-get={"/b/admin/settings/network?tab=" (active_tab)}
+                hx-get="/b/admin/settings/network"
                 hx-target="#content"
             { (icons::refresh_cw()) " Refresh" }
         }
 
         div .tabs {
-            a .tab .(if active_tab == "inbound" { "active" } else { "" })
+            a .tab .active
                 href="/b/admin/settings/network"
                 hx-get="/b/admin/settings/network"
                 hx-target="#content"
@@ -35,23 +29,8 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
             { (icons::arrow_down_left()) " Inbound" }
         }
 
-        @if active_tab == "rules" {
-            div .card .mt-4 style="background:#f0f9ff;border-color:#bae6fd" {
-                p style="padding:12px;margin:0;font-size:13px" {
-                    (icons::info()) " Network permissions have moved to the "
-                    a href="/b/admin/settings/permissions?subtab=network" { "Permissions" }
-                    " page."
-                }
-            }
-        }
-
         div #network-tab-content {
-            @if active_tab == "inbound" {
-                (network_inbound_tab(ctx, msg).await)
-            } @else {
-                // rules tab still renders content but with banner above
-                (network_rules_tab(ctx, msg).await)
-            }
+            (network_inbound_tab(ctx, msg).await)
         }
     }
 }
@@ -296,125 +275,4 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
         }
     };
     crate::ui::html_response(markup)
-}
-
-pub(crate) async fn network_rules_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
-    let blocks = ctx.registered_blocks();
-    let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
-
-    let rules = db::list_all(ctx, NETWORK_RULES, vec![])
-        .await
-        .unwrap_or_default();
-
-    html! {
-        div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px" {
-            p .text-muted style="margin:0" {
-                "Control which URLs each block can reach. "
-                strong { "Deny" } " rules block matching URLs. "
-                strong { "Allow" } " rules restrict a block to only matching URLs."
-            }
-            button .btn .btn-primary .btn-sm
-                onclick="openModal('add-rule-modal')"
-            { (icons::plus()) " Add Rule" }
-        }
-
-        div .table-container {
-            table .table {
-                thead {
-                    tr {
-                        th { "Block" }
-                        th { "Type" }
-                        th { "URL Pattern" }
-                        th { "Priority" }
-                        th style="width:80px" { "" }
-                    }
-                }
-                tbody {
-                    @if rules.is_empty() {
-                        tr {
-                            td colspan="5" .text-center .text-muted style="padding: 2rem;" {
-                                "No network rules configured. All blocks can reach any URL by default."
-                            }
-                        }
-                    }
-                    @for rule in &rules {
-                        @let id = &rule.id;
-                        @let rule_type = rule.data.get("rule_type").and_then(|v| v.as_str()).unwrap_or("");
-                        @let pattern = rule.data.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-                        @let block_name = rule.data.get("block_name").and_then(|v| v.as_str()).unwrap_or("");
-                        @let priority = rule.data.get("priority").and_then(|v| v.as_i64()).unwrap_or(0);
-                        tr {
-                            td {
-                                @if block_name.is_empty() || block_name == "*" {
-                                    span .badge .badge-warning { "All blocks" }
-                                } @else {
-                                    code { (block_name) }
-                                }
-                            }
-                            td {
-                                @if rule_type == "block" {
-                                    span .badge .badge-danger { "Deny" }
-                                } @else {
-                                    span .badge .badge-success { "Allow" }
-                                }
-                            }
-                            td .text-sm .font-medium style="font-family:monospace" { (pattern) }
-                            td .text-muted .text-sm { (priority) }
-                            td {
-                                button .btn .btn-danger .btn-sm
-                                    hx-delete={"/b/admin/network/rules/" (id)}
-                                    hx-target="#content"
-                                    hx-confirm="Delete this rule?"
-                                { (icons::trash()) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add rule modal
-        (components::modal("add-rule-modal", "Add Network Rule", html! {
-            form hx-post="/b/admin/network/rules" hx-target="#content" {
-                div .form-group {
-                    label .form-label for="block_name" { "Which block?" }
-                    select .form-input name="block_name" {
-                        option value="" { "All blocks" }
-                        @for name in &block_names {
-                            option value=(name) { (name) }
-                        }
-                    }
-                    p .text-muted style="font-size:12px;margin-top:4px" {
-                        "The block this rule applies to. Leave as \"All blocks\" for a global rule."
-                    }
-                }
-                div .form-group {
-                    label .form-label for="rule_type" { "Allow or Deny?" }
-                    select .form-input name="rule_type" {
-                        option value="allow" { "Allow \u{2014} permit this block to reach matching URLs" }
-                        option value="block" { "Deny \u{2014} block this block from reaching matching URLs" }
-                    }
-                }
-                div .form-group {
-                    label .form-label for="pattern" { "URL pattern" }
-                    input .form-input type="text" name="pattern"
-                        placeholder="e.g. https://api.stripe.com/*" required;
-                    p .text-muted style="font-size:12px;margin-top:4px" {
-                        "Use " code { "*" } " as wildcard. Examples: "
-                        code { "https://api.stripe.com/*" } ", "
-                        code { "*.internal.corp*" }
-                    }
-                }
-                div .form-group {
-                    label .form-label for="priority" { "Priority" }
-                    input .form-input type="number" name="priority" value="0";
-                    p .text-muted style="font-size:12px;margin-top:4px" { "Higher priority rules are evaluated first." }
-                }
-                div .form-actions {
-                    button .btn .btn-secondary type="button" onclick="closeModal('add-rule-modal')" { "Cancel" }
-                    button .btn .btn-primary type="submit" { "Add Rule" }
-                }
-            }
-        }))
-    }
 }
