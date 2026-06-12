@@ -556,7 +556,7 @@ impl Block for LlmBlock {
             // startup so chat dispatch finds them without waiting for an
             // admin CRUD write. Non-fatal if it fails — admins can trigger
             // a reload via any provider write.
-            if let Err(e) = routes::reload_provider_service(self, ctx).await {
+            if let Err(e) = routes::reload_provider_service(ctx, &self.provider_svc).await {
                 tracing::warn!("initial provider reload failed: {e}");
             }
         }

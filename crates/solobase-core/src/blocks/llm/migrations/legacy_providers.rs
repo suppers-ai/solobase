@@ -30,7 +30,7 @@ use super::super::{
         config::{ProviderConfig, ProviderProtocol},
         ProviderLlmService,
     },
-    schema::{config_to_row, TABLE as PROVIDERS_TABLE},
+    schema::{config_to_row, parse_enabled_field, parse_models_field, TABLE as PROVIDERS_TABLE},
 };
 
 /// The legacy providers collection. Owned by the provider-llm block (still
@@ -80,25 +80,10 @@ pub(in crate::blocks::llm) fn map_legacy_row(
         .unwrap_or("https://api.openai.com/v1")
         .to_string();
 
-    let models = match data.get("models") {
-        Some(serde_json::Value::Array(arr)) => arr
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect(),
-        // Legacy stored `models` as a JSON string in a `text` column.
-        Some(serde_json::Value::String(s)) if !s.is_empty() => {
-            serde_json::from_str::<Vec<String>>(s).unwrap_or_default()
-        }
-        _ => Vec::new(),
-    };
-
-    let enabled = match data.get("enabled") {
-        Some(serde_json::Value::Bool(b)) => *b,
-        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(serde_json::Value::String(s)) => matches!(s.as_str(), "1" | "true"),
-        None => true,
-        _ => true,
-    };
+    // Legacy stored `models` as a JSON string in a `text` column — the
+    // shared schema helper handles both that and the canonical array shape.
+    let models = parse_models_field(data.get("models"));
+    let enabled = parse_enabled_field(data.get("enabled"));
 
     Some(ProviderConfig {
         name,
@@ -171,8 +156,14 @@ pub(in crate::blocks::llm) async fn migrate_legacy_providers(
     drop_legacy_table(ctx).await;
 
     // Step 4: refresh the in-memory ProviderLlmService from the new table so
-    // chat routes pick up the migrated providers without a restart.
-    reload_service(ctx, provider_svc).await;
+    // chat routes pick up the migrated providers without a restart. Shares
+    // the routes-module reload — the single place where rows become live
+    // configs (including `key_var` → `api_key` resolution). Non-fatal: the
+    // rows are migrated either way and the Init-time reload that follows
+    // this migration retries.
+    if let Err(e) = super::super::routes::reload_provider_service(ctx, provider_svc).await {
+        tracing::warn!("post-migration provider reload failed: {e}");
+    }
 
     Ok(())
 }
@@ -224,30 +215,6 @@ async fn drop_legacy_table(ctx: &dyn Context) {
     if let Err(e) = db::exec_raw(ctx, &stmt, &[]).await {
         tracing::warn!("failed to drop legacy table {LEGACY_TABLE}: {e}");
     }
-}
-
-/// Reload enabled providers from the new table and push into the service.
-/// Mirrors `routes::reload_provider_service` but is intentionally duplicated
-/// here to keep the migration self-contained (no cross-module coupling).
-async fn reload_service(ctx: &dyn Context, provider_svc: &ProviderLlmService) {
-    let records = match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("post-migration reload list failed: {e}");
-            return;
-        }
-    };
-    let mut configs = Vec::with_capacity(records.len());
-    for rec in &records {
-        match super::super::schema::row_to_config(rec) {
-            Ok(cfg) if cfg.enabled => configs.push(cfg),
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!("post-migration: skipping malformed row {}: {e}", rec.id);
-            }
-        }
-    }
-    provider_svc.configure(configs);
 }
 
 #[cfg(test)]

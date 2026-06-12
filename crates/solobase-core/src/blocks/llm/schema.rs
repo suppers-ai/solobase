@@ -5,11 +5,12 @@
 //!
 //! Secrets are NOT stored in this table. Providers reference an entry in
 //! `suppers_ai__admin__variables` via [`ProviderConfig::key_var`]; the
-//! feature block resolves `key_var` → plaintext `api_key` at runtime
-//! before calling `ProviderLlmService::configure`. This matches the
-//! project-wide convention for sensitive config (single storage location,
-//! admin-gated, masked in API responses) and avoids a `*_encrypted` column
-//! name that would not actually be encrypted.
+//! feature block resolves `key_var` → plaintext `api_key` in
+//! `routes::reload_provider_service` (the single point where stored rows
+//! become live configs) before calling `ProviderLlmService::configure`.
+//! This matches the project-wide convention for sensitive config (single
+//! storage location, admin-gated, masked in API responses) and avoids a
+//! `*_encrypted` column name that would not actually be encrypted.
 
 use std::collections::HashMap;
 
@@ -67,8 +68,9 @@ pub fn config_into_row(cfg: ProviderConfig) -> HashMap<String, serde_json::Value
 
 /// Decode a database [`Record`] into a [`ProviderConfig`].
 ///
-/// The returned `api_key` is always `None` — callers resolve it from
-/// `key_var` at call time via the config client.
+/// The returned `api_key` is always `None` — the reload path
+/// (`routes::reload_provider_service`) resolves it from `key_var` via the
+/// config client before handing the config to the in-memory service.
 pub fn row_to_config(record: &Record) -> Result<ProviderConfig, String> {
     let name = record
         .data
@@ -99,25 +101,8 @@ pub fn row_to_config(record: &Record) -> Result<ProviderConfig, String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
-    let models = match record.data.get("models") {
-        Some(serde_json::Value::Array(arr)) => arr
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect(),
-        Some(serde_json::Value::String(s)) if !s.is_empty() => {
-            serde_json::from_str::<Vec<String>>(s)
-                .map_err(|e| format!("invalid `models` json: {e}"))?
-        }
-        _ => Vec::new(),
-    };
-
-    let enabled = match record.data.get("enabled") {
-        Some(serde_json::Value::Bool(b)) => *b,
-        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(serde_json::Value::String(s)) => matches!(s.as_str(), "1" | "true"),
-        None => true,
-        _ => true,
-    };
+    let models = parse_models_field(record.data.get("models"));
+    let enabled = parse_enabled_field(record.data.get("enabled"));
 
     Ok(ProviderConfig {
         name,
@@ -128,6 +113,44 @@ pub fn row_to_config(record: &Record) -> Result<ProviderConfig, String> {
         models,
         enabled,
     })
+}
+
+/// Coerce a stored `models` column value into the explicit model list.
+///
+/// Accepts a JSON array of strings (canonical) or a JSON-string-encoded
+/// array (some DB backends serialise json columns as TEXT — the legacy
+/// `provider_llm` table also stored models this way). Anything malformed
+/// degrades to an empty list with a warning rather than poisoning the whole
+/// row: the provider still works and models can be re-discovered via
+/// `/v1/models`.
+pub fn parse_models_field(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => {
+            match serde_json::from_str::<Vec<String>>(s) {
+                Ok(models) => models,
+                Err(e) => {
+                    tracing::warn!("invalid `models` json — treating as empty: {e}");
+                    Vec::new()
+                }
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Coerce a stored `enabled` column value (bool / int / string across DB
+/// backends) into a bool. Missing or unrecognised values default to `true`.
+pub fn parse_enabled_field(value: Option<&serde_json::Value>) -> bool {
+    match value {
+        Some(serde_json::Value::Bool(b)) => *b,
+        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(serde_json::Value::String(s)) => matches!(s.as_str(), "1" | "true"),
+        _ => true,
+    }
 }
 
 #[cfg(test)]
@@ -276,6 +299,25 @@ mod tests {
         };
         let cfg = row_to_config(&record).expect("decode");
         assert_eq!(cfg.models, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn row_to_config_treats_malformed_models_json_as_empty() {
+        // A malformed models string must not poison the whole row — the
+        // provider still decodes (models can be re-discovered).
+        let record = Record {
+            id: "r1".into(),
+            data: {
+                let mut d = HashMap::new();
+                d.insert("name".into(), serde_json::json!("x"));
+                d.insert("protocol".into(), serde_json::json!("open_ai"));
+                d.insert("endpoint".into(), serde_json::json!("https://x"));
+                d.insert("models".into(), serde_json::json!("this is not json"));
+                d
+            },
+        };
+        let cfg = row_to_config(&record).expect("decode");
+        assert!(cfg.models.is_empty(), "bad JSON should fall back to []");
     }
 
     #[test]
