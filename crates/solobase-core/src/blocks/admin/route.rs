@@ -99,14 +99,6 @@ pub(super) enum AdminRoute<'a> {
     SaveEmailSettings,
     /// action=create, sub=`/database/query`
     DatabaseQuery,
-    /// action=create, sub=`/custom-blocks/install`
-    CustomBlockInstall,
-    /// action=create, sub=`/custom-blocks/upload`
-    CustomBlockUpload,
-    /// action=delete, sub=`/custom-blocks/{encoded}`
-    CustomBlockDelete {
-        block_name: String,
-    },
 
     // --- SSR fallthrough (GET) ---
     Dashboard,
@@ -205,12 +197,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             if sub == "/database/query" {
                 return AdminRoute::DatabaseQuery;
             }
-            if sub == "/custom-blocks/install" {
-                return AdminRoute::CustomBlockInstall;
-            }
-            if sub == "/custom-blocks/upload" {
-                return AdminRoute::CustomBlockUpload;
-            }
         }
         if action == "delete" {
             if let Some(id) = sub.strip_prefix("/users/") {
@@ -226,13 +212,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             if let Some(id) = sub.strip_prefix("/grants/rules/") {
                 if !id.is_empty() {
                     return AdminRoute::DeleteWrapGrant { rule_id: id };
-                }
-            }
-            if let Some(encoded) = sub.strip_prefix("/custom-blocks/") {
-                if !encoded.is_empty() {
-                    return AdminRoute::CustomBlockDelete {
-                        block_name: encoded.replace("--", "/"),
-                    };
                 }
             }
         }
@@ -528,24 +507,16 @@ mod tests {
                 AdminRoute::DatabaseQuery,
             ),
             (
-                "custom block install",
+                "custom block install removed",
                 "/b/admin/custom-blocks/install",
                 "create",
-                AdminRoute::CustomBlockInstall,
+                AdminRoute::NotFound,
             ),
             (
-                "custom block upload",
-                "/b/admin/custom-blocks/upload",
-                "create",
-                AdminRoute::CustomBlockUpload,
-            ),
-            (
-                "custom block delete",
+                "custom block delete removed",
                 "/b/admin/custom-blocks/suppers-ai--foo",
                 "delete",
-                AdminRoute::CustomBlockDelete {
-                    block_name: "suppers-ai/foo".to_string(),
-                },
+                AdminRoute::NotFound,
             ),
             // /b/admin/... SSR pages (GET)
             (

@@ -165,9 +165,6 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/api/iam/roles").summary("List roles API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/logs").summary("Audit logs API").auth(AuthLevel::Admin),
-                BlockEndpoint::post("/b/admin/custom-blocks/install").summary("Install custom block from registry").auth(AuthLevel::Admin),
-                BlockEndpoint::post("/b/admin/custom-blocks/upload").summary("Upload custom .wasm block").auth(AuthLevel::Admin),
-                BlockEndpoint::delete("/b/admin/custom-blocks/{name}").summary("Delete custom block").auth(AuthLevel::Admin),
             ])
     }
 
@@ -271,15 +268,6 @@ impl Block for AdminBlock {
                 pages::handle_save_email_settings(ctx, &msg, input).await
             }
             AdminRoute::DatabaseQuery => pages::handle_database_query(ctx, &msg, input).await,
-            AdminRoute::CustomBlockInstall => {
-                pages::handle_custom_block_install(ctx, &msg, input).await
-            }
-            AdminRoute::CustomBlockUpload => {
-                pages::handle_custom_block_upload(ctx, &msg, input).await
-            }
-            AdminRoute::CustomBlockDelete { block_name } => {
-                pages::handle_custom_block_delete(ctx, &msg, &block_name).await
-            }
 
             // --- /b/admin/... SSR pages ---
             AdminRoute::Dashboard => pages::dashboard(ctx, &msg).await,
