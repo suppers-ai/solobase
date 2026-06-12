@@ -84,10 +84,14 @@ pub fn make_r2_storage_service(
     Ok(Arc::new(storage::R2StorageService::new(bucket)))
 }
 
-/// Construct a wasm-compatible [`CryptoService`] (HMAC + SHA-256 via
-/// pure-Rust crates).
+/// Construct a wasm-compatible [`CryptoService`]: the wafer-block-crypto
+/// HS256 JWT engine (exp-required, per-block HKDF-derived keys — same
+/// policy as native) with Workers-constrained argon2id password hashing.
 ///
-/// `jwt_secret` is the HMAC secret used to sign and verify JWTs.
+/// `jwt_secret` is the HMAC master secret used to sign and verify JWTs.
+/// It must be at least `wafer_block_crypto::primitives::MIN_JWT_SECRET_LEN`
+/// bytes; a missing/short secret surfaces as an error on each sign/verify
+/// rather than failing worker boot.
 pub fn make_jwt_crypto_service(jwt_secret: String) -> Arc<dyn CryptoService> {
     Arc::new(crypto_service::SolobaseCryptoService::new(jwt_secret))
 }
