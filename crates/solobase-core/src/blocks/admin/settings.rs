@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use wafer_core::clients::database as db;
 use wafer_run::{
-    context::Context,
-    types::{self, *},
-    InputStream, OutputStream,
+    context::Context, ConfigVar, ErrorCode, InputStream, InputType, Message, OutputStream,
 };
 
 use crate::blocks::helpers::{
@@ -431,13 +429,13 @@ const ADMIN_BLOCK_NAME: &str = "suppers-ai/admin";
 /// `var.auto_generate` / `var.optional` don't affect what `seed_defaults`
 /// writes — they're consumed by `seed_auto_generated` (CF runner) and the
 /// startup validator respectively — so they're intentionally omitted.
-fn seed_payload_hash(vars: &[types::ConfigVar]) -> String {
+fn seed_payload_hash(vars: &[ConfigVar]) -> String {
     use std::fmt::Write as _;
-    let mut keys: Vec<&types::ConfigVar> = vars.iter().collect();
+    let mut keys: Vec<&ConfigVar> = vars.iter().collect();
     keys.sort_by(|a, b| a.key.cmp(&b.key));
     let mut buf = String::with_capacity(vars.len() * 128);
     for v in keys {
-        let sensitive = if v.input_type == types::InputType::Password {
+        let sensitive = if v.input_type == InputType::Password {
             1
         } else {
             0
@@ -491,7 +489,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
         .collect();
 
     for var in &vars {
-        let sensitive: i32 = if var.input_type == types::InputType::Password {
+        let sensitive: i32 = if var.input_type == InputType::Password {
             1
         } else {
             0
@@ -589,8 +587,8 @@ mod tests {
     /// `seed_payload_hash` is independent of input order (sorts by `key`).
     #[test]
     fn payload_hash_independent_of_input_order() {
-        let a = types::ConfigVar::new("AAA", "first", "1");
-        let b = types::ConfigVar::new("BBB", "second", "2");
+        let a = ConfigVar::new("AAA", "first", "1");
+        let b = ConfigVar::new("BBB", "second", "2");
         let h1 = seed_payload_hash(&[a.clone(), b.clone()]);
         let h2 = seed_payload_hash(&[b, a]);
         assert_eq!(h1, h2);
@@ -600,7 +598,7 @@ mod tests {
     /// Hash changes whenever any seed-relevant field changes.
     #[test]
     fn payload_hash_sensitive_to_each_field() {
-        let base = vec![types::ConfigVar::new("KEY", "desc", "def")];
+        let base = vec![ConfigVar::new("KEY", "desc", "def")];
         let h_base = seed_payload_hash(&base);
 
         let mut name_changed = base.clone();
@@ -620,7 +618,7 @@ mod tests {
         assert_ne!(h_base, seed_payload_hash(&warning_changed));
 
         let mut sensitive_changed = base.clone();
-        sensitive_changed[0].input_type = types::InputType::Password;
+        sensitive_changed[0].input_type = InputType::Password;
         assert_ne!(h_base, seed_payload_hash(&sensitive_changed));
     }
 

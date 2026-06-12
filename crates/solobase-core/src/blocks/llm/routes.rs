@@ -17,10 +17,7 @@ use wafer_core::clients::{
     NativeTypedFrameStream,
 };
 use wafer_run::{
-    context::Context,
-    meta::META_RESP_CONTENT_TYPE,
-    types::{Message, MetaEntry},
-    InputStream, OutputStream,
+    context::Context, InputStream, Message, MetaEntry, OutputStream, META_RESP_CONTENT_TYPE,
 };
 
 use super::{
@@ -552,7 +549,7 @@ pub(super) async fn update_provider(
     // Load existing record so we can apply the patch on top of stored values.
     let existing = match db::get(ctx, PROVIDERS_TABLE, &id).await {
         Ok(r) => r,
-        Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
+        Err(e) if e.code == wafer_run::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
         Err(e) => return err_internal("Database error", e),
@@ -593,7 +590,7 @@ pub(super) async fn update_provider(
 
     let record = match db::update(ctx, PROVIDERS_TABLE, &id, data).await {
         Ok(r) => r,
-        Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
+        Err(e) if e.code == wafer_run::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
         Err(e) => return err_internal("Database error", e),
@@ -621,7 +618,7 @@ pub(super) async fn delete_provider(
     }
     match db::delete(ctx, PROVIDERS_TABLE, &id).await {
         Ok(()) => {}
-        Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
+        Err(e) if e.code == wafer_run::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
         Err(e) => return err_internal("Database error", e),
@@ -802,7 +799,7 @@ pub(super) async fn discover_models(
     // provider name (== ProviderConfig::name), not by row id.
     let existing = match db::get(ctx, PROVIDERS_TABLE, &id).await {
         Ok(r) => r,
-        Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
+        Err(e) if e.code == wafer_run::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
         Err(e) => return err_internal("Database error", e),
@@ -847,7 +844,7 @@ pub(super) async fn discover_models(
 mod tests {
     use std::sync::Arc;
 
-    use wafer_run::{context::Context, streams::output::TerminalNotResponse, types::ErrorCode};
+    use wafer_run::{context::Context, streams::output::TerminalNotResponse, ErrorCode};
 
     use super::*;
     use crate::blocks::llm::providers::ProviderLlmService;
@@ -973,18 +970,18 @@ mod tests {
 
     fn admin_msg(action: &str, path: &str) -> Message {
         let mut m = Message::new(format!("{action}:{path}"));
-        m.set_meta(wafer_run::meta::META_REQ_ACTION, action);
-        m.set_meta(wafer_run::meta::META_REQ_RESOURCE, path);
-        m.set_meta(wafer_run::meta::META_AUTH_USER_ID, "admin-user");
+        m.set_meta(wafer_run::META_REQ_ACTION, action);
+        m.set_meta(wafer_run::META_REQ_RESOURCE, path);
+        m.set_meta(wafer_run::META_AUTH_USER_ID, "admin-user");
         m.set_meta("auth.user_roles", "admin");
         m
     }
 
     fn user_msg(action: &str, path: &str) -> Message {
         let mut m = Message::new(format!("{action}:{path}"));
-        m.set_meta(wafer_run::meta::META_REQ_ACTION, action);
-        m.set_meta(wafer_run::meta::META_REQ_RESOURCE, path);
-        m.set_meta(wafer_run::meta::META_AUTH_USER_ID, "regular-user");
+        m.set_meta(wafer_run::META_REQ_ACTION, action);
+        m.set_meta(wafer_run::META_REQ_RESOURCE, path);
+        m.set_meta(wafer_run::META_AUTH_USER_ID, "regular-user");
         m.set_meta("auth.user_roles", "user");
         m
     }
@@ -1161,33 +1158,30 @@ mod tests {
     fn extract_provider_id_from_path() {
         // Direct id at end of path
         let mut m = Message::new("update:/b/llm/api/providers/abc123");
-        m.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
-            "/b/llm/api/providers/abc123",
-        );
+        m.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/providers/abc123");
         assert_eq!(extract_provider_id(&m), "abc123");
 
         // Id followed by a sub-resource (discover-models)
         let mut m2 = Message::new("create:/b/llm/api/providers/abc123/discover-models");
         m2.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
+            wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/providers/abc123/discover-models",
         );
         assert_eq!(extract_provider_id(&m2), "abc123");
 
         // Empty when no id provided
         let mut m3 = Message::new("delete:/b/llm/api/providers/");
-        m3.set_meta(wafer_run::meta::META_REQ_RESOURCE, "/b/llm/api/providers/");
+        m3.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/providers/");
         assert_eq!(extract_provider_id(&m3), "");
 
         // `msg.var("id")` takes precedence
         let mut m4 = Message::new("update:/b/llm/api/providers/from-path");
         m4.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
+            wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/providers/from-path",
         );
         m4.set_meta(
-            format!("{}id", wafer_run::meta::META_REQ_PARAM_PREFIX),
+            format!("{}id", wafer_run::META_REQ_PARAM_PREFIX),
             "from-var",
         );
         assert_eq!(extract_provider_id(&m4), "from-var");
@@ -1310,7 +1304,7 @@ mod tests {
         // Straight {backend_id}/{model_id}/status
         let mut m = Message::new("retrieve:/b/llm/api/models/openai/gpt-4o/status");
         m.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
+            wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/models/openai/gpt-4o/status",
         );
         assert_eq!(
@@ -1321,7 +1315,7 @@ mod tests {
         // Load sub-resource with a model id containing dots/dashes
         let mut m2 = Message::new("create:/b/llm/api/models/webllm/llama-3.1-8b/load");
         m2.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
+            wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/models/webllm/llama-3.1-8b/load",
         );
         assert_eq!(
@@ -1331,10 +1325,7 @@ mod tests {
 
         // Missing model_id
         let mut m3 = Message::new("create:/b/llm/api/models/openai/");
-        m3.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
-            "/b/llm/api/models/openai/",
-        );
+        m3.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/models/openai/");
         let (b, m_id) = extract_model_path(&m3);
         assert_eq!(b, "openai");
         assert_eq!(m_id, "");
@@ -1342,15 +1333,15 @@ mod tests {
         // Router-provided path variables take precedence over the path string.
         let mut m4 = Message::new("create:/b/llm/api/models/from-path/ignored/load");
         m4.set_meta(
-            wafer_run::meta::META_REQ_RESOURCE,
+            wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/models/from-path/ignored/load",
         );
         m4.set_meta(
-            format!("{}backend_id", wafer_run::meta::META_REQ_PARAM_PREFIX),
+            format!("{}backend_id", wafer_run::META_REQ_PARAM_PREFIX),
             "from-var",
         );
         m4.set_meta(
-            format!("{}model_id", wafer_run::meta::META_REQ_PARAM_PREFIX),
+            format!("{}model_id", wafer_run::META_REQ_PARAM_PREFIX),
             "var-model",
         );
         assert_eq!(

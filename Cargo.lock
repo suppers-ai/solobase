@@ -4317,6 +4317,7 @@ checksum = "8a5d1c518eaf5eda38e5773f902b26ab6d5e9e9e2bb2349ca6c64cf96f80448c"
 dependencies = [
  "inherent",
  "sea-query-derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -4621,7 +4622,6 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
- "wafer-block-config",
  "wafer-core",
  "wafer-run",
 ]
@@ -4651,7 +4651,6 @@ dependencies = [
  "tokio-util",
  "uuid",
  "wafer-block",
- "wafer-block-config",
  "wafer-block-crypto",
  "wafer-core",
  "wafer-run",
@@ -4717,7 +4716,6 @@ dependencies = [
  "url",
  "uuid",
  "wafer-block",
- "wafer-block-config",
  "wafer-block-cors",
  "wafer-block-crypto",
  "wafer-block-fastembed",
@@ -4753,7 +4751,6 @@ dependencies = [
  "wafer-block-crypto",
  "wafer-block-http-listener",
  "wafer-block-local-storage",
- "wafer-block-logger",
  "wafer-block-network",
  "wafer-block-postgres",
  "wafer-block-s3",
@@ -4777,7 +4774,6 @@ dependencies = [
  "tokio-util",
  "uuid",
  "wafer-block",
- "wafer-block-config",
  "wafer-core",
  "wafer-run",
  "wasm-bindgen",
@@ -5816,6 +5812,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "getrandom 0.2.17",
  "linkme",
  "rmp-serde",
  "serde",
@@ -5829,18 +5826,6 @@ dependencies = [
  "url",
  "wafer-block-macro",
  "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "wafer-block-config"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "parking_lot",
- "serde",
- "serde_json",
- "tracing",
- "wafer-core",
 ]
 
 [[package]]
@@ -5867,6 +5852,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.18",
  "tracing",
  "uuid",
@@ -5888,9 +5874,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
- "form_urlencoded",
  "parking_lot",
- "serde_json",
  "tokio",
  "tracing",
  "wafer-block",
@@ -5902,7 +5886,6 @@ name = "wafer-block-inspector"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "parking_lot",
  "percent-encoding",
  "serde",
  "serde_json",
@@ -5919,17 +5902,6 @@ dependencies = [
  "chrono",
  "tracing",
  "wafer-block-macro",
- "wafer-core",
-]
-
-[[package]]
-name = "wafer-block-logger"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "tracing",
  "wafer-core",
 ]
 
@@ -5964,6 +5936,7 @@ name = "wafer-block-postgres"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64ct",
  "chrono",
  "serde",
  "serde_json",
@@ -6018,7 +5991,6 @@ name = "wafer-block-security-headers"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "serde_json",
  "wafer-block",
  "wafer-block-macro",
 ]
@@ -6028,6 +6000,7 @@ name = "wafer-block-sqlite"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64ct",
  "chrono",
  "parking_lot",
  "rusqlite",
@@ -6060,12 +6033,14 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio-util",
  "tracing",
  "url",
+ "uuid",
  "wafer-block",
  "wafer-block-macro",
  "wafer-schema",
@@ -6086,6 +6061,7 @@ name = "wafer-run"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64ct",
  "bytes",
  "chrono",
  "dirs 5.0.1",

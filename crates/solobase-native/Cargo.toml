@@ -29,7 +29,6 @@ wafer-block-sqlite = { workspace = true }
 wafer-block-local-storage = { workspace = true }
 wafer-block-network = { workspace = true }
 wafer-block-crypto = { workspace = true }
-wafer-block-logger = { workspace = true }
 wafer-block-http-listener = { workspace = true }
 
 wafer-block-postgres = { workspace = true, optional = true }

@@ -4,7 +4,7 @@
 
 use maud::html;
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::{

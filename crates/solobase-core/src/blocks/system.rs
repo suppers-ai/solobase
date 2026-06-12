@@ -1,8 +1,6 @@
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
+    Message, OutputStream, WaferError,
 };
 
 use crate::{
@@ -128,7 +126,7 @@ impl Block for SystemBlock {
 
 #[cfg(test)]
 mod tests {
-    use wafer_run::meta::META_RESP_CONTENT_TYPE;
+    use wafer_run::META_RESP_CONTENT_TYPE;
 
     use super::*;
     use crate::ui::assets;
@@ -161,8 +159,8 @@ mod tests {
         let block = SystemBlock;
         let url = assets::llm_chat_js_url();
         let mut msg = Message::new(format!("retrieve:{url}"));
-        msg.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
-        msg.set_meta(wafer_run::meta::META_REQ_RESOURCE, url);
+        msg.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
+        msg.set_meta(wafer_run::META_REQ_RESOURCE, url);
 
         let out = block.handle(&NopCtx, msg, InputStream::empty()).await;
         let buffered = out.collect_buffered().await.expect("response");
@@ -188,8 +186,8 @@ mod tests {
         let block = SystemBlock;
         let url = assets::files_browser_js_url();
         let mut msg = Message::new(format!("retrieve:{url}"));
-        msg.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
-        msg.set_meta(wafer_run::meta::META_REQ_RESOURCE, url);
+        msg.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
+        msg.set_meta(wafer_run::META_REQ_RESOURCE, url);
 
         let out = block.handle(&NopCtx, msg, InputStream::empty()).await;
         let buffered = out.collect_buffered().await.expect("response");

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use wafer_run::ErrorCode;
+
 use super::mock_context::*;
 use crate::blocks::products::handlers;
 
@@ -131,7 +133,7 @@ async fn admin_delete_product() {
     // Verify it's gone
     let (get, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
     let out = handlers::handle_admin(&ctx, &get, get_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 // ============================================================
@@ -332,7 +334,7 @@ async fn user_cannot_create_product_in_other_users_group() {
         }),
     );
     let out = handlers::handle_user(&ctx, &create_prod, cp_input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -356,7 +358,7 @@ async fn user_cannot_see_other_users_products() {
     // user_2 tries to get it
     let (get, get_input) = get_msg(&format!("/b/products/products/{}", prod_id), "user_2");
     let out = handlers::handle_user(&ctx, &get, get_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -384,7 +386,7 @@ async fn user_cannot_update_other_users_products() {
         }),
     );
     let out = handlers::handle_user(&ctx, &update, update_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -406,7 +408,7 @@ async fn user_cannot_delete_other_users_products() {
 
     let (del, del_input) = delete_msg(&format!("/b/products/products/{}", prod_id), "user_2");
     let out = handlers::handle_user(&ctx, &del, del_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -520,7 +522,7 @@ async fn user_cannot_update_other_users_group() {
         }),
     );
     let out = handlers::handle_user(&ctx, &update, update_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -588,7 +590,7 @@ async fn catalog_get_hides_non_active() {
 
     let (msg, input) = get_msg("/b/products/catalog/p_hidden", "");
     let out = handlers::handle_user(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 // ============================================================
@@ -641,7 +643,7 @@ async fn user_cannot_list_other_users_group_products() {
     // user_2 tries to list user_1's group products
     let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
     let out = handlers::handle_user(&ctx, &list, list_input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 // ============================================================
@@ -658,11 +660,11 @@ async fn user_products_rejected_when_disabled() {
         serde_json::json!({"name": "Test"}),
     );
     let out = handlers::handle_user(&ctx, &create, create_input).await;
-    assert!(output_is_error(out, "permission_denied").await);
+    assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 
     let (list, list_input) = get_msg("/b/products/products", "user_1");
     let out = handlers::handle_user(&ctx, &list, list_input).await;
-    assert!(output_is_error(out, "permission_denied").await);
+    assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 
     let (group, group_input) = create_msg(
         "/b/products/groups",
@@ -670,7 +672,7 @@ async fn user_products_rejected_when_disabled() {
         serde_json::json!({"name": "Group"}),
     );
     let out = handlers::handle_user(&ctx, &group, group_input).await;
-    assert!(output_is_error(out, "permission_denied").await);
+    assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 }
 
 #[tokio::test]
@@ -697,7 +699,7 @@ async fn unknown_admin_route() {
     let ctx = MockContext::new();
     let (msg, input) = admin_get_msg("/admin/b/products/nonexistent");
     let out = handlers::handle_admin(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -705,5 +707,5 @@ async fn unknown_user_route() {
     let ctx = MockContext::new();
     let (msg, input) = get_msg("/b/products/nonexistent", "user_1");
     let out = handlers::handle_user(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }

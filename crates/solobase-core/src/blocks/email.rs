@@ -12,10 +12,8 @@ use std::{collections::HashMap, time::Duration};
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockInfo, ConfigVar, InputStream, InputType, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
@@ -546,7 +544,7 @@ mod tests {
     };
 
     use wafer_block::{codec, wire::config as cfg_wire};
-    use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+    use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
     use super::*;
 
@@ -594,7 +592,8 @@ mod tests {
                     Ok(r) => r,
                     Err(e) => {
                         return OutputStream::error(wafer_run::WaferError::new(
-                            "internal", e.message,
+                            ErrorCode::Internal,
+                            e.message,
                         ));
                     }
                 };
@@ -607,13 +606,14 @@ mod tests {
                     .unwrap_or_default();
                 return match codec::encode(&cfg_wire::GetResponse { value }) {
                     Ok(bytes) => OutputStream::respond(bytes),
-                    Err(e) => {
-                        OutputStream::error(wafer_run::WaferError::new("internal", e.message))
-                    }
+                    Err(e) => OutputStream::error(wafer_run::WaferError::new(
+                        wafer_run::ErrorCode::Internal,
+                        e.message,
+                    )),
                 };
             }
             OutputStream::error(wafer_run::WaferError::new(
-                "not_found",
+                ErrorCode::NotFound,
                 format!("unhandled call: {block_name}/{}", msg.kind),
             ))
         }

@@ -210,7 +210,6 @@ fn encode_message(m: &ChatMessage) -> AnthropicMessage<'_> {
         ChatContent::Parts(parts) => {
             AnthropicContent::Blocks(parts.iter().map(encode_part).collect())
         }
-        _ => AnthropicContent::Text(""),
     };
 
     AnthropicMessage {
@@ -227,9 +226,6 @@ fn encode_part(p: &ContentPart) -> AnthropicContentBlock<'_> {
         },
         ContentPart::ImageBytes { .. } => AnthropicContentBlock::Text {
             text: "[image bytes unsupported — use ImageUrl]",
-        },
-        _ => AnthropicContentBlock::Text {
-            text: "[unknown content part]",
         },
     }
 }

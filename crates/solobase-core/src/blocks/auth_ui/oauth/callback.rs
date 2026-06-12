@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::{config, database as db, network};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::{
     auth::{

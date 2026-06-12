@@ -206,9 +206,6 @@ fn encode_role(role: ChatRole) -> &'static str {
         ChatRole::User => "user",
         ChatRole::Assistant => "assistant",
         ChatRole::Tool => "tool",
-        // `ChatRole` is `#[non_exhaustive]` — fall back to user for any future
-        // role variant, since OpenAI doesn't recognize arbitrary roles.
-        _ => "user",
     }
 }
 
@@ -218,8 +215,6 @@ fn encode_message(m: &ChatMessage) -> OpenAiMessage<'_> {
         ChatContent::Parts(parts) => Some(OpenAiContent::Parts(
             parts.iter().map(encode_part).collect(),
         )),
-        // `ChatContent` is `#[non_exhaustive]` — unknown content kinds skip.
-        _ => None,
     };
     // Assistant messages invoking tools send `tool_calls` and may omit content.
     let content = if content.is_some()
@@ -255,10 +250,6 @@ fn encode_part(p: &ContentPart) -> OpenAiContentPart<'_> {
         ContentPart::ImageBytes { .. } => OpenAiContentPart::Text {
             text: "[image bytes unsupported — encode as data URL in ImageUrl]",
         },
-        // `ContentPart` is `#[non_exhaustive]`.
-        _ => OpenAiContentPart::Text {
-            text: "[unknown content part]",
-        },
     }
 }
 
@@ -289,9 +280,6 @@ fn encode_response_format(r: &ResponseFormat) -> OpenAiResponseFormat<'_> {
         ResponseFormat::Text => OpenAiResponseFormat::Text,
         ResponseFormat::Json => OpenAiResponseFormat::Json,
         ResponseFormat::JsonSchema(v) => OpenAiResponseFormat::JsonSchema { json_schema: v },
-        // `ResponseFormat` is `#[non_exhaustive]` — fall back to Text for any
-        // future variants the spec adds.
-        _ => OpenAiResponseFormat::Text,
     }
 }
 

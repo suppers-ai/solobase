@@ -197,9 +197,9 @@ pub async fn extract_auth_meta(
     auth_header: &str,
     jwt_secret: &str,
     expected_iss: &str,
-    msg: &mut wafer_run::types::Message,
+    msg: &mut wafer_run::Message,
 ) {
-    use wafer_run::meta::*;
+    use wafer_run::*;
 
     let token = match auth_header.strip_prefix("Bearer ") {
         Some(t) => t,
@@ -457,13 +457,13 @@ mod tests {
 
     #[tokio::test]
     async fn extract_auth_meta_sets_user_id_for_valid_access_token() {
-        use wafer_run::types::Message;
+        use wafer_run::Message;
         let ctx = crate::test_support::TestContext::with_auth().await;
         let secret = "test-secret";
         let token = sign_access_jwt(secret, "user-a", Some("jti-1"), 3600);
         let mut msg = Message::new("http.request");
         extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, "", &mut msg).await;
-        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
+        assert_eq!(msg.get_meta(wafer_run::META_AUTH_USER_ID), "user-a");
         assert_eq!(msg.get_meta(META_AUTH_JTI), "jti-1");
         assert!(!msg.get_meta(META_AUTH_EXP).is_empty());
     }
@@ -478,7 +478,7 @@ mod tests {
     /// the per-block-derived-key path that production actually uses.
     #[tokio::test]
     async fn extract_auth_meta_verifies_token_signed_with_auth_ui_derived_key() {
-        use wafer_run::types::Message;
+        use wafer_run::Message;
         let ctx = crate::test_support::TestContext::with_auth().await;
         let master = "test-master-secret";
         let derived = derive_block_jwt_key(master, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID)
@@ -495,7 +495,7 @@ mod tests {
         extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
 
         assert_eq!(
-            msg.get_meta(wafer_run::meta::META_AUTH_USER_ID),
+            msg.get_meta(wafer_run::META_AUTH_USER_ID),
             "user-prod",
             "extract_auth_meta must verify JWTs signed with the auth-ui-derived key — \
              the production sign path goes through sign_for(AUTH_UI_BLOCK_ID, ...)"
@@ -505,7 +505,7 @@ mod tests {
 
     #[tokio::test]
     async fn extract_auth_meta_rejects_blocklisted_jti() {
-        use wafer_run::types::Message;
+        use wafer_run::Message;
         let ctx = crate::test_support::TestContext::with_auth().await;
         let secret = "test-secret";
         let token = sign_access_jwt(secret, "user-a", Some("jti-blocked"), 3600);
@@ -526,14 +526,14 @@ mod tests {
         extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, "", &mut msg).await;
         // Blocklisted: no auth meta should be set — request continues as
         // anonymous, same as if the JWT had expired or been tampered with.
-        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
+        assert_eq!(msg.get_meta(wafer_run::META_AUTH_USER_ID), "");
         assert_eq!(msg.get_meta(META_AUTH_JTI), "");
     }
 
     #[tokio::test]
     async fn extract_auth_meta_only_blocks_target_jti_for_user() {
         // Same user, two jti's — only the blocklisted one is rejected.
-        use wafer_run::types::Message;
+        use wafer_run::Message;
         let ctx = crate::test_support::TestContext::with_auth().await;
         let secret = "test-secret";
         crate::blocks::auth::repo::jwt_blocklist::insert(
@@ -552,10 +552,10 @@ mod tests {
 
         let mut m1 = Message::new("http.request");
         extract_auth_meta(&ctx, &format!("Bearer {blocked}"), secret, "", &mut m1).await;
-        assert_eq!(m1.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
+        assert_eq!(m1.get_meta(wafer_run::META_AUTH_USER_ID), "");
 
         let mut m2 = Message::new("http.request");
         extract_auth_meta(&ctx, &format!("Bearer {live}"), secret, "", &mut m2).await;
-        assert_eq!(m2.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
+        assert_eq!(m2.get_meta(wafer_run::META_AUTH_USER_ID), "user-a");
     }
 }

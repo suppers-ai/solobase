@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use wafer_run::ErrorCode;
+
 use super::mock_context::*;
 use crate::blocks::products::pricing::{evaluate_formula, validate_price, MIN_PRICE};
 
@@ -382,7 +384,7 @@ async fn calculate_price_product_not_found() {
     );
 
     let out = pricing::handle_calculate(&ctx, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]

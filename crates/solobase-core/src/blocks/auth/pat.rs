@@ -7,10 +7,7 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use wafer_core::{clients::crypto, interfaces::auth::service::TokenScope};
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 
 use super::{
     repo::{self, pats},
@@ -72,7 +69,7 @@ pub async fn issue(
     )
     .await
     .map_err(|e: repo::RepoError| {
-        WaferError::new(ErrorCode::INTERNAL, format!("pat insert: {e}"))
+        WaferError::new(ErrorCode::Internal, format!("pat insert: {e}"))
     })?;
 
     Ok(IssuedPat {

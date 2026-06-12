@@ -97,7 +97,7 @@ pub fn render_new_bucket_modal() -> Markup {
 }
 
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::ui::{
     self,
@@ -795,7 +795,7 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
 
 async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
     use wafer_block::db::{Filter, FilterOp};
-    use wafer_run::types::ErrorCode;
+    use wafer_run::ErrorCode;
 
     use super::{OBJECTS_TABLE, QUOTAS_TABLE};
 

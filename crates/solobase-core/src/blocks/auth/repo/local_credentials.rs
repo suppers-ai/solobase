@@ -94,7 +94,7 @@ pub async fn update_password(
                 .map_err(|e| RepoError::Db(format!("local_credentials update_password: {e}")))?;
             Ok(())
         }
-        Err(e) if e.code == ErrorCode::NOT_FOUND => insert(ctx, user_id, new_hash, false).await,
+        Err(e) if e.code == ErrorCode::NotFound => insert(ctx, user_id, new_hash, false).await,
         Err(e) => Err(RepoError::Db(format!("local_credentials lookup: {e}"))),
     }
 }
@@ -106,7 +106,7 @@ pub async fn find_by_user_id(
     use wafer_block::ErrorCode;
     match db::get_by_field(ctx, TABLE, "user_id", json!(user_id)).await {
         Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
-        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(RepoError::Db(format!("local_credentials select: {e}"))),
     }
 }

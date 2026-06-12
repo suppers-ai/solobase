@@ -4,11 +4,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use wafer_core::clients::database::Record;
 use wafer_run::{
-    meta::{
-        META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
-    },
-    types::{ErrorCode, MetaEntry, WaferError},
-    OutputStream,
+    ErrorCode, MetaEntry, OutputStream, WaferError, META_RESP_CONTENT_TYPE,
+    META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
 };
 
 /// Current UTC time as RFC 3339 string.
@@ -95,7 +92,7 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 }
 
 /// Check if the current user has admin role from the message metadata.
-pub fn is_admin(msg: &wafer_run::types::Message) -> bool {
+pub fn is_admin(msg: &wafer_run::Message) -> bool {
     msg.get_meta("auth.user_roles")
         .split(',')
         .any(|r| r.trim() == "admin")

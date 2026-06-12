@@ -2,10 +2,8 @@ use maud::{html, PreEscaped};
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, CollectionSchema, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
@@ -92,15 +90,6 @@ impl Block for UserPortalBlock {
         .admin_url("/b/userportal/admin/settings")
         .can_disable(true)
         .default_enabled(false)
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::authenticated("/profile"),
-            wafer_run::UiRoute::authenticated("/sessions"),
-            wafer_run::UiRoute::authenticated("/security"),
-        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
@@ -788,7 +777,7 @@ mod cross_block_tests {
 
     use serde_json::json;
     use wafer_core::clients::database as db;
-    use wafer_run::block::Block;
+    use wafer_run::Block;
 
     use super::*;
     use crate::test_support::{anon_msg, output_json, TestContext};

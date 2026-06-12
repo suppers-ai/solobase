@@ -6,7 +6,7 @@
 //!   /b/admin/settings/variables    → variables::settings_body
 //!   /b/admin/settings/permissions  → permissions::settings_body
 
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{admin_page, crumb, email, network, permissions, variables};
 use crate::ui::{

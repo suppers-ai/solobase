@@ -17,10 +17,8 @@ pub(crate) use storage::{BUCKETS_TABLE, OBJECTS_TABLE};
 pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
 
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
+    LifecycleType, Message, OutputStream, WaferError,
 };
 
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
@@ -48,7 +46,7 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
@@ -245,18 +243,6 @@ impl Block for FilesBlock {
         err_not_found("not found")
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/admin/"),
-            wafer_run::UiRoute::admin("/admin/buckets"),
-            wafer_run::UiRoute::admin("/admin/shares"),
-            wafer_run::UiRoute::admin("/admin/quotas"),
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::authenticated("/{bucket}/"),
-            wafer_run::UiRoute::authenticated("/{bucket}/{prefix...}/"),
-        ]
-    }
-
     async fn lifecycle(
         &self,
         ctx: &dyn Context,
@@ -279,7 +265,7 @@ impl Block for FilesBlock {
 
 #[cfg(test)]
 mod grant_tests {
-    use wafer_run::{block::Block, types::ResourceType};
+    use wafer_run::{Block, ResourceType};
 
     use super::FilesBlock;
 

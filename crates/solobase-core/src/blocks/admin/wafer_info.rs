@@ -1,4 +1,4 @@
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::helpers::{err_not_found, ok_json};
 

@@ -28,13 +28,13 @@ pub async fn initialize() -> Result<(), JsValue> {
         std::sync::Arc::new(wafer_run::StaticConfigSource::default());
     let mut wafer =
         wafer_run::Wafer::new(cfg_source).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
+    wafer.set_asset_loader(&solobase_browser::make_sw_asset_loader());
     wafer
         .seal()
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    solobase_browser::store_wafer(wafer);
+    solobase_browser::store_wafer(wafer).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     Ok(())
 }

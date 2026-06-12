@@ -31,7 +31,6 @@ pub fn encode_request_body(
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
             ChatRole::Tool => "tool",
-            _ => return Err(LlmError::BackendError("webllm: unknown chat role".into())),
         };
 
         let content_val = match &msg.content {
@@ -39,11 +38,6 @@ pub fn encode_request_body(
             ChatContent::Parts(_) => {
                 return Err(LlmError::BackendError(
                     "webllm: multimodal content not supported".into(),
-                ))
-            }
-            _ => {
-                return Err(LlmError::BackendError(
-                    "webllm: unknown content variant".into(),
                 ))
             }
         };

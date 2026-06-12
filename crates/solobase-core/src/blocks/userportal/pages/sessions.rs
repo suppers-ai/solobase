@@ -1,7 +1,7 @@
 //! `/b/userportal/sessions` — list active sessions, revoke individual ones.
 
 use maud::{html, Markup};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::{
@@ -167,10 +167,7 @@ mod tests {
     /// Inject an `auth_token` cookie into a request `Message` by setting the
     /// `http.header.cookie` meta — mirroring how a real HTTP frontend
     /// surfaces cookies to handlers.
-    fn with_auth_cookie(
-        mut msg: wafer_run::types::Message,
-        token: &str,
-    ) -> wafer_run::types::Message {
+    fn with_auth_cookie(mut msg: wafer_run::Message, token: &str) -> wafer_run::Message {
         msg.set_meta("http.header.cookie", format!("auth_token={token}"));
         msg
     }

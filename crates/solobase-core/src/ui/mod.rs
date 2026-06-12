@@ -72,7 +72,7 @@ pub struct UserInfo {
 
 impl UserInfo {
     /// Create from message auth metadata.
-    pub fn from_message(msg: &wafer_run::types::Message) -> Option<Self> {
+    pub fn from_message(msg: &wafer_run::Message) -> Option<Self> {
         let id = msg.get_meta("auth.user_id");
         if id.is_empty() {
             return None;
@@ -119,7 +119,7 @@ pub struct NavItem {
 pub use sidebar::NavGroup;
 
 /// Check if the current request is an htmx partial request.
-pub fn is_htmx(msg: &wafer_run::types::Message) -> bool {
+pub fn is_htmx(msg: &wafer_run::Message) -> bool {
     !msg.get_meta("http.header.hx-request").is_empty()
 }
 
@@ -181,7 +181,7 @@ impl<'a> Page<'a> {
 
     /// htmx-aware response: the raw `body` (no chrome) for an htmx partial,
     /// else the full [`render`](Self::render) document.
-    pub fn response(self, msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+    pub fn response(self, msg: &wafer_run::Message) -> wafer_run::OutputStream {
         if is_htmx(msg) {
             return html_response(self.body);
         }
@@ -229,7 +229,7 @@ fn status_response(
 }
 
 /// Return styled 403 for browser requests, JSON for API requests.
-pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+pub fn forbidden_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
         status_response(
@@ -246,7 +246,7 @@ pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 }
 
 /// Return styled 404 for browser requests, JSON for API requests.
-pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+pub fn not_found_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
         status_response(
@@ -263,7 +263,7 @@ pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 }
 
 /// Return styled 500 for browser requests, JSON for API requests.
-pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+pub fn server_error_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
         status_response(
@@ -309,7 +309,7 @@ pub fn html_response_with_toast(
 #[cfg(test)]
 mod tests {
     use maud::{html, Markup};
-    use wafer_run::types::Message;
+    use wafer_run::Message;
 
     use super::*;
     use crate::ui::shell::{Crumb, Topbar};

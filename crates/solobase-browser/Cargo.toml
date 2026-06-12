@@ -29,7 +29,6 @@ chrono = { workspace = true }
 wafer-run = { workspace = true }
 wafer-core = { workspace = true }
 wafer-block = { workspace = true }
-wafer-block-config = { workspace = true }
 wafer-block-crypto = { workspace = true }
 async-trait = "0.1"
 futures = "0.3"

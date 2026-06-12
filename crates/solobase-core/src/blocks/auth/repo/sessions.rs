@@ -152,7 +152,7 @@ async fn find_record_by_hash(
     use wafer_block::ErrorCode;
     match db::get_by_field(ctx, TABLE, "token_hash", json!(hex_encode(hash))).await {
         Ok(rec) => Ok(Some(rec)),
-        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(RepoError::Db(format!("session lookup: {e}"))),
     }
 }

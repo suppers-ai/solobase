@@ -9,10 +9,8 @@ use std::sync::Arc;
 
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, InputStream,
+    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use self::providers::ProviderLlmService;
@@ -436,15 +434,6 @@ impl Block for LlmBlock {
         ])
         .can_disable(true)
         .default_enabled(true)
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::admin("/settings"),
-            wafer_run::UiRoute::admin("/providers"),
-            wafer_run::UiRoute::admin("/models"),
-        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {

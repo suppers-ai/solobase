@@ -138,7 +138,6 @@ wafer-block-security-headers = { workspace = true }
 wafer-block-web = { workspace = true }
 
 # Service block config (needed by builder for ConfigService trait)
-wafer-block-config = { workspace = true }
 wafer-block-crypto = { workspace = true }
 
 # Serialization

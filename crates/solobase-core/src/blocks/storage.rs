@@ -26,8 +26,8 @@ use futures::StreamExt;
 use wafer_block::{codec, stream::StreamEvent, wire::storage as wire};
 use wafer_core::{clients::database as db, interfaces::storage::service::StorageService};
 use wafer_run::{
-    block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream, ResourceGrant,
-    ResourceType,
+    context::Context, Block, BlockInfo, ErrorCode, InputStream, LifecycleEvent, Message,
+    OutputStream, ResourceGrant, ResourceType, WaferError,
 };
 
 use super::{
@@ -142,13 +142,13 @@ fn rewrite_request_body(
 ) -> Result<(Vec<u8>, ResolvedPath), WaferError> {
     let invalid = |e: wafer_block::WaferError| {
         WaferError::new(
-            ErrorCode::INVALID_ARGUMENT,
+            ErrorCode::InvalidArgument,
             format!("invalid storage request: {}", e.message),
         )
     };
     let encode_err = |e: wafer_block::WaferError| {
         WaferError::new(
-            ErrorCode::INTERNAL,
+            ErrorCode::Internal,
             format!("encoding storage request: {}", e.message),
         )
     };
@@ -211,7 +211,7 @@ fn rewrite_request_body(
             Ok((bytes, resolved))
         }
         other => Err(WaferError::new(
-            ErrorCode::INVALID_ARGUMENT,
+            ErrorCode::InvalidArgument,
             format!("unknown storage op: {other}"),
         )),
     }

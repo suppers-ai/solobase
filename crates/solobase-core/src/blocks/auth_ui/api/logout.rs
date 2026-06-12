@@ -1,6 +1,6 @@
 //! POST /b/auth/api/logout — relocated from auth/login.rs in Task 5.
 
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::{

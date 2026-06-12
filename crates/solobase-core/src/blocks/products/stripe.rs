@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::{config, database as db, network};
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{repo, PRODUCTS_TABLE};
 use crate::blocks::helpers::{

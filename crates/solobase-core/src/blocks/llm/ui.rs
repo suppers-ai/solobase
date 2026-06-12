@@ -1,7 +1,6 @@
 //! Admin SSR pages for the `suppers-ai/llm` feature block.
 //!
-//! Two admin-only pages, both wired into `LlmBlock::handle` via the
-//! `ui_routes`-declared paths:
+//! Two admin-only pages, both wired into `LlmBlock::handle`:
 //!
 //! - `GET /b/llm/providers` — provider CRUD table with an "Add provider"
 //!   form. Reads rows directly from `suppers_ai__llm__providers` via
@@ -17,7 +16,7 @@
 
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{
     providers::config::ProviderConfig,
@@ -555,7 +554,7 @@ mod tests {
     use std::sync::Arc;
 
     use wafer_run::{
-        context::Context, streams::output::TerminalNotResponse, types::ErrorCode, InputStream,
+        context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream,
     };
 
     use super::*;
@@ -593,9 +592,9 @@ mod tests {
 
     fn user_msg(path: &str) -> Message {
         let mut m = Message::new(format!("retrieve:{path}"));
-        m.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
-        m.set_meta(wafer_run::meta::META_REQ_RESOURCE, path);
-        m.set_meta(wafer_run::meta::META_AUTH_USER_ID, "regular-user");
+        m.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
+        m.set_meta(wafer_run::META_REQ_RESOURCE, path);
+        m.set_meta(wafer_run::META_AUTH_USER_ID, "regular-user");
         m.set_meta("auth.user_roles", "user");
         // Prefer JSON 403 over the styled HTML page so the test can
         // assert on the error code directly.

@@ -29,10 +29,8 @@ pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, ErrorCode, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
@@ -56,7 +54,7 @@ impl Default for AdminBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
@@ -134,7 +132,7 @@ impl Block for AdminBlock {
                 // Default: allow all blocks to make outbound network requests.
                 // Remove this grant via the admin UI to restrict network access.
                 wafer_run::ResourceGrant::read("*", "*")
-                    .typed(wafer_run::types::ResourceType::Network),
+                    .typed(wafer_run::ResourceType::Network),
                 // Default: allow all blocks to perform any crypto operation
                 // (hash/compare_hash/sign/verify/random_bytes). The runtime
                 // already isolates JWT signing keys per caller via HKDF
@@ -143,7 +141,7 @@ impl Block for AdminBlock {
                 // restrict sign/verify to specific blocks) if a deployment
                 // wants per-op control.
                 wafer_run::ResourceGrant::read_write("*", "*")
-                    .typed(wafer_run::types::ResourceType::Crypto),
+                    .typed(wafer_run::ResourceType::Crypto),
                 // Wave 26 (c18) made Storage WRAP namespace-aware: every
                 // block self-admits its own `{org}/{block}/*` namespace
                 // via Rule 3 without any grant. The previous
@@ -178,21 +176,6 @@ impl Block for AdminBlock {
                 BlockEndpoint::post("/b/admin/custom-blocks/upload").summary("Upload custom .wasm block").auth(AuthLevel::Admin),
                 BlockEndpoint::delete("/b/admin/custom-blocks/{name}").summary("Delete custom block").auth(AuthLevel::Admin),
             ])
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/"),
-            wafer_run::UiRoute::admin("/users"),
-            wafer_run::UiRoute::admin("/variables"),
-            wafer_run::UiRoute::admin("/network"),
-            wafer_run::UiRoute::admin("/blocks"),
-            wafer_run::UiRoute::admin("/logs"),
-            wafer_run::UiRoute::admin("/email"),
-            wafer_run::UiRoute::admin("/permissions"),
-            wafer_run::UiRoute::admin("/grants"),
-            wafer_run::UiRoute::admin("/database"),
-        ]
     }
 
     async fn handle(
@@ -340,7 +323,7 @@ impl Block for AdminBlock {
         if matches!(event.event_type, LifecycleType::Init) {
             if let Err(e) = migrations::apply(ctx).await {
                 return Err(WaferError::new(
-                    ErrorCode::INTERNAL,
+                    ErrorCode::Internal,
                     format!("admin migrations: {e}"),
                 ));
             }
@@ -448,7 +431,7 @@ mod tests {
 
 #[cfg(test)]
 mod grant_tests {
-    use wafer_run::{block::Block, types::ResourceType};
+    use wafer_run::{Block, ResourceType};
 
     use super::AdminBlock;
 

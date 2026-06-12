@@ -5,10 +5,8 @@ pub mod rest;
 pub mod service;
 
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
+    LifecycleType, Message, OutputStream, WaferError,
 };
 
 use crate::{
@@ -35,7 +33,7 @@ impl Default for MessagesBlock {
 impl Block for MessagesBlock {
     fn info(&self) -> BlockInfo {
         use wafer_block::types::ResourceGrant;
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new(
             "suppers-ai/messages",
@@ -207,10 +205,6 @@ impl Block for MessagesBlock {
         ])
         .can_disable(true)
         .default_enabled(true)
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![wafer_run::UiRoute::authenticated("/")]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {

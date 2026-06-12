@@ -71,7 +71,6 @@ wafer-run = { workspace = true, features = ["full"] }
 wafer-core = { workspace = true }
 
 # Native config service
-wafer-block-config = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true, features = ["full"] }

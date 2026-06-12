@@ -1,6 +1,6 @@
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{network::network_rules_tab, storage::storage_rules_tab};
 use crate::{

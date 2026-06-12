@@ -1,7 +1,7 @@
 //! POST /b/auth/api/signup — relocated from auth/login.rs in Task 5.
 
 use wafer_core::clients::{config, crypto, database as db};
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
     auth::{

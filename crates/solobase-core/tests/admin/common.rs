@@ -6,12 +6,7 @@
 
 use std::sync::Arc;
 
-use wafer_run::{
-    block::Block,
-    context::Context,
-    types::{Message, WaferError},
-    InputStream, OutputStream,
-};
+use wafer_run::{context::Context, Block, InputStream, Message, OutputStream, WaferError};
 
 #[derive(Clone)]
 pub struct MigrationTestCtx {
@@ -37,7 +32,7 @@ impl Context for MigrationTestCtx {
         match block_name {
             "wafer-run/database" => self.db_block.handle(self, msg, input).await,
             _ => OutputStream::error(WaferError::new(
-                wafer_run::types::ErrorCode::NOT_FOUND,
+                wafer_run::ErrorCode::NotFound,
                 format!("block '{block_name}' not registered in test ctx"),
             )),
         }

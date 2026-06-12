@@ -7,10 +7,7 @@
 
 use wafer_block::db::SortField;
 use wafer_core::clients::database as db;
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 use wafer_sql_utils::{introspect, Backend};
 
 /// Per-row data fed to the vector index list table renderer.
@@ -219,7 +216,8 @@ pub async fn introspect_columns(
     ctx: &dyn Context,
     table: &str,
 ) -> Result<Vec<(String, String)>, WaferError> {
-    let (sql, args) = introspect::build_table_info(table, Backend::Sqlite);
+    let (sql, args) = introspect::build_table_info(table, Backend::Sqlite)
+        .map_err(|e| WaferError::new(ErrorCode::InvalidArgument, e.to_string()))?;
     let rows = db::query_raw(ctx, &sql, &args).await?;
     Ok(rows
         .into_iter()

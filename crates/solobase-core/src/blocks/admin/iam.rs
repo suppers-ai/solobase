@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use crate::blocks::helpers::{
     self, err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, json_map,

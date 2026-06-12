@@ -11,11 +11,8 @@ use wafer_core::interfaces::vector::{
     handler::handle_embedding_message, service::EmbeddingService,
 };
 use wafer_run::{
-    block::{Block, BlockInfo},
-    common::ServiceOp,
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    common::ServiceOp, context::Context, Block, BlockInfo, InputStream, LifecycleEvent, Message,
+    OutputStream, WaferError,
 };
 
 use crate::blocks::helpers::err_internal;

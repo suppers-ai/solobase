@@ -129,7 +129,7 @@ mod tests {
             )
             .expect("test secret is long enough"),
         );
-        let crypto_block: Arc<dyn wafer_run::block::Block> =
+        let crypto_block: Arc<dyn wafer_run::Block> =
             Arc::new(wafer_core::service_blocks::crypto::CryptoBlock::new(svc));
         ctx.register_block("wafer-run/crypto", crypto_block);
         ctx

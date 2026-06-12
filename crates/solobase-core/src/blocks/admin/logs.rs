@@ -1,6 +1,6 @@
 use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
 

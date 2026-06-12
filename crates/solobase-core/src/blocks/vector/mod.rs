@@ -5,10 +5,8 @@ pub mod pages_ui;
 pub mod service;
 
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use crate::blocks::helpers;
@@ -77,13 +75,6 @@ impl Block for VectorBlock {
         ])
         .can_disable(true)
         .default_enabled(true)
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/"),
-            wafer_run::UiRoute::admin("/{name}/"),
-        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {

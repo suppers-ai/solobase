@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::config;
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::helpers::{err_bad_request, ok_json},

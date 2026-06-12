@@ -1,6 +1,6 @@
 use maud::html;
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -71,7 +71,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             };
             all_blocks.push(
                 wafer_run::BlockInfo::new(name, "0.0.1", "http.handler", summary)
-                    .instance_mode(wafer_run::types::InstanceMode::Singleton)
+                    .instance_mode(wafer_run::InstanceMode::Singleton)
                     .category(wafer_run::BlockCategory::Feature)
                     .can_disable(true)
                     .default_enabled(false),
@@ -378,19 +378,19 @@ pub async fn handle_block_detail(
                                 tr {
                                     td {
                                         span .badge style={"font-size:11px;" (match ep.method {
-                                            wafer_run::types::HttpMethod::Get => "background:#dbeafe;color:#1d4ed8",
-                                            wafer_run::types::HttpMethod::Post => "background:#dcfce7;color:#166534",
-                                            wafer_run::types::HttpMethod::Patch => "background:#fef3c7;color:#92400e",
-                                            wafer_run::types::HttpMethod::Delete => "background:#fce4ec;color:#c62828",
+                                            wafer_run::HttpMethod::Get => "background:#dbeafe;color:#1d4ed8",
+                                            wafer_run::HttpMethod::Post => "background:#dcfce7;color:#166534",
+                                            wafer_run::HttpMethod::Patch => "background:#fef3c7;color:#92400e",
+                                            wafer_run::HttpMethod::Delete => "background:#fce4ec;color:#c62828",
                                         })} { (ep.method) }
                                     }
                                     td .text-sm { code style="font-size:12px" { (ep.path) } }
                                     td .text-sm .text-muted { (ep.summary) }
                                     td {
                                         span .badge style={"font-size:10px;" (match ep.auth {
-                                            wafer_run::types::AuthLevel::Public => "background:#dcfce7;color:#166534",
-                                            wafer_run::types::AuthLevel::Admin => "background:#fce4ec;color:#c62828",
-                                            wafer_run::types::AuthLevel::Authenticated => "background:#fef3c7;color:#92400e",
+                                            wafer_run::AuthLevel::Public => "background:#dcfce7;color:#166534",
+                                            wafer_run::AuthLevel::Admin => "background:#fce4ec;color:#c62828",
+                                            wafer_run::AuthLevel::Authenticated => "background:#fef3c7;color:#92400e",
                                         })} { (ep.auth) }
                                     }
                                 }

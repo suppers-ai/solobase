@@ -5,7 +5,12 @@
 //! in `wafer-block-http-listener` and the browser adapter in `solobase-web`.
 
 use solobase_core::blocks::helpers::urlencoding_decode;
-use wafer_run::{meta::*, types::*, InputStream, OutputStream, TerminalNotResponse};
+use wafer_run::{
+    ErrorCode, InputStream, Message, MetaEntry, OutputStream, TerminalNotResponse, WaferError,
+    META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
+    META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX,
+    META_RESP_STATUS,
+};
 use worker::{Request, Response, Result};
 
 // ---------------------------------------------------------------------------

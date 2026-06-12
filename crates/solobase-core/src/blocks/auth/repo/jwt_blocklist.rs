@@ -69,7 +69,7 @@ pub async fn contains(ctx: &dyn Context, jti: &str) -> bool {
     use wafer_block::ErrorCode;
     match db::get_by_field(ctx, TABLE, "jti", json!(jti)).await {
         Ok(_) => true,
-        Err(e) if e.code == ErrorCode::NOT_FOUND => false,
+        Err(e) if e.code == ErrorCode::NotFound => false,
         Err(e) => {
             tracing::warn!(jti = %jti, "jwt_blocklist contains: db error — failing closed: {e}");
             true

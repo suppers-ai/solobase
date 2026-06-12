@@ -2,7 +2,7 @@
 
 use wafer_block::ErrorCode as DbErrorCode;
 use wafer_core::clients::{config, database as db};
-use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
     auth::USERS_TABLE,
@@ -46,7 +46,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     .await
     {
         Ok(u) => u,
-        Err(e) if e.code == DbErrorCode::NOT_FOUND => {
+        Err(e) if e.code == DbErrorCode::NotFound => {
             let mut data = json_map(serde_json::json!({
                 "email": email_lower,
                 "name": body.name.unwrap_or_default(),

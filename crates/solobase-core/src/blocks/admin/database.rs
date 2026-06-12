@@ -1,5 +1,5 @@
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 use wafer_sql_utils::{introspect, Backend};
 
 use crate::blocks::helpers::{
@@ -56,15 +56,19 @@ async fn handle_tables(ctx: &dyn Context) -> OutputStream {
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let count_sql = introspect::build_table_row_count(name, Backend::Sqlite);
-        let count = db::query_raw(ctx, &count_sql, &[])
-            .await
-            .ok()
-            .and_then(|r| {
-                r.first()
-                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-            })
-            .unwrap_or(0);
+        // The name comes from the backend's own table listing; a build error
+        // (invalid identifier) is treated like a failed count query: 0 rows.
+        let count = match introspect::build_table_row_count(name, Backend::Sqlite) {
+            Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
+                .await
+                .ok()
+                .and_then(|r| {
+                    r.first()
+                        .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+                })
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
 
         table_info.push(serde_json::json!({
             "name": name,
@@ -87,7 +91,12 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing table name");
     }
 
-    let (info_sql, info_args) = introspect::build_table_info(table_name, Backend::Sqlite);
+    // The table name is user input from the URL path; an invalid identifier
+    // is a bad request, not a server error.
+    let (info_sql, info_args) = match introspect::build_table_info(table_name, Backend::Sqlite) {
+        Ok(v) => v,
+        Err(_) => return err_bad_request("Invalid table name"),
+    };
     let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
         Ok(c) => c,
         Err(e) => return err_internal("Database error", e),

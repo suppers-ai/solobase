@@ -9,10 +9,7 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use wafer_core::clients::crypto;
-use wafer_run::{
-    context::Context,
-    types::{ErrorCode, WaferError},
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 
 use super::{
     repo::{self, sessions},
@@ -60,7 +57,7 @@ pub async fn issue_for(
     )
     .await
     .map_err(|e: repo::RepoError| {
-        WaferError::new(ErrorCode::INTERNAL, format!("session insert: {e}"))
+        WaferError::new(ErrorCode::Internal, format!("session insert: {e}"))
     })?;
 
     Ok(IssuedSession {

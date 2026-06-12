@@ -3,7 +3,7 @@
 //! visually matches profile / sessions / security.
 
 use maud::{html, Markup};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
     blocks::{auth::repo::orgs, helpers::ResponseBuilder},

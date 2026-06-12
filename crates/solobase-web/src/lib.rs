@@ -53,7 +53,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     // it created.
 
     let config_svc: Arc<dyn ConfigService> =
-        Arc::new(wafer_block_config::service::EnvConfigService::new());
+        Arc::new(wafer_core::service_blocks::config::EnvConfigService::new());
     // Empty initial BlockSettings — every block defaults to enabled. We rewrite
     // this via the handle below in Phase 3 once the real settings are loaded.
     let initial_block_settings =

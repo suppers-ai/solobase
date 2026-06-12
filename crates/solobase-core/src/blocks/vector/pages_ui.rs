@@ -4,7 +4,7 @@
 //! unit-tested directly without `Context`.
 
 use maud::{html, Markup};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::service::{display_index_name, IndexRow};
 use crate::ui::{

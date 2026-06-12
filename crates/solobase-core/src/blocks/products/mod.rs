@@ -18,10 +18,8 @@ pub(crate) use pricing::TABLE as PRICING_TABLE;
 pub(crate) use repo::purchases::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
 pub(crate) use variables::TABLE as VARIABLES_TABLE;
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream, InputType,
+    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
@@ -49,7 +47,7 @@ impl ProductsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
             .instance_mode(InstanceMode::Singleton)
@@ -166,19 +164,6 @@ impl Block for ProductsBlock {
             ])
             .admin_url("/b/products/admin/")
             .can_disable(true)
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/admin/"),
-            wafer_run::UiRoute::admin("/admin/manage"),
-            wafer_run::UiRoute::admin("/admin/groups"),
-            wafer_run::UiRoute::admin("/admin/pricing"),
-            wafer_run::UiRoute::admin("/admin/purchases"),
-            wafer_run::UiRoute::admin("/admin/settings"),
-            wafer_run::UiRoute::authenticated("/my-products"),
-            wafer_run::UiRoute::authenticated("/my-purchases"),
-        ]
     }
 
     async fn handle(

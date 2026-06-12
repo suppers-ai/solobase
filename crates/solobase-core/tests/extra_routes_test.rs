@@ -23,11 +23,8 @@ use solobase_core::{
     routing::{self, ExtraRoute, RouteAccess},
 };
 use wafer_run::{
-    context::Context,
-    meta::{META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS},
-    streams::output::TerminalNotResponse,
-    types::{ErrorCode, Message},
-    InputStream, OutputStream,
+    context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream, Message,
+    OutputStream, META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
 };
 
 // ---------------------------------------------------------------------------
@@ -63,7 +60,7 @@ impl Context for RecordingContext {
         // Return a simple 200 response so the caller sees a "dispatch happened" signal.
         OutputStream::respond_with_meta(
             b"ok".to_vec(),
-            vec![wafer_run::types::MetaEntry {
+            vec![wafer_run::MetaEntry {
                 key: META_RESP_STATUS.into(),
                 value: "200".into(),
             }],

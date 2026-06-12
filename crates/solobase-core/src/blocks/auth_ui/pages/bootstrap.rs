@@ -8,7 +8,7 @@
 //! admin user, consumes the token, and logs the caller in.
 
 use maud::html;
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::site_config;
 use crate::{

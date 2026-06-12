@@ -2,7 +2,7 @@
 //! in Task 5.
 
 use maud::{html, PreEscaped};
-use wafer_run::{context::Context, types::Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{blocks::auth::brand_panel, ui, ui::templates::auth_split};
 

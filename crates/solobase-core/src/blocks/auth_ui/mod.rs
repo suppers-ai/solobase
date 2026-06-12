@@ -12,7 +12,7 @@
 //!   auth tables via `repo::*` under WRAP grant. Calls the framework auth
 //!   block via the `auth@v1` typed client for identity primitives.
 //!
-//! Declares the full `BlockInfo` (endpoints, ui_routes, requires,
+//! Declares the full `BlockInfo` (endpoints, requires,
 //! OAuth-creds config_keys), runs the per-user/IP rate-limit middleware,
 //! and dispatches every `/b/auth/*` route to a leaf module under `api/`,
 //! `pages/`, or `oauth/`. The framework `suppers-ai/auth` block (in
@@ -24,10 +24,8 @@ pub mod pages;
 pub mod redirect;
 
 use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
+    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream,
+    InputType, InstanceMode, LifecycleEvent, Message, OutputStream, WaferError,
 };
 
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
@@ -179,16 +177,6 @@ impl Block for AuthUiBlock {
             ]
         })
         .admin_url("/b/auth/admin/settings")
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::public("/login"),
-            wafer_run::UiRoute::public("/signup"),
-            wafer_run::UiRoute::authenticated("/change-password"),
-            wafer_run::UiRoute::authenticated("/orgs"),
-            wafer_run::UiRoute::admin("/admin/settings"),
-        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
