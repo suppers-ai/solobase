@@ -8,7 +8,11 @@ use maud::html;
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use super::super::{load_buttons, render_page, TABLE};
+use super::super::{load_buttons, render_page};
+// Crate-rooted path (rather than `super::super::TABLE`) so the WRAP-grant
+// audit (scripts/audit-wrap-grants.sh) can statically resolve the constant
+// to this block's table.
+use crate::blocks::userportal::TABLE;
 use crate::{
     blocks::helpers::{
         err_bad_request, err_internal, err_not_found, json_map, parse_form_body, stamp_created,
