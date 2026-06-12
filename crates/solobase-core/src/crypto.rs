@@ -78,19 +78,16 @@ pub async fn extract_auth_meta(
         jwt_secret.as_bytes(),
         crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
     );
-    let claims = match primitives::jwt_verify(
-        token,
-        derived_secret.as_bytes(),
-        JwtExpPolicy::Required,
-    ) {
-        Ok(c) => c,
-        Err(_) => {
-            match primitives::jwt_verify(token, jwt_secret.as_bytes(), JwtExpPolicy::Required) {
-                Ok(c) => c,
-                Err(_) => return,
+    let claims =
+        match primitives::jwt_verify(token, derived_secret.as_bytes(), JwtExpPolicy::Required) {
+            Ok(c) => c,
+            Err(_) => {
+                match primitives::jwt_verify(token, jwt_secret.as_bytes(), JwtExpPolicy::Required) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                }
             }
-        }
-    };
+        };
 
     // Only accept "access" tokens for authentication (reject refresh tokens)
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
