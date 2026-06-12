@@ -756,13 +756,16 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
     let raw = input.collect_to_bytes().await;
     let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => {
-            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}));
-        }
+        // Previously returned 200 OK with an `error` key — clients would
+        // still treat that as success. Use the proper 4xx so the caller can
+        // branch on status alone (matches legalpages handle_save).
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
     for &(key, _, _, _, _) in portal_settings_keys().iter() {
         if let Some(value) = body.get(key) {
-            let _ = config::set(ctx, key, value).await;
+            if let Err(e) = config::set(ctx, key, value).await {
+                tracing::warn!(error = %e, key = key, "userportal: failed to set config value");
+            }
         }
     }
     ok_json(&serde_json::json!({"message": "Settings saved"}))
