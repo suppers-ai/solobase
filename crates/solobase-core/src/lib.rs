@@ -1,8 +1,9 @@
 //! solobase-core — shared platform abstraction for solobase.
 //!
 //! Contains solobase feature blocks, the shared request pipeline, routing table,
-//! feature config trait, and crypto (argon2 + JWT) used by both the Cloudflare
-//! Worker and native standalone binary.
+//! feature config trait, and the auth-token policy (`crypto` module, on top of
+//! `wafer_block_crypto::primitives`) used by both the Cloudflare Worker and
+//! native standalone binary.
 
 pub mod blocks;
 pub mod builder;

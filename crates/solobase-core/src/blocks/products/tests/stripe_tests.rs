@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use wafer_block_crypto::primitives;
 use wafer_run::{ErrorCode, InputStream, Message};
 
 use super::mock_context::*;
@@ -22,10 +21,7 @@ fn webhook_msg(payload: &serde_json::Value, secret: &str) -> (Message, InputStre
         .as_secs();
 
     let signed = format!("{}.{}", timestamp, String::from_utf8_lossy(&payload_bytes));
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
-    mac.update(signed.as_bytes());
-    let sig_bytes: [u8; 32] = mac.finalize().into_bytes().into();
+    let sig_bytes = primitives::hmac_sha256(secret.as_bytes(), signed.as_bytes());
     let sig_hex = hex_encode(&sig_bytes);
 
     let sig_header = format!("t={},v1={}", timestamp, sig_hex);

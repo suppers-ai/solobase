@@ -137,21 +137,21 @@ wafer-block-router = { workspace = true }
 wafer-block-security-headers = { workspace = true }
 wafer-block-web = { workspace = true }
 
-# Service block config (needed by builder for ConfigService trait)
+# Crypto primitives (single-source JWT/HMAC/HKDF stack consumed by the
+# `crypto` module + feature blocks) and the service block config trait
+# needed by the builder.
 wafer-block-crypto = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Crypto
+# Crypto. The JWT/HMAC/HKDF/argon2 primitives live in
+# `wafer_block_crypto::primitives` (single source of truth) — only the
+# hashing/encoding helpers used directly by feature blocks remain here.
 sha2 = { workspace = true }
 hex = { workspace = true }
-hmac = "0.12"
-hkdf = "0.12"
-base64 = "0.22"
 base64ct = { version = "1", features = ["alloc"] }
-argon2 = { version = "0.5", default-features = false, features = ["alloc", "rand"] }
 getrandom = "0.2"
 
 # Time

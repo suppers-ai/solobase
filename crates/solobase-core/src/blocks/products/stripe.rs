@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use wafer_block_crypto::primitives;
 use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
@@ -471,17 +472,9 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
     };
 
     // Sign with HMAC-SHA256 (same pattern as Stripe webhook verification).
-    // A signing failure means we cannot produce a verifiable signature —
-    // drop the delivery instead of sending an unsigned/empty-sig payload
-    // that a downstream listener might silently accept.
     let signature = if !secret.is_empty() {
-        match hmac_sha256_local(secret.as_bytes(), &payload) {
-            Ok(sig) => format!("sha256={}", hex_encode(&sig)),
-            Err(e) => {
-                tracing::error!(event = event, error = %e, "failed to sign products webhook payload; skipping delivery");
-                return;
-            }
-        }
+        let sig = primitives::hmac_sha256(secret.as_bytes(), &payload);
+        format!("sha256={}", hex_encode(&sig))
     } else {
         String::new()
     };
@@ -548,21 +541,11 @@ fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bo
     signed_payload.push(b'.');
     signed_payload.extend_from_slice(payload);
 
-    // Signing failure here means we can't compute the expected HMAC — reject
-    // the signature as a mismatch rather than treating an empty buffer as
-    // "no signature matched".
-    let Ok(computed) = hmac_sha256_local(secret.as_bytes(), &signed_payload) else {
-        return false;
-    };
+    let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
     let computed_hex = hex_encode(&computed);
 
     // Constant-time comparison
-    crate::crypto::constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
-}
-
-fn hmac_sha256_local(key: &[u8], data: &[u8]) -> Result<Vec<u8>, String> {
-    crate::crypto::hmac_sha256(data, key)
-        .inspect_err(|e| tracing::error!(error = %e, "hmac_sha256 failure"))
+    primitives::constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
 }
 
 /// Strict origin match: scheme + host + port must agree between `url` and
@@ -665,45 +648,9 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_constant_time_eq_equal() {
-        assert!(crate::crypto::constant_time_eq(b"hello", b"hello"));
-        assert!(crate::crypto::constant_time_eq(b"", b""));
-    }
-
-    #[test]
-    fn test_constant_time_eq_not_equal() {
-        assert!(!crate::crypto::constant_time_eq(b"hello", b"world"));
-        assert!(!crate::crypto::constant_time_eq(b"hello", b"hell"));
-        assert!(!crate::crypto::constant_time_eq(b"a", b"b"));
-    }
-
-    #[test]
-    fn test_constant_time_eq_different_lengths() {
-        assert!(!crate::crypto::constant_time_eq(b"short", b"longer"));
-        assert!(!crate::crypto::constant_time_eq(b"", b"x"));
-    }
-
-    #[test]
-    fn test_hmac_sha256_deterministic() {
-        let hash1 = hmac_sha256_local(b"secret", b"payload").expect("hmac");
-        let hash2 = hmac_sha256_local(b"secret", b"payload").expect("hmac");
-        assert_eq!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_hmac_sha256_different_keys() {
-        let hash1 = hmac_sha256_local(b"key1", b"data").expect("hmac");
-        let hash2 = hmac_sha256_local(b"key2", b"data").expect("hmac");
-        assert_ne!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_hmac_sha256_different_data() {
-        let hash1 = hmac_sha256_local(b"key", b"data1").expect("hmac");
-        let hash2 = hmac_sha256_local(b"key", b"data2").expect("hmac");
-        assert_ne!(hash1, hash2);
-    }
+    // constant_time_eq / hmac_sha256 behavior is tested in
+    // `wafer_block_crypto::primitives` — only the Stripe-specific signature
+    // protocol is exercised here.
 
     fn build_signed_payload(timestamp: u64, payload: &[u8]) -> Vec<u8> {
         let ts = timestamp.to_string();
@@ -721,7 +668,7 @@ mod tests {
         let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let signed_payload = build_signed_payload(timestamp, payload);
-        let computed = hmac_sha256_local(secret.as_bytes(), &signed_payload).expect("hmac");
+        let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", timestamp, computed_hex);
@@ -738,7 +685,7 @@ mod tests {
         let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let signed_payload = build_signed_payload(timestamp, payload);
-        let computed = hmac_sha256_local(secret.as_bytes(), &signed_payload).expect("hmac");
+        let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", timestamp, computed_hex);
@@ -764,7 +711,7 @@ mod tests {
         let old_timestamp = 1000000u64; // way in the past
 
         let signed_payload = build_signed_payload(old_timestamp, payload);
-        let computed = hmac_sha256_local(secret.as_bytes(), &signed_payload).expect("hmac");
+        let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", old_timestamp, computed_hex);

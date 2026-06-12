@@ -1,6 +1,7 @@
 //! GET /b/auth/oauth/login — relocated from auth/oauth.rs::handle_oauth_login in Task 5.
 
 use sha2::{Digest, Sha256};
+use wafer_block_crypto::primitives;
 use wafer_core::clients::config;
 use wafer_run::{context::Context, Message, OutputStream};
 
@@ -16,20 +17,20 @@ const PKCE_STATE_TTL_SECS: i64 = 600;
 
 /// Generate a PKCE code verifier (43-128 chars, URL-safe).
 fn generate_pkce_verifier() -> Result<String, String> {
-    let bytes = crate::crypto::random_bytes(32)?;
-    Ok(crate::crypto::base64_url_encode(&bytes))
+    let bytes = primitives::random_bytes(32).map_err(|e| e.to_string())?;
+    Ok(primitives::b64url_encode(&bytes))
 }
 
 /// Compute S256 code challenge from a verifier.
 fn pkce_challenge(verifier: &str) -> String {
     let hash = Sha256::digest(verifier.as_bytes());
-    crate::crypto::base64_url_encode(&hash)
+    primitives::b64url_encode(&hash)
 }
 
 /// Random opaque OAuth `state` parameter sent to the provider. 32 random
 /// bytes hex-encoded (64 chars) — fits any provider's state-length limit.
 fn generate_state_id() -> Result<String, String> {
-    let bytes = crate::crypto::random_bytes(32)?;
+    let bytes = primitives::random_bytes(32).map_err(|e| e.to_string())?;
     Ok(crate::blocks::helpers::hex_encode(&bytes))
 }
 
