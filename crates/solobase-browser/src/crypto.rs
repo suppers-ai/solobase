@@ -5,13 +5,17 @@
 //! PBKDF2-HMAC-SHA256 instead — fast, sync, pure Rust, and a well-established
 //! standard (NIST SP 800-132).
 //!
-//! JWT signing reuses the pure-Rust HS256 implementation from wafer-block-crypto.
+//! JWT signing/verification — including per-block HKDF key derivation for
+//! `sign_for`/`verify_for` — delegates to wafer-block-crypto's
+//! [`Argon2JwtCryptoService`], the same pure-Rust HS256 engine the native
+//! runtime and the Cloudflare Worker use.
 //!
 //! Since browser data is local-only (no sync to native), hash format
 //! differences don't matter.
 
 use std::{collections::HashMap, time::Duration};
 
+use wafer_block_crypto::{primitives, service::Argon2JwtCryptoService};
 use wafer_core::interfaces::crypto::service::{CryptoError, CryptoService};
 
 /// PBKDF2-HMAC-SHA256 iteration count.
@@ -70,17 +74,13 @@ impl BrowserCryptoService {
             .clone()
     }
 
-    fn derive_block_key(&self, block_id: &str) -> Result<String, CryptoError> {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        let secret = self.jwt_secret();
-        let hk = Hkdf::<Sha256>::new(None, secret.as_bytes());
-        let info = format!("wafer-jwt|{block_id}");
-        let mut okm = [0u8; 32];
-        hk.expand(info.as_bytes(), &mut okm)
-            .map_err(|_| CryptoError::Other("HKDF expand failed".to_string()))?;
-        Ok(okm.iter().map(|b| format!("{b:02x}")).collect())
+    /// Build the shared JWT engine from the current secret. Constructed per
+    /// call because the secret is rotatable (see [`Self::set_jwt_secret`]);
+    /// fails while the secret is still empty/short — a deployment that
+    /// signs tokens before installing a real secret must error, not mint
+    /// weakly-signed credentials.
+    fn jwt(&self) -> Result<Argon2JwtCryptoService, CryptoError> {
+        Argon2JwtCryptoService::new(self.jwt_secret())
     }
 }
 
@@ -152,16 +152,11 @@ impl CryptoService for BrowserCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        // Delegate to the same HS256 implementation used by the native crypto
-        // service. `new` now enforces the 32-byte minimum JWT secret length;
-        // a too-short secret here is a deployment misconfig and the error
-        // bubbles up to the caller.
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?
-            .sign(claims, expiry)
+        self.jwt()?.sign(claims, expiry)
     }
 
     fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?.verify(token)
+        self.jwt()?.verify(token)
     }
 
     fn sign_for(
@@ -170,9 +165,7 @@ impl CryptoService for BrowserCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        let derived = self.derive_block_key(block_id)?;
-        let temp = BrowserCryptoService::new(derived);
-        temp.sign(claims, expiry)
+        self.jwt()?.sign_for(block_id, claims, expiry)
     }
 
     fn verify_for(
@@ -180,15 +173,11 @@ impl CryptoService for BrowserCryptoService {
         block_id: &str,
         token: &str,
     ) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        let derived = self.derive_block_key(block_id)?;
-        let temp = BrowserCryptoService::new(derived);
-        temp.verify(token)
+        self.jwt()?.verify_for(block_id, token)
     }
 
     fn random_bytes(&self, n: usize) -> Result<Vec<u8>, CryptoError> {
-        let mut buf = vec![0u8; n];
-        getrandom::getrandom(&mut buf).map_err(|e| CryptoError::Other(e.to_string()))?;
-        Ok(buf)
+        primitives::random_bytes(n)
     }
 }
 
