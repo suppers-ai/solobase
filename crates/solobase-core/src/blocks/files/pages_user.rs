@@ -779,63 +779,6 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
     }
 }
 
-async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
-    use wafer_block::db::{Filter, FilterOp};
-    use wafer_run::ErrorCode;
-
-    use super::{OBJECTS_TABLE, QUOTAS_TABLE};
-
-    let limit = match db::get_by_field(
-        ctx,
-        QUOTAS_TABLE,
-        "user_id",
-        serde_json::Value::String(user_id.into()),
-    )
-    .await
-    {
-        Ok(r) => r
-            .data
-            .get("max_storage_bytes")
-            .and_then(|v| {
-                v.as_i64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-            })
-            .unwrap_or(1_073_741_824),
-        Err(e) if e.code == ErrorCode::NotFound => 1_073_741_824,
-        Err(e) => {
-            tracing::warn!(error = %e, "quota lookup failed");
-            1_073_741_824
-        }
-    };
-
-    // used_bytes = SUM(size) over the user's objects. v1 in-process sum.
-    let used_filters = vec![Filter {
-        field: "uploaded_by".into(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(user_id.into()),
-    }];
-    let used = match db::list_all(ctx, OBJECTS_TABLE, used_filters).await {
-        Ok(recs) => recs
-            .iter()
-            .filter_map(|r| {
-                r.data.get("size").and_then(|v| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-            })
-            .sum(),
-        Err(e) => {
-            tracing::warn!(error = %e, "used-bytes lookup failed");
-            0
-        }
-    };
-
-    QuotaInfo {
-        used_bytes: used,
-        limit_bytes: limit,
-    }
-}
-
 /// GET `/b/cloudstorage/` — share list with quota card.
 pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
@@ -844,7 +787,14 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
     }
 
     let shares = list_shares_for_user(ctx, &user_id).await;
-    let quota = load_quota_info(ctx, &user_id).await;
+    // Same quota source as upload enforcement (`quota::check_quota`), so
+    // the card can never disagree with what the API enforces.
+    let quota = QuotaInfo {
+        used_bytes: super::quota::get_used_bytes(ctx, &user_id).await,
+        limit_bytes: super::quota::get_user_quota(ctx, &user_id)
+            .await
+            .max_storage_bytes,
+    };
 
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -1508,6 +1458,36 @@ mod integration_tests {
         assert!(body.contains("photos"));
         assert!(body.contains("a.png"));
         assert!(body.contains(">2<"), "access count cell: {body}");
+    }
+
+    /// Regression: the quota card used to be fed by a page-local
+    /// `load_quota_info` copy of the quota logic. It now reads the same
+    /// `quota::get_user_quota` + `quota::get_used_bytes` the upload
+    /// enforcement uses, so an override row must show up on the page.
+    #[tokio::test]
+    async fn cloudstorage_page_quota_card_reflects_override_and_usage() {
+        let ctx = TestContext::with_files().await;
+
+        let mut quota: HashMap<String, serde_json::Value> = HashMap::new();
+        quota.insert("user_id".into(), json!("admin_1"));
+        quota.insert("max_storage_bytes".into(), json!(2048));
+        db::create(&ctx, QUOTAS_TABLE, quota)
+            .await
+            .expect("seed quota");
+
+        let mut obj: HashMap<String, serde_json::Value> = HashMap::new();
+        obj.insert("bucket".into(), json!("photos"));
+        obj.insert("key".into(), json!("a.png"));
+        obj.insert("size".into(), json!(1024));
+        obj.insert("uploaded_by".into(), json!("admin_1"));
+        db::create(&ctx, OBJECTS_TABLE, obj).await.expect("seed obj");
+
+        let msg = admin_msg("retrieve", "/b/cloudstorage/");
+        let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
+        assert!(
+            body.contains("1024 / 2048 bytes"),
+            "quota card must show summed usage against the override limit: {body}"
+        );
     }
 
     #[tokio::test]
