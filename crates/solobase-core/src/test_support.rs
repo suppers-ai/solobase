@@ -13,7 +13,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use wafer_run::{Block, context::Context, streams::output::{BufferedResponse, TerminalNotResponse}, ErrorCode, Message, ResourceGrant, WaferError, InputStream, OutputStream};
+use wafer_run::{
+    context::Context,
+    streams::output::{BufferedResponse, TerminalNotResponse},
+    Block, ErrorCode, InputStream, Message, OutputStream, ResourceGrant, WaferError,
+};
 
 /// Minimal test context backed by a real in-memory SQLite database.
 ///

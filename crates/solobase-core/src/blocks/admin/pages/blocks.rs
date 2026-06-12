@@ -1,6 +1,6 @@
 use maud::html;
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, InputStream, OutputStream, Message};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{admin_page, crumb};
 use crate::{

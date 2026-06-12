@@ -1,4 +1,7 @@
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, InstanceMode, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
+    Message, OutputStream, WaferError,
+};
 
 use crate::{
     blocks::helpers::{err_not_found, ok_json, ResponseBuilder},

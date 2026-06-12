@@ -1,6 +1,6 @@
 use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::config;
-use wafer_run::{context::Context, InputStream, OutputStream, Message};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::{

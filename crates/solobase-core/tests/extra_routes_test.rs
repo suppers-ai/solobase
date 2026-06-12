@@ -22,7 +22,10 @@ use solobase_core::{
     features::FeatureConfig,
     routing::{self, ExtraRoute, RouteAccess},
 };
-use wafer_run::{context::Context, META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS, streams::output::TerminalNotResponse, ErrorCode, Message, InputStream, OutputStream};
+use wafer_run::{
+    context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream, Message,
+    OutputStream, META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
+};
 
 // ---------------------------------------------------------------------------
 // Mock Context — records which block was called and returns a minimal OK response.

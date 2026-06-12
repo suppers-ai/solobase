@@ -25,7 +25,10 @@ use std::sync::Arc;
 use futures::StreamExt;
 use wafer_block::{codec, stream::StreamEvent, wire::storage as wire};
 use wafer_core::{clients::database as db, interfaces::storage::service::StorageService};
-use wafer_run::{Block, context::Context, BlockInfo, InputStream, OutputStream, ResourceGrant, ResourceType, ErrorCode, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockInfo, ErrorCode, InputStream, LifecycleEvent, Message,
+    OutputStream, ResourceGrant, ResourceType, WaferError,
+};
 
 use super::{
     admin::STORAGE_ACCESS_LOGS_TABLE,

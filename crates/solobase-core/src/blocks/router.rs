@@ -8,7 +8,10 @@
 
 use std::sync::Arc;
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, InstanceMode, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockInfo, InputStream, InstanceMode, LifecycleEvent, Message,
+    OutputStream, WaferError,
+};
 
 use crate::{features::FeatureConfig, routing::ExtraRoute};
 

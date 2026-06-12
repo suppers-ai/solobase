@@ -8,7 +8,7 @@ use wafer_block::{
     wire::{config as cfg_wire, database as db_wire},
 };
 use wafer_core::clients::database::{Record, RecordList};
-use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message, WaferError};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
 
 /// In-memory database: collection name → Vec<Record>
 type Db = HashMap<String, Vec<Record>>;
@@ -405,8 +405,8 @@ impl MockContext {
         // db_exec_raw returns ExecRawResponse; convert to ExecuteResponse
         // (same shape: `rows_affected: i64`)
         let raw_resp_data = self.db_exec_raw(&raw_data)?;
-        let raw_resp: db_wire::ExecRawResponse =
-            codec::decode(&raw_resp_data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
+        let raw_resp: db_wire::ExecRawResponse = codec::decode(&raw_resp_data)
+            .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         codec::encode(&db_wire::ExecuteResponse {
             rows_affected: raw_resp.rows_affected,
         })

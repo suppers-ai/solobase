@@ -553,7 +553,9 @@ fn model_row(model: &serde_json::Value) -> Markup {
 mod tests {
     use std::sync::Arc;
 
-    use wafer_run::{context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream};
+    use wafer_run::{
+        context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream,
+    };
 
     use super::*;
     use crate::blocks::llm::providers::{config::ProviderProtocol, ProviderLlmService};

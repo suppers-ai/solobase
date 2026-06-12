@@ -16,7 +16,9 @@ use wafer_core::clients::{
     },
     NativeTypedFrameStream,
 };
-use wafer_run::{context::Context, META_RESP_CONTENT_TYPE, Message, MetaEntry, InputStream, OutputStream};
+use wafer_run::{
+    context::Context, InputStream, Message, MetaEntry, OutputStream, META_RESP_CONTENT_TYPE,
+};
 
 use super::{
     messages_create, messages_list,
@@ -1156,10 +1158,7 @@ mod tests {
     fn extract_provider_id_from_path() {
         // Direct id at end of path
         let mut m = Message::new("update:/b/llm/api/providers/abc123");
-        m.set_meta(
-            wafer_run::META_REQ_RESOURCE,
-            "/b/llm/api/providers/abc123",
-        );
+        m.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/providers/abc123");
         assert_eq!(extract_provider_id(&m), "abc123");
 
         // Id followed by a sub-resource (discover-models)
@@ -1326,10 +1325,7 @@ mod tests {
 
         // Missing model_id
         let mut m3 = Message::new("create:/b/llm/api/models/openai/");
-        m3.set_meta(
-            wafer_run::META_REQ_RESOURCE,
-            "/b/llm/api/models/openai/",
-        );
+        m3.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/models/openai/");
         let (b, m_id) = extract_model_path(&m3);
         assert_eq!(b, "openai");
         assert_eq!(m_id, "");

@@ -2,7 +2,7 @@
 
 use wafer_block::ErrorCode as DbErrorCode;
 use wafer_core::clients::{config, database as db};
-use wafer_run::{context::Context, Message, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
     auth::USERS_TABLE,

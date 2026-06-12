@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use maud::html;
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, OutputStream, Message};
+use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::{aggregate, query, Backend};
 
 use super::{admin_page, crumb};

@@ -14,7 +14,10 @@ use solobase_core::blocks::{
     userportal::UserPortalBlock,
 };
 use wafer_core::clients::crypto;
-use wafer_run::{Block, streams::output::{BufferedResponse, TerminalNotResponse}, Message, InputStream, OutputStream};
+use wafer_run::{
+    streams::output::{BufferedResponse, TerminalNotResponse},
+    Block, InputStream, Message, OutputStream,
+};
 
 use crate::common::MigrationTestCtx;
 

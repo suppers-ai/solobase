@@ -28,7 +28,10 @@ pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
 /// WRAP grant rows (block-to-resource access tokens).
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ErrorCode, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockEndpoint, BlockInfo, ErrorCode, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+};
 pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 use crate::blocks::helpers::{err_not_found, ok_json};
@@ -51,7 +54,7 @@ impl Default for AdminBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
@@ -174,7 +177,6 @@ impl Block for AdminBlock {
                 BlockEndpoint::delete("/b/admin/custom-blocks/{name}").summary("Delete custom block").auth(AuthLevel::Admin),
             ])
     }
-
 
     async fn handle(
         &self,

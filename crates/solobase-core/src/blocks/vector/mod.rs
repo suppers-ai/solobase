@@ -4,7 +4,10 @@ pub mod pages;
 pub mod pages_ui;
 pub mod service;
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, AuthLevel, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{
+    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+};
 
 use crate::blocks::helpers;
 
@@ -73,7 +76,6 @@ impl Block for VectorBlock {
         .can_disable(true)
         .default_enabled(true)
     }
-
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         // All endpoints require authentication. Task 15 fills in the indexes

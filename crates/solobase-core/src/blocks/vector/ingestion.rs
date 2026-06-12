@@ -26,7 +26,7 @@ use wafer_block::wire::llm::{ChatContent, ChatMessage, ChatRequest, ChatRole, Ch
 use wafer_core::clients::llm;
 use wafer_run::{context::Context, WaferError};
 #[cfg(feature = "llm")]
-use wafer_run::{Message, InputStream};
+use wafer_run::{InputStream, Message};
 
 /// Approximate max tokens per chunk. We use whitespace-split as a proxy
 /// for tokenization — close enough for bge-m3 / MiniLM at this

@@ -2,7 +2,7 @@
 //!
 //! Thin layer: parse HTTP request → call service → format JSON response.
 
-use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};

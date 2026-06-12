@@ -45,7 +45,7 @@ use wafer_core::{
     },
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
-use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message, WaferError};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
 use wafer_sql_utils::{introspect, query, upsert, Backend};
 
 use super::{

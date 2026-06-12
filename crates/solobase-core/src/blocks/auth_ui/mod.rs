@@ -23,7 +23,10 @@ pub mod oauth;
 pub mod pages;
 pub mod redirect;
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ConfigVar, InputType, AuthLevel, InstanceMode, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream,
+    InputType, InstanceMode, LifecycleEvent, Message, OutputStream, WaferError,
+};
 
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::err_not_found;
@@ -175,7 +178,6 @@ impl Block for AuthUiBlock {
         })
         .admin_url("/b/auth/admin/settings")
     }
-
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action().to_string();

@@ -6,7 +6,10 @@ use std::collections::HashMap;
 use maud::{html, Markup, PreEscaped};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ConfigVar, InputType, ErrorCode, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, InputStream,
+    InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+};
 
 use crate::{
     blocks::helpers::{

@@ -6,7 +6,7 @@
 
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, OutputStream, ErrorCode, Message};
+use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{

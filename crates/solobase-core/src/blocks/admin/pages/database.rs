@@ -11,7 +11,7 @@
 
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, OutputStream, Message};
+use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::{introspect, Backend};
 
 use super::{admin_page, crumb};

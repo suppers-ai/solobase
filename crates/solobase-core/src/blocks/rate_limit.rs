@@ -331,7 +331,7 @@ pub async fn check_user_rate_limit(
 
 #[cfg(test)]
 mod tests {
-    use wafer_run::{context::Context, Message, InputStream, OutputStream};
+    use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
     use super::*;
 

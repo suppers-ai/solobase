@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use wafer_run::{Block, context::Context, Message, WaferError, InputStream, OutputStream};
+use wafer_run::{context::Context, Block, InputStream, Message, OutputStream, WaferError};
 
 #[derive(Clone)]
 pub struct MigrationTestCtx {

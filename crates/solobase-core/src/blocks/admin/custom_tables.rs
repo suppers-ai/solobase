@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, InputStream, OutputStream, ErrorCode, Message};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 use wafer_sql_utils::{ddl, introspect, Backend};
 
 use super::sanitize_ident;

@@ -16,7 +16,10 @@ pub(crate) use storage::{BUCKETS_TABLE, OBJECTS_TABLE};
 /// (`record_view`) — so the constant lives in mod.rs.
 pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
 
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
+    LifecycleType, Message, OutputStream, WaferError,
+};
 
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
@@ -43,7 +46,7 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{CollectionSchema, AuthLevel};
+        use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
@@ -239,7 +242,6 @@ impl Block for FilesBlock {
 
         err_not_found("not found")
     }
-
 
     async fn lifecycle(
         &self,

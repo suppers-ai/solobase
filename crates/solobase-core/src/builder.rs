@@ -546,7 +546,10 @@ impl SolobaseBuilder {
         {
             use std::sync::Arc;
 
-            use wafer_run::{discovery::{discover_flows, discover_wasm_blocks}, wasm::WasmiBlock};
+            use wafer_run::{
+                discovery::{discover_flows, discover_wasm_blocks},
+                wasm::WasmiBlock,
+            };
 
             let cwd = std::env::current_dir().map_err(|e| {
                 RuntimeError::Config(format!("failed to get current directory: {e}"))

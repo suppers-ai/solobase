@@ -3,7 +3,7 @@
 
 use maud::html;
 use wafer_core::clients::{crypto, database as db};
-use wafer_run::{context::Context, Message, InputStream, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::{

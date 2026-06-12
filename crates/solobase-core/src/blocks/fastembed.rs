@@ -25,7 +25,10 @@ use std::sync::{Arc, OnceLock};
 
 use wafer_block_fastembed::FastembedService;
 use wafer_core::interfaces::vector::handler::handle_embedding_message;
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, InstanceMode, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockInfo, InputStream, InstanceMode, LifecycleEvent, Message,
+    OutputStream, WaferError,
+};
 
 use crate::blocks::helpers::err_internal;
 

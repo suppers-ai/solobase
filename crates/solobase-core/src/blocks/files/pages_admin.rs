@@ -3,7 +3,7 @@
 use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, OutputStream, Message};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::{

@@ -8,7 +8,10 @@ pub mod ui;
 use std::sync::Arc;
 
 use wafer_core::clients::{config, database as db};
-use wafer_run::{Block, BlockInfo, context::Context, InputStream, OutputStream, BlockEndpoint, ConfigVar, ErrorCode, InstanceMode, LifecycleEvent, LifecycleType, Message, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, InputStream,
+    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+};
 
 use self::providers::ProviderLlmService;
 use crate::blocks::helpers::{
@@ -432,7 +435,6 @@ impl Block for LlmBlock {
         .can_disable(true)
         .default_enabled(true)
     }
-
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action();

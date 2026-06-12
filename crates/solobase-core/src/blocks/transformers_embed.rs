@@ -10,7 +10,10 @@ use std::sync::Arc;
 use wafer_core::interfaces::vector::{
     handler::handle_embedding_message, service::EmbeddingService,
 };
-use wafer_run::{Block, BlockInfo, common::ServiceOp, context::Context, InputStream, OutputStream, LifecycleEvent, Message, WaferError};
+use wafer_run::{
+    common::ServiceOp, context::Context, Block, BlockInfo, InputStream, LifecycleEvent, Message,
+    OutputStream, WaferError,
+};
 
 use crate::blocks::helpers::err_internal;
 

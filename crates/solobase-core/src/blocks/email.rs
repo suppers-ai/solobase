@@ -11,7 +11,10 @@ use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
-use wafer_run::{Block, BlockInfo, context::Context, ConfigVar, InputStream, InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError};
+use wafer_run::{
+    context::Context, Block, BlockInfo, ConfigVar, InputStream, InputType, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+};
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
 use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok_json};
@@ -589,7 +592,8 @@ mod tests {
                     Ok(r) => r,
                     Err(e) => {
                         return OutputStream::error(wafer_run::WaferError::new(
-                            ErrorCode::Internal, e.message,
+                            ErrorCode::Internal,
+                            e.message,
                         ));
                     }
                 };
@@ -602,9 +606,10 @@ mod tests {
                     .unwrap_or_default();
                 return match codec::encode(&cfg_wire::GetResponse { value }) {
                     Ok(bytes) => OutputStream::respond(bytes),
-                    Err(e) => {
-                        OutputStream::error(wafer_run::WaferError::new(wafer_run::ErrorCode::Internal, e.message))
-                    }
+                    Err(e) => OutputStream::error(wafer_run::WaferError::new(
+                        wafer_run::ErrorCode::Internal,
+                        e.message,
+                    )),
                 };
             }
             OutputStream::error(wafer_run::WaferError::new(
