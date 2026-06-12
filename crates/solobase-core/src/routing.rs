@@ -8,6 +8,14 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{blocks::helpers, features::FeatureConfig};
 
+/// URL prefix for embedded static assets, served by `suppers-ai/system`.
+///
+/// Single source of truth shared by the routing table below, the
+/// `ui::assets` URL builders, and the pipeline's request-log noise filter —
+/// so the prefix can't drift between them (a stale `/static/` literal in the
+/// filter once made every asset request write a `request_logs` row).
+pub const STATIC_PREFIX: &str = "/b/static/";
+
 /// A single route entry.
 ///
 /// `block` is the solobase block name (`{org}/{block}`) used for feature-gating
@@ -93,7 +101,7 @@ pub struct ExtraRoute {
 pub const ROUTES: &[Route] = &[
     // System & static assets
     Route::new("/health", RouteAccess::Public, "suppers-ai/system"),
-    Route::new("/b/static/", RouteAccess::Public, "suppers-ai/system"),
+    Route::new(STATIC_PREFIX, RouteAccess::Public, "suppers-ai/system"),
     // Inspector — runtime debugging UI (admin only). Feature-gated as
     // `suppers-ai/inspector` but dispatches to the `wafer-run/inspector` block.
     Route::proxy(

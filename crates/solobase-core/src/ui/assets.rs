@@ -1,9 +1,11 @@
 //! Embedded static assets — CSS and JS.
 //!
 //! Asset URLs include a content hash for cache busting:
-//! `/static/app-{hash}.css` and `/static/htmx-{hash}.min.js`
+//! `/b/static/app-{hash}.css` and `/b/static/htmx-{hash}.min.js`
 
 use std::sync::OnceLock;
+
+use crate::routing::STATIC_PREFIX;
 
 const TOKENS_CSS: &str = include_str!("assets/tokens.css");
 const BASE_CSS: &str = include_str!("assets/base.css");
@@ -41,7 +43,7 @@ pub fn logo_long_png() -> &'static [u8] {
 /// Square logo URL with content hash, e.g. `/b/static/solobase-logo-a1b2c3d4.png`.
 pub fn logo_icon_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/b/static/solobase-logo-{}.png", short_hash(LOGO_ICON_PNG)))
+    URL.get_or_init(|| format!("{STATIC_PREFIX}solobase-logo-{}.png", short_hash(LOGO_ICON_PNG)))
 }
 
 /// Long/wordmark logo URL with content hash, e.g. `/b/static/solobase-logo-long-a1b2c3d4.png`.
@@ -49,7 +51,7 @@ pub fn logo_long_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| {
         format!(
-            "/b/static/solobase-logo-long-{}.png",
+            "{STATIC_PREFIX}solobase-logo-long-{}.png",
             short_hash(LOGO_LONG_PNG)
         )
     })
@@ -63,7 +65,7 @@ pub fn favicon_ico() -> &'static [u8] {
 /// Favicon URL with content hash, e.g. `/b/static/favicon-a1b2c3d4.ico`.
 pub fn favicon_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/b/static/favicon-{}.ico", short_hash(FAVICON_ICO)))
+    URL.get_or_init(|| format!("{STATIC_PREFIX}favicon-{}.ico", short_hash(FAVICON_ICO)))
 }
 
 /// Itim latin (basic) woff2 bytes.
@@ -81,7 +83,7 @@ pub fn itim_latin_woff2_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| {
         format!(
-            "/b/static/itim-latin-{}.woff2",
+            "{STATIC_PREFIX}itim-latin-{}.woff2",
             short_hash(ITIM_LATIN_WOFF2)
         )
     })
@@ -92,7 +94,7 @@ pub fn itim_latin_ext_woff2_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| {
         format!(
-            "/b/static/itim-latin-ext-{}.woff2",
+            "{STATIC_PREFIX}itim-latin-ext-{}.woff2",
             short_hash(ITIM_LATIN_EXT_WOFF2)
         )
     })
@@ -136,16 +138,16 @@ fn short_hash(content: &[u8]) -> String {
     hash.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }
 
-/// CSS URL with content hash, e.g. `/static/app-a1b2c3d4.css`
+/// CSS URL with content hash, e.g. `/b/static/app-a1b2c3d4.css`
 pub fn css_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/b/static/app-{}.css", short_hash(css().as_bytes())))
+    URL.get_or_init(|| format!("{STATIC_PREFIX}app-{}.css", short_hash(css().as_bytes())))
 }
 
-/// htmx JS URL with content hash, e.g. `/static/htmx-a1b2c3d4.min.js`
+/// htmx JS URL with content hash, e.g. `/b/static/htmx-a1b2c3d4.min.js`
 pub fn htmx_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/b/static/htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
+    URL.get_or_init(|| format!("{STATIC_PREFIX}htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
 }
 
 const LLM_CHAT_JS: &str = include_str!("assets/llm-chat.js");
@@ -165,7 +167,7 @@ pub fn llm_chat_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| {
         format!(
-            "/b/static/llm-chat-{}.js",
+            "{STATIC_PREFIX}llm-chat-{}.js",
             short_hash(llm_chat_js().as_bytes())
         )
     })
@@ -186,7 +188,7 @@ pub fn files_browser_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| {
         format!(
-            "/b/static/files-browser-{}.js",
+            "{STATIC_PREFIX}files-browser-{}.js",
             short_hash(files_browser_js().as_bytes())
         )
     })
