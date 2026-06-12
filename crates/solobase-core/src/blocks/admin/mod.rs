@@ -1,4 +1,3 @@
-mod custom_tables;
 mod database;
 mod iam;
 mod logs;
@@ -7,7 +6,6 @@ mod pages;
 mod route;
 mod settings;
 mod users;
-mod wafer_info;
 
 pub(crate) use iam::{PERMISSIONS_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
 pub(crate) use logs::{AUDIT_LOGS_TABLE, REQUEST_LOGS_TABLE, STORAGE_ACCESS_LOGS_TABLE};
@@ -28,7 +26,6 @@ use wafer_run::{
     context::Context, Block, BlockEndpoint, BlockInfo, ErrorCode, InputStream, InstanceMode,
     LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
-pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 use crate::blocks::helpers::{err_not_found, ok_json};
 
@@ -52,7 +49,7 @@ impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::{AuthLevel, CollectionSchema};
 
-        BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
+        BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec![
                 "wafer-run/database".into(),
@@ -219,8 +216,6 @@ impl Block for AdminBlock {
                     .collect();
                 ok_json(&blocks)
             }
-            AdminRoute::WaferApi => wafer_info::handle(ctx, &msg),
-            AdminRoute::CustomTablesApi => custom_tables::handle(ctx, &msg, input).await,
             AdminRoute::StorageDelegate => {
                 // The original handler re-set req.resource INSIDE the if branch
                 // (to /admin/<api_rest>). The top-of-function normalization already

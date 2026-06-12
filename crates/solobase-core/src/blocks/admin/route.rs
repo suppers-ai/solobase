@@ -31,10 +31,6 @@ pub(super) enum AdminRoute<'a> {
     SettingsApi,
     /// `/b/admin/api/extensions*`
     ExtensionsApi,
-    /// `/b/admin/api/wafer*` (sync handler)
-    WaferApi,
-    /// `/b/admin/api/custom-tables*`
-    CustomTablesApi,
     /// `/b/admin/api/storage*` — delegated to `suppers-ai/files`
     StorageDelegate,
     /// `/b/admin/api/cloudstorage<rest>` — delegated to `suppers-ai/files`.
@@ -144,8 +140,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             "logs" => AdminRoute::LogsApi,
             "settings" => AdminRoute::SettingsApi,
             "extensions" => AdminRoute::ExtensionsApi,
-            "wafer" => AdminRoute::WaferApi,
-            "custom-tables" => AdminRoute::CustomTablesApi,
             "storage" => AdminRoute::StorageDelegate,
             "cloudstorage" => AdminRoute::CloudStorageDelegate {
                 rest: api_rest.strip_prefix("/cloudstorage").unwrap_or(""),
@@ -356,16 +350,16 @@ mod tests {
                 AdminRoute::ExtensionsApi,
             ),
             (
-                "wafer api",
+                "wafer api removed",
                 "/b/admin/api/wafer",
                 "retrieve",
-                AdminRoute::WaferApi,
+                AdminRoute::ApiNotFound,
             ),
             (
-                "custom-tables api",
+                "custom-tables api removed",
                 "/b/admin/api/custom-tables",
                 "retrieve",
-                AdminRoute::CustomTablesApi,
+                AdminRoute::ApiNotFound,
             ),
             (
                 "storage delegate",
