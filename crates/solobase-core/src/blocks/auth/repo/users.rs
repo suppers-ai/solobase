@@ -86,7 +86,7 @@ pub async fn find_by_email(ctx: &dyn Context, email: &str) -> Result<Option<User
     use wafer_block::ErrorCode;
     match db::get_by_field(ctx, TABLE, "email", json!(email)).await {
         Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
-        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(RepoError::Db(format!("select by email: {e}"))),
     }
 }
@@ -106,7 +106,7 @@ pub async fn find_by_id(ctx: &dyn Context, id: &str) -> Result<Option<UserRow>, 
     use wafer_block::ErrorCode;
     match db::get(ctx, TABLE, id).await {
         Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
-        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(RepoError::Db(format!("select by id: {e}"))),
     }
 }
@@ -123,7 +123,7 @@ pub async fn is_email_verified(ctx: &dyn Context, user_id: &str) -> Result<bool,
 
     match db::get(ctx, TABLE, user_id).await {
         Ok(r) => Ok(r.bool_field("email_verified")),
-        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(false),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(false),
         Err(e) => Err(RepoError::Db(format!("get user {user_id}: {e}"))),
     }
 }

@@ -163,18 +163,6 @@ impl Block for ProductsBlock {
             .can_disable(true)
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/admin/"),
-            wafer_run::UiRoute::admin("/admin/manage"),
-            wafer_run::UiRoute::admin("/admin/groups"),
-            wafer_run::UiRoute::admin("/admin/pricing"),
-            wafer_run::UiRoute::admin("/admin/purchases"),
-            wafer_run::UiRoute::admin("/admin/settings"),
-            wafer_run::UiRoute::authenticated("/my-products"),
-            wafer_run::UiRoute::authenticated("/my-purchases"),
-        ]
-    }
 
     async fn handle(
         &self,

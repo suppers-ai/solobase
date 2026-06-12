@@ -69,7 +69,7 @@ pub async fn issue(
     )
     .await
     .map_err(|e: repo::RepoError| {
-        WaferError::new(ErrorCode::INTERNAL, format!("pat insert: {e}"))
+        WaferError::new(ErrorCode::Internal, format!("pat insert: {e}"))
     })?;
 
     Ok(IssuedPat {

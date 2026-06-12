@@ -73,10 +73,10 @@ impl MockContext {
 
     fn handle_config_call(&self, _kind: &str, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: cfg_wire::GetRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         match self.config.get(&req.key) {
             Some(v) => codec::encode(&cfg_wire::GetResponse { value: v.clone() })
-                .map_err(|e| WaferError::new("internal", e.message)),
+                .map_err(|e| WaferError::new(ErrorCode::Internal, e.message)),
             None => Err(WaferError::new(
                 "not_found",
                 format!("config key '{}' not found", req.key),
@@ -88,21 +88,21 @@ impl MockContext {
 
     fn db_get(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::GetRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         let db = self.db.lock().unwrap();
         let records = db
             .get(&req.collection)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
         let record = records
             .iter()
             .find(|r| r.id == req.id)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
-        codec::encode(record).map_err(|e| WaferError::new("internal", e.message))
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
+        codec::encode(record).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     fn db_list(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::ListRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -153,50 +153,50 @@ impl MockContext {
             page,
             page_size: effective_limit,
         };
-        codec::encode(&result).map_err(|e| WaferError::new("internal", e.message))
+        codec::encode(&result).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     fn db_create(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::CreateRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let id = self.next_id();
         let record = Record { id, data: req.data };
         let mut db = self.db.lock().unwrap();
         db.entry(req.collection).or_default().push(record.clone());
-        codec::encode(&record).map_err(|e| WaferError::new("internal", e.message))
+        codec::encode(&record).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     fn db_update(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::UpdateRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let mut db = self.db.lock().unwrap();
         let records = db
             .get_mut(&req.collection)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
         let record = records
             .iter_mut()
             .find(|r| r.id == req.id)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
         for (k, v) in req.data {
             record.data.insert(k, v);
         }
-        codec::encode(record).map_err(|e| WaferError::new("internal", e.message))
+        codec::encode(record).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     fn db_delete(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::DeleteRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let mut db = self.db.lock().unwrap();
         let records = db
             .get_mut(&req.collection)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
         let idx = records
             .iter()
             .position(|r| r.id == req.id)
-            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+            .ok_or_else(|| WaferError::new(ErrorCode::NotFound, "not found"))?;
         records.remove(idx);
         // The native delete client returns the empty-buffer ack; emit an
         // empty MessagePack payload so the typed client's `Ok(())` path
@@ -206,7 +206,7 @@ impl MockContext {
 
     fn db_count(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::CountRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -216,12 +216,12 @@ impl MockContext {
             .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .count() as i64;
         codec::encode(&db_wire::CountResponse { count })
-            .map_err(|e| WaferError::new("internal", e.message))
+            .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     fn db_sum(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::SumRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -232,7 +232,7 @@ impl MockContext {
             .filter_map(|r| r.data.get(&req.field).and_then(|v| v.as_f64()))
             .sum();
         codec::encode(&db_wire::SumResponse { sum })
-            .map_err(|e| WaferError::new("internal", e.message))
+            .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     /// Minimal exec_raw support for atomic UPDATE ... WHERE id = ? AND status = ? patterns.
@@ -240,7 +240,7 @@ impl MockContext {
     /// handles quoted identifiers ("field") from sea_query builders.
     fn db_exec_raw(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::ExecRawRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
 
         // Normalize: convert positional ? to numbered ?N and strip double-quotes from identifiers
         let normalized = normalize_sql(&req.query);
@@ -250,7 +250,7 @@ impl MockContext {
         // or: UPDATE <table> SET ... WHERE id = ?N AND status = ?M
         if !query_upper.starts_with("UPDATE ") {
             return codec::encode(&db_wire::ExecRawResponse { rows_affected: 0 })
-                .map_err(|e| WaferError::new("internal", e.message));
+                .map_err(|e| WaferError::new(ErrorCode::Internal, e.message));
         }
 
         // Extract table name (word after UPDATE)
@@ -363,7 +363,7 @@ impl MockContext {
             Some(r) => r,
             None => {
                 return codec::encode(&db_wire::ExecRawResponse { rows_affected: 0 })
-                    .map_err(|e| WaferError::new("internal", e.message))
+                    .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
             }
         };
 
@@ -387,7 +387,7 @@ impl MockContext {
         }
 
         codec::encode(&db_wire::ExecRawResponse { rows_affected })
-            .map_err(|e| WaferError::new("internal", e.message))
+            .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     /// `database.execute` — Wave 2 typed write primitive.
@@ -395,22 +395,22 @@ impl MockContext {
     /// the `ExecuteRequest` wire format into an `ExecRawRequest` in-place.
     fn db_execute(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::ExecuteRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         let raw_req = db_wire::ExecRawRequest {
             query: req.sql,
             args: req.args,
         };
         let raw_data =
-            codec::encode(&raw_req).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::encode(&raw_req).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         // db_exec_raw returns ExecRawResponse; convert to ExecuteResponse
         // (same shape: `rows_affected: i64`)
         let raw_resp_data = self.db_exec_raw(&raw_data)?;
         let raw_resp: db_wire::ExecRawResponse =
-            codec::decode(&raw_resp_data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(&raw_resp_data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         codec::encode(&db_wire::ExecuteResponse {
             rows_affected: raw_resp.rows_affected,
         })
-        .map_err(|e| WaferError::new("internal", e.message))
+        .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 
     /// `database.query` — Wave 2 typed read primitive.
@@ -421,7 +421,7 @@ impl MockContext {
     /// fields are written by checking a single-row collection.
     fn db_query(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         let req: db_wire::QueryRequest =
-            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+            codec::decode(data).map_err(|e| WaferError::new(ErrorCode::Internal, e.message))?;
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
         let records = db.get(&req.collection).unwrap_or(&empty);
@@ -433,7 +433,7 @@ impl MockContext {
             })
             .collect();
         codec::encode(&db_wire::QueryResponse { rows })
-            .map_err(|e| WaferError::new("internal", e.message))
+            .map_err(|e| WaferError::new(ErrorCode::Internal, e.message))
     }
 }
 
@@ -647,9 +647,8 @@ pub async fn output_to_json(out: OutputStream) -> serde_json::Value {
 }
 
 /// Check if an OutputStream terminated with an error of the given code.
-pub async fn output_is_error(out: OutputStream, code: &str) -> bool {
+pub async fn output_is_error(out: OutputStream, expected: ErrorCode) -> bool {
     use wafer_run::streams::output::TerminalNotResponse;
-    let expected: ErrorCode = code.into();
     matches!(
         out.collect_buffered().await,
         Err(TerminalNotResponse::Error(e)) if e.code == expected

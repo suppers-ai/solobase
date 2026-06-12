@@ -240,17 +240,6 @@ impl Block for FilesBlock {
         err_not_found("not found")
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/admin/"),
-            wafer_run::UiRoute::admin("/admin/buckets"),
-            wafer_run::UiRoute::admin("/admin/shares"),
-            wafer_run::UiRoute::admin("/admin/quotas"),
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::authenticated("/{bucket}/"),
-            wafer_run::UiRoute::authenticated("/{bucket}/{prefix...}/"),
-        ]
-    }
 
     async fn lifecycle(
         &self,

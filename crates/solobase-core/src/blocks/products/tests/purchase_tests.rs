@@ -152,7 +152,7 @@ async fn create_purchase_empty_items() {
     );
 
     let out = purchase::handle_create(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -173,7 +173,7 @@ async fn create_purchase_zero_quantity() {
     );
 
     let out = purchase::handle_create(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -194,7 +194,7 @@ async fn create_purchase_negative_quantity() {
     );
 
     let out = purchase::handle_create(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -210,7 +210,7 @@ async fn create_purchase_product_not_found() {
     );
 
     let out = purchase::handle_create(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -262,7 +262,7 @@ async fn create_purchase_no_base_price_rejected() {
 
     let out = purchase::handle_create(&ctx, &msg, input).await;
     assert!(
-        output_is_error(out, "invalid_argument").await,
+        output_is_error(out, ErrorCode::InvalidArgument).await,
         "zero-price purchases should be rejected"
     );
 }
@@ -328,7 +328,7 @@ async fn get_purchase_denied_for_other_user() {
     // user_2 tries to access user_1's purchase
     let (msg, _input) = get_msg("/b/products/purchases/pur_priv", "user_2");
     let out = purchase::handle_get(&ctx, &msg).await;
-    assert!(output_is_error(out, "permission_denied").await);
+    assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 }
 
 #[tokio::test]
@@ -337,7 +337,7 @@ async fn get_purchase_not_found() {
 
     let (msg, _input) = get_msg("/b/products/purchases/nonexistent", "user_1");
     let out = purchase::handle_get(&ctx, &msg).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]
@@ -401,7 +401,7 @@ async fn refund_non_completed_fails() {
     msg.set_meta("auth.user_roles", "admin");
 
     let out = purchase::handle_refund(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -421,7 +421,7 @@ async fn refund_already_refunded_fails() {
     msg.set_meta("auth.user_roles", "admin");
 
     let out = purchase::handle_refund(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "invalid_argument").await);
+    assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
 #[tokio::test]
@@ -436,7 +436,7 @@ async fn refund_purchase_not_found() {
     msg.set_meta("auth.user_roles", "admin");
 
     let out = purchase::handle_refund(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "not_found").await);
+    assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
 #[tokio::test]

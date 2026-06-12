@@ -219,7 +219,7 @@ impl Context for TestContext {
                 match block {
                     Some(b) => b.handle(self, msg, input).await,
                     None => OutputStream::error(WaferError::new(
-                        ErrorCode::NOT_FOUND,
+                        ErrorCode::NotFound,
                         format!("block '{other}' not registered in TestContext"),
                     )),
                 }

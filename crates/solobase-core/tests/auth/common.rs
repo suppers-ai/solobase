@@ -69,7 +69,7 @@ impl Context for MigrationTestCtx {
             "wafer-run/database" => self.db_block.handle(self, msg, input).await,
             "wafer-run/crypto" => self.crypto_block.handle(self, msg, input).await,
             _ => OutputStream::error(WaferError::new(
-                wafer_run::ErrorCode::NOT_FOUND,
+                wafer_run::ErrorCode::NotFound,
                 format!("block '{block_name}' not registered in test ctx"),
             )),
         }

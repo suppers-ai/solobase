@@ -603,7 +603,7 @@ mod tests {
                 return match codec::encode(&cfg_wire::GetResponse { value }) {
                     Ok(bytes) => OutputStream::respond(bytes),
                     Err(e) => {
-                        OutputStream::error(wafer_run::WaferError::new("internal", e.message))
+                        OutputStream::error(wafer_run::WaferError::new(wafer_run::ErrorCode::Internal, e.message))
                     }
                 };
             }

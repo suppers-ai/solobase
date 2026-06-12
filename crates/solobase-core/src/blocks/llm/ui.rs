@@ -1,7 +1,6 @@
 //! Admin SSR pages for the `suppers-ai/llm` feature block.
 //!
-//! Two admin-only pages, both wired into `LlmBlock::handle` via the
-//! `ui_routes`-declared paths:
+//! Two admin-only pages, both wired into `LlmBlock::handle`:
 //!
 //! - `GET /b/llm/providers` — provider CRUD table with an "Add provider"
 //!   form. Reads rows directly from `suppers_ai__llm__providers` via

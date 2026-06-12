@@ -175,20 +175,6 @@ impl Block for AdminBlock {
             ])
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/"),
-            wafer_run::UiRoute::admin("/users"),
-            wafer_run::UiRoute::admin("/variables"),
-            wafer_run::UiRoute::admin("/network"),
-            wafer_run::UiRoute::admin("/blocks"),
-            wafer_run::UiRoute::admin("/logs"),
-            wafer_run::UiRoute::admin("/email"),
-            wafer_run::UiRoute::admin("/permissions"),
-            wafer_run::UiRoute::admin("/grants"),
-            wafer_run::UiRoute::admin("/database"),
-        ]
-    }
 
     async fn handle(
         &self,
@@ -335,7 +321,7 @@ impl Block for AdminBlock {
         if matches!(event.event_type, LifecycleType::Init) {
             if let Err(e) = migrations::apply(ctx).await {
                 return Err(WaferError::new(
-                    ErrorCode::INTERNAL,
+                    ErrorCode::Internal,
                     format!("admin migrations: {e}"),
                 ));
             }

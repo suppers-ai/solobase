@@ -128,5 +128,5 @@ async fn bootstrap_with_token(ctx: &dyn Context, token: &str) -> Result<(), Wafe
 }
 
 fn internal<E: std::fmt::Display>(e: E) -> WaferError {
-    WaferError::new(ErrorCode::INTERNAL, format!("auth bootstrap: {e}"))
+    WaferError::new(ErrorCode::Internal, format!("auth bootstrap: {e}"))
 }

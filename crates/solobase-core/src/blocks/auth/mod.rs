@@ -381,7 +381,7 @@ pub async fn authenticate_api_key(
     .await
     {
         Ok(r) => r,
-        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) if e.code == DbErrorCode::NotFound => return,
         Err(e) => {
             tracing::warn!("authenticate_api_key: lookup failed: {e}");
             return;
@@ -411,7 +411,7 @@ pub async fn authenticate_api_key(
 
     let user = match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(u) => u,
-        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) if e.code == DbErrorCode::NotFound => return,
         Err(e) => {
             tracing::warn!(user_id = %user_id, "authenticate_api_key: user lookup failed: {e}");
             return;

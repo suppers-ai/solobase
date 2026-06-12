@@ -189,7 +189,7 @@ async fn webhook_rejects_missing_secret_config() {
     let (msg, input) = webhook_msg(&event, "anything");
 
     let out = stripe::handle_webhook(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "internal").await);
+    assert!(output_is_error(out, ErrorCode::Internal).await);
 }
 
 #[tokio::test]
@@ -208,7 +208,7 @@ async fn webhook_rejects_missing_signature_header() {
     let input = InputStream::from_bytes(payload_bytes);
 
     let out = stripe::handle_webhook(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "unauthenticated").await);
+    assert!(output_is_error(out, ErrorCode::Unauthenticated).await);
 }
 
 #[tokio::test]
@@ -223,7 +223,7 @@ async fn webhook_rejects_invalid_signature() {
     let (msg, input) = webhook_msg(&event, "wrong_secret");
 
     let out = stripe::handle_webhook(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "unauthenticated").await);
+    assert!(output_is_error(out, ErrorCode::Unauthenticated).await);
 }
 
 #[tokio::test]
@@ -260,7 +260,7 @@ async fn webhook_rejects_tampered_payload() {
     let input = InputStream::from_bytes(tampered_bytes);
 
     let out = stripe::handle_webhook(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "unauthenticated").await);
+    assert!(output_is_error(out, ErrorCode::Unauthenticated).await);
 }
 
 // ============================================================
@@ -281,5 +281,5 @@ async fn checkout_rejects_when_stripe_not_configured() {
     );
 
     let out = stripe::handle_checkout(&ctx, &msg, input).await;
-    assert!(output_is_error(out, "internal").await);
+    assert!(output_is_error(out, ErrorCode::Internal).await);
 }

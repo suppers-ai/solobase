@@ -89,14 +89,6 @@ impl Block for UserPortalBlock {
         .default_enabled(false)
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::authenticated("/profile"),
-            wafer_run::UiRoute::authenticated("/sessions"),
-            wafer_run::UiRoute::authenticated("/security"),
-        ]
-    }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let path = msg.path().to_string();

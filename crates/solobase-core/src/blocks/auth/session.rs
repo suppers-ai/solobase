@@ -57,7 +57,7 @@ pub async fn issue_for(
     )
     .await
     .map_err(|e: repo::RepoError| {
-        WaferError::new(ErrorCode::INTERNAL, format!("session insert: {e}"))
+        WaferError::new(ErrorCode::Internal, format!("session insert: {e}"))
     })?;
 
     Ok(IssuedSession {

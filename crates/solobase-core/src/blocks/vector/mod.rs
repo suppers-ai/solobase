@@ -74,12 +74,6 @@ impl Block for VectorBlock {
         .default_enabled(true)
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/"),
-            wafer_run::UiRoute::admin("/{name}/"),
-        ]
-    }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         // All endpoints require authentication. Task 15 fills in the indexes

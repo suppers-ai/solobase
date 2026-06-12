@@ -433,14 +433,6 @@ impl Block for LlmBlock {
         .default_enabled(true)
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::authenticated("/"),
-            wafer_run::UiRoute::admin("/settings"),
-            wafer_run::UiRoute::admin("/providers"),
-            wafer_run::UiRoute::admin("/models"),
-        ]
-    }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action();

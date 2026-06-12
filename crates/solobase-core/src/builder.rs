@@ -11,12 +11,12 @@ use std::{collections::HashMap, sync::Arc};
 // anchors the linker excludes the crate's .o file entirely and the
 // register_static_block! entries never appear in STATIC_BLOCK_REGISTRATIONS.
 wafer_block::use_static_blocks!(
-    cors,
-    inspector,
-    readonly_guard,
-    router,
-    security_headers,
-    web,
+    wafer_block_cors,
+    wafer_block_inspector,
+    wafer_block_readonly_guard,
+    wafer_block_router,
+    wafer_block_security_headers,
+    wafer_block_web,
 );
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,

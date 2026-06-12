@@ -204,9 +204,6 @@ impl Block for MessagesBlock {
         .default_enabled(true)
     }
 
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![wafer_run::UiRoute::authenticated("/")]
-    }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action().to_string();
