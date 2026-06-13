@@ -17,7 +17,7 @@ use wafer_run::{
 };
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
-use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok_json};
+use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json, urlencode};
 
 /// Default per-caller rate limit: 100 emails per hour.
 const DEFAULT_RATE_LIMIT_MAX: u32 = 100;
@@ -234,11 +234,7 @@ async fn handle_send_template(
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!(
-                "{}/b/auth/api/verify?token={}",
-                base_url,
-                form_url_encode(token)
-            );
+            let url = format!("{}/b/auth/api/verify?token={}", base_url, urlencode(token));
             (
                 format!("Verify your {app_name} email"),
                 email_shell(
@@ -256,7 +252,7 @@ async fn handle_send_template(
             let url = format!(
                 "{}/b/auth/reset-password?token={}",
                 base_url,
-                form_url_encode(token)
+                urlencode(token)
             );
             (
                 format!("Reset your {app_name} password"),
@@ -394,17 +390,17 @@ async fn send_email(
 
     // Build form-encoded body
     let mut parts = vec![
-        format!("from={}", form_url_encode(&from)),
-        format!("to={}", form_url_encode(to)),
-        format!("subject={}", form_url_encode(subject)),
-        format!("html={}", form_url_encode(html)),
+        format!("from={}", urlencode(&from)),
+        format!("to={}", urlencode(to)),
+        format!("subject={}", urlencode(subject)),
+        format!("html={}", urlencode(html)),
     ];
     let reply_to = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "").await;
     if !reply_to.is_empty() {
-        parts.push(format!("h:Reply-To={}", form_url_encode(&reply_to)));
+        parts.push(format!("h:Reply-To={}", urlencode(&reply_to)));
     }
     if let Some(text) = text {
-        parts.push(format!("text={}", form_url_encode(text)));
+        parts.push(format!("text={}", urlencode(text)));
     }
     let body = parts.join("&");
 
