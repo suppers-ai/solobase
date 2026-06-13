@@ -1,11 +1,11 @@
 //! POST /b/auth/api/forgot-password — relocated from auth/login.rs in Task 5.
 
-use wafer_core::clients::{crypto, database as db};
+use wafer_core::clients::crypto;
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::USERS_TABLE,
-    helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json, sha256_hex},
+    auth::repo::users,
+    helpers::{err_bad_request, err_internal, hex_encode, ok_json, sha256_hex},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -22,16 +22,9 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let email_lower = body.email.trim().to_lowercase();
     let safe_msg = "If that email is registered, a password reset link has been sent.";
 
-    let user = match db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "email",
-        serde_json::Value::String(email_lower.clone()),
-    )
-    .await
-    {
-        Ok(u) => u,
-        Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
+    let user = match users::find_by_email(ctx, &email_lower).await {
+        Ok(Some(u)) => u,
+        Ok(None) | Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
     };
 
     // Generate reset token (expires in 1 hour). The raw token goes in the
@@ -45,14 +38,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let reset_token_hash = sha256_hex(reset_token.as_bytes());
 
     let expires = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
-    let mut data = json_map(serde_json::json!({
-        "reset_token": reset_token_hash,
-        "reset_token_expires": expires
-    }));
-    crate::blocks::helpers::stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal("Failed to store reset token", e);
+    if let Err(e) = users::set_reset_token(ctx, &user.id, &reset_token_hash, &expires).await {
+        return err_internal("Failed to store reset token", e.to_string());
     }
 
     // Send the raw token in the email; the hash lives only in the DB.

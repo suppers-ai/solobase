@@ -1,12 +1,11 @@
 //! POST /b/auth/api/oauth/sync-user — relocated from auth/login.rs in Task 5.
 
-use wafer_block::ErrorCode as DbErrorCode;
-use wafer_core::clients::{config, database as db};
+use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
-    auth::USERS_TABLE,
-    helpers::{err_bad_request, err_forbidden, err_internal, err_unauthorized, json_map, ok_json},
+    auth::repo::users,
+    helpers::{err_bad_request, err_forbidden, err_internal, err_unauthorized, ok_json},
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -23,11 +22,13 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         return err_unauthorized("Invalid internal secret");
     }
 
+    // `provider` may still be present in the request body; serde ignores
+    // unknown fields, and the old `oauth_provider` column it fed had no
+    // readers, so it is intentionally not deserialized here.
     #[derive(serde::Deserialize)]
     struct SyncReq {
         email: String,
         name: Option<String>,
-        provider: Option<String>,
     }
     let raw = input.collect_to_bytes().await;
     let body: SyncReq = match serde_json::from_slice(&raw) {
@@ -36,34 +37,34 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     };
 
     let email_lower = body.email.trim().to_lowercase();
-    // Only NOT_FOUND falls through to "insert a new row". Any other
-    // backend error (WRAP denial, connection blip) must surface as 500
-    // — collapsing it to "user not found" would race a duplicate insert
-    // past the unique-email constraint and corrupt the table.
-    let user = match db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "email",
-        serde_json::Value::String(email_lower.clone()),
-    )
-    .await
-    {
-        Ok(u) => u,
-        Err(e) if e.code == DbErrorCode::NotFound => {
-            let mut data = json_map(serde_json::json!({
-                "email": email_lower,
-                "name": body.name.unwrap_or_default(),
-                "oauth_provider": body.provider.unwrap_or_default(),
-                "disabled": false
-            }));
-            crate::blocks::helpers::stamp_created(&mut data);
-            match db::create(ctx, USERS_TABLE, data).await {
+    // `find_by_email` maps NOT_FOUND → Ok(None) and surfaces every other
+    // backend error (WRAP denial, connection blip) as Err — collapsing those
+    // to "user not found" would race a duplicate insert past the unique-email
+    // constraint and corrupt the table.
+    let user = match users::find_by_email(ctx, &email_lower).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            // Create through the typed insert so the row matches every other
+            // user row (id, dual display_name+name write, role=user default).
+            // The provider arg is intentionally dropped: the old `oauth_provider`
+            // column had no readers anywhere in the workspace.
+            match users::insert(
+                ctx,
+                users::NewUser {
+                    email: email_lower.clone(),
+                    display_name: body.name.unwrap_or_default(),
+                    avatar_url: None,
+                    role: "user".to_string(),
+                },
+            )
+            .await
+            {
                 Ok(u) => u,
-                Err(e) => return err_internal("Create failed", e),
+                Err(e) => return err_internal("Create failed", e.to_string()),
             }
         }
-        Err(e) => return err_internal("User lookup failed", e),
+        Err(e) => return err_internal("User lookup failed", e.to_string()),
     };
 
-    ok_json(&serde_json::json!({"id": user.id, "email": user.data.get("email")}))
+    ok_json(&serde_json::json!({"id": user.id, "email": user.email}))
 }

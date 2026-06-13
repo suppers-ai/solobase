@@ -1,15 +1,12 @@
 //! POST /b/auth/api/reset-password — relocated from auth/login.rs in Task 5.
 
-use wafer_core::clients::{crypto, database as db};
+use wafer_core::clients::crypto;
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{
-        repo::{local_credentials, tokens},
-        USERS_TABLE,
-    },
+    auth::repo::{local_credentials, tokens, users},
     errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, json_map, ok_json, sha256_hex, RecordExt},
+    helpers::{err_bad_request, err_internal, ok_json, sha256_hex},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -39,27 +36,21 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Find user by reset token. The DB column stores `sha256_hex(raw)`;
     // hash the supplied token the same way before comparing.
-    let user = match db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "reset_token",
-        serde_json::Value::String(sha256_hex(body.token.as_bytes())),
-    )
-    .await
-    {
-        Ok(u) => u,
-        Err(_) => return error_response(ErrorCode::InvalidToken, "Invalid or expired reset token"),
+    let user = match users::find_by_reset_token(ctx, &sha256_hex(body.token.as_bytes())).await {
+        Ok(Some(u)) => u,
+        Ok(None) | Err(_) => {
+            return error_response(ErrorCode::InvalidToken, "Invalid or expired reset token")
+        }
     };
 
     // Check expiry — reject if missing or malformed (tokens must have an expiry)
-    let expires = user.str_field("reset_token_expires");
-    if expires.is_empty() {
+    if user.reset_token_expires.is_empty() {
         return error_response(
             ErrorCode::TokenExpired,
             "Reset token has expired. Please request a new one.",
         );
     }
-    match chrono::DateTime::parse_from_rfc3339(expires) {
+    match chrono::DateTime::parse_from_rfc3339(&user.reset_token_expires) {
         Ok(exp) => {
             if chrono::Utc::now() > exp.with_timezone(&chrono::Utc) {
                 return error_response(
@@ -88,14 +79,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Clear reset token on the users row.
-    let mut data = json_map(serde_json::json!({
-        "reset_token": "",
-        "reset_token_expires": ""
-    }));
-    crate::blocks::helpers::stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal("Failed to clear reset token", e);
+    if let Err(e) = users::clear_reset_token(ctx, &user.id).await {
+        return err_internal("Failed to clear reset token", e.to_string());
     }
 
     // Revoke all refresh tokens — invalidate any stolen sessions.
