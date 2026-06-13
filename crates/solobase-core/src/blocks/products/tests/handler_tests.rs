@@ -733,9 +733,14 @@ async fn overview_highlights_products_nav_via_request_path() {
     let (msg, _input) = admin_get_msg("/b/products/");
     let html = output_to_html(super::super::pages::overview(&ctx, &msg).await).await;
 
-    // Full shell chrome present (shell_page wrapped it).
-    assert!(html.contains("<!DOCTYPE html>"), "expected full document");
+    // Full shell chrome present (shell_page wrapped a non-htmx request in the
+    // sidebar+topbar document, not a bare fragment). The `.shell` wrapper only
+    // exists on the full page, so it's the distinguishing marker.
     assert!(html.contains(r#"class="shell""#), "expected shell chrome");
+    assert!(
+        html.contains(r#"class="sidebar"#),
+        "expected sidebar in full doc"
+    );
     // Products portal nav item is active because current_path == its href.
     assert!(
         html.contains(r#"href="/b/products/""#),
