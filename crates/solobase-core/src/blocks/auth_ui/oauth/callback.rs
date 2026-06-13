@@ -594,3 +594,220 @@ mod tests {
         assert!(!is_safe_frontend_url("https://example.com\n"));
     }
 }
+
+/// End-to-end regression tests for the OAuth callback's two historical
+/// security drifts (audit Top-10 #4):
+///
+/// 1. OAuth logins never created a session row, so they were invisible on the
+///    userportal device list. [`oauth_login_creates_session_row`] proves the
+///    row now exists after a successful Google callback.
+/// 2. Disabled accounts could still authenticate via OAuth because the
+///    callback checked `role == "disabled"` (a value nothing ever writes)
+///    instead of the real `UserRow.disabled` flag.
+///    [`disabled_user_cannot_oauth_in`] proves a disabled account is rejected
+///    and no session is minted.
+///
+/// Both drive the real [`handle`] end-to-end through a mock `wafer-run/network`
+/// block that returns canned Google token + userinfo responses, so a future
+/// refactor that re-breaks either path fails here.
+#[cfg(test)]
+mod security_regression_tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use async_trait::async_trait;
+    use wafer_core::interfaces::network::service::{
+        NetworkError, NetworkService, Request, Response,
+    };
+    use wafer_run::{Block, Message};
+
+    use super::handle;
+    use crate::{
+        blocks::auth::repo::{oauth_pkce, sessions, users},
+        test_support::TestContext,
+    };
+
+    /// Mock network block: maps Google's token + userinfo URLs to canned JSON.
+    /// The userinfo email is fixed so tests can pre-seed a matching user.
+    struct MockGoogleNetwork {
+        userinfo_email: String,
+    }
+
+    #[async_trait]
+    impl NetworkService for MockGoogleNetwork {
+        async fn do_request(&self, req: &Request) -> Result<Response, NetworkError> {
+            let body = if req.url.contains("oauth2.googleapis.com/token") {
+                serde_json::json!({ "access_token": "mock-google-access-token" })
+            } else if req.url.contains("googleapis.com/oauth2/v2/userinfo") {
+                serde_json::json!({
+                    "sub": "google-user-123",
+                    "email": self.userinfo_email,
+                    "name": "Mock Google User",
+                })
+            } else {
+                return Err(NetworkError::Other(format!("unexpected URL: {}", req.url)));
+            };
+            Ok(Response {
+                status_code: 200,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&body).unwrap(),
+            })
+        }
+    }
+
+    /// Build a ctx with auth migrations, a crypto block (token minting), a mock
+    /// Google network block, OAuth enabled, and a seeded PKCE state row so the
+    /// callback's single-use state redemption succeeds.
+    async fn ctx_for_oauth(userinfo_email: &str) -> TestContext {
+        let mut ctx = TestContext::with_auth().await;
+
+        // Crypto block — issue_tokens_and_cookie signs JWTs and pulls random
+        // bytes for the rotation family / jti.
+        let crypto_svc = Arc::new(
+            wafer_block_crypto::service::Argon2JwtCryptoService::new(
+                "test-jwt-secret-padded-to-min-32-bytes-aaaa".to_string(),
+            )
+            .expect("test secret is long enough"),
+        );
+        let crypto_block: Arc<dyn Block> =
+            Arc::new(wafer_core::service_blocks::crypto::CryptoBlock::new(crypto_svc));
+        ctx.register_block("wafer-run/crypto", crypto_block);
+
+        // Mock network block under the production block id.
+        let net: Arc<dyn Block> = Arc::new(crate::blocks::network::SolobaseNetworkBlock::new(
+            Arc::new(MockGoogleNetwork {
+                userinfo_email: userinfo_email.to_string(),
+            }),
+        ));
+        ctx.register_block("wafer-run/network", net);
+
+        // Config block — the handler reads OAuth flags / client credentials via
+        // `config::get_default`, which dispatches to the `wafer-run/config`
+        // block (NOT the TestContext config_get snapshot). Register one backed
+        // by an override map seeded with what the callback needs before it will
+        // attempt the code exchange.
+        use wafer_core::{
+            interfaces::config::service::ConfigService,
+            service_blocks::config::{ConfigBlock, EnvConfigService},
+        };
+        let cfg_svc = EnvConfigService::new();
+        cfg_svc.set("SOLOBASE_SHARED__ENABLE_OAUTH", "true");
+        cfg_svc.set("SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_ID", "client-id");
+        cfg_svc.set(
+            "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
+            "client-secret",
+        );
+        let cfg_block: Arc<dyn Block> = Arc::new(ConfigBlock::new(Arc::new(cfg_svc)));
+        ctx.register_block("wafer-run/config", cfg_block);
+
+        // Seed a single-use PKCE state row keyed by the `state` query param.
+        let expires = (chrono::Utc::now() + chrono::Duration::minutes(10))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        oauth_pkce::insert(
+            &ctx,
+            oauth_pkce::NewPkceState {
+                state_id: "state-xyz",
+                provider: "google",
+                code_verifier: "verifier-abc",
+                redirect_uri: "https://app.example.com/b/auth/oauth/callback",
+                expires_at: &expires,
+            },
+        )
+        .await
+        .expect("seed pkce state");
+
+        ctx
+    }
+
+    /// Build the callback request message carrying `code` + `state` query
+    /// params (read via `msg.query(...)` → `req.query.*` meta).
+    fn callback_msg() -> Message {
+        let mut msg = Message::new("auth.oauth.callback");
+        msg.set_meta("req.query.code", "auth-code-123");
+        msg.set_meta("req.query.state", "state-xyz");
+        msg
+    }
+
+    #[tokio::test]
+    async fn oauth_login_creates_session_row() {
+        // No pre-existing user: the callback creates one, then must persist a
+        // session row (the drift that made OAuth logins invisible on the
+        // userportal device list).
+        let email = "newoauth@example.com";
+        let ctx = ctx_for_oauth(email).await;
+
+        let out = handle(&ctx, &callback_msg()).await;
+        let status = crate::test_support::output_status(out).await;
+        assert_eq!(status, 302, "successful OAuth callback should 302-redirect");
+
+        let user = users::find_by_email(&ctx, email)
+            .await
+            .expect("user lookup ok")
+            .expect("OAuth callback created the user");
+
+        let session_rows = sessions::list_for_user(&ctx, &user.id)
+            .await
+            .expect("list sessions ok");
+        assert_eq!(
+            session_rows.len(),
+            1,
+            "OAuth login must persist exactly one session row (regression: it persisted none)"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_user_cannot_oauth_in() {
+        // Seed a DISABLED user with the email the provider will return.
+        let email = "disabled@example.com";
+        let ctx = ctx_for_oauth(email).await;
+
+        let user = users::insert(
+            &ctx,
+            users::NewUser {
+                email: email.to_string(),
+                display_name: "Disabled User".to_string(),
+                avatar_url: None,
+                role: "user".to_string(),
+            },
+        )
+        .await
+        .expect("seed user");
+        // Flip the real `disabled` flag (the value the fixed check reads).
+        let mut upd = crate::blocks::helpers::json_map(serde_json::json!({ "disabled": true }));
+        crate::blocks::helpers::stamp_updated(&mut upd);
+        wafer_core::clients::database::update(
+            &ctx,
+            crate::blocks::auth::USERS_TABLE,
+            &user.id,
+            upd,
+        )
+        .await
+        .expect("disable user");
+        // Sanity: the typed row now reports disabled.
+        assert!(
+            users::find_by_id(&ctx, &user.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .disabled,
+            "fixture user must be disabled"
+        );
+
+        // The callback rejects with a PermissionDenied error stream (mapped to
+        // HTTP 403 at the boundary). Before the fix this returned a 302 login.
+        let out = handle(&ctx, &callback_msg()).await;
+        assert!(
+            crate::test_support::output_is_error(out, "PermissionDenied").await,
+            "disabled account must be rejected at the OAuth callback (regression: it logged in)"
+        );
+
+        // And no session row was minted for the disabled user.
+        let session_rows = sessions::list_for_user(&ctx, &user.id)
+            .await
+            .expect("list sessions ok");
+        assert!(
+            session_rows.is_empty(),
+            "no session may be created for a disabled OAuth login"
+        );
+    }
+}
