@@ -90,6 +90,73 @@ const RATE_LIMIT_ROUTES: &[RouteLimit] = &[
     },
 ];
 
+/// The auth-ui block's own declared config vars (OAuth provider creds). Single
+/// source of truth for both `BlockInfo::config_keys` and the admin settings
+/// page (rendered via `ui::settings_form`, not a parallel tuple table).
+///
+/// OAuth provider creds live under the auth-ui prefix
+/// (`SUPPERS_AI__AUTH_UI__OAUTH_*`) to keep the prefix-equals-block-name
+/// invariant the runtime enforces (see `block_name_to_var_prefix`). The
+/// auth-identity vars JWT_SECRET / REQUIRE_VERIFICATION / ALLOWED_EMAIL_DOMAINS
+/// are `SUPPERS_AI__AUTH__*` and declared in `auth::config` instead.
+pub(crate) fn config_vars() -> Vec<ConfigVar> {
+    vec![
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_ID",
+            "Google OAuth client ID",
+            "",
+        )
+        .name("Google Client ID")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
+            "Google OAuth client secret",
+            "",
+        )
+        .name("Google Client Secret")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_ID",
+            "GitHub OAuth client ID",
+            "",
+        )
+        .name("GitHub Client ID")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_SECRET",
+            "GitHub OAuth client secret",
+            "",
+        )
+        .name("GitHub Client Secret")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_ID",
+            "Microsoft OAuth client ID",
+            "",
+        )
+        .name("Microsoft Client ID")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_SECRET",
+            "Microsoft OAuth client secret",
+            "",
+        )
+        .name("Microsoft Client Secret")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
+            "OAuth callback URL",
+            "",
+        )
+        .name("OAuth Redirect URI")
+        .input_type(InputType::Url)
+        .optional(),
+    ]
+}
+
 pub struct AuthUiBlock {
     limiter: UserRateLimiter,
 }
@@ -166,73 +233,7 @@ impl Block for AuthUiBlock {
             BlockEndpoint::get("/b/auth/bootstrap").summary("Bootstrap token redemption form"),
             BlockEndpoint::post("/b/auth/api/bootstrap").summary("Redeem bootstrap admin token"),
         ])
-        .config_keys({
-            // OAuth provider creds belong with the OAuth UI flows, so they
-            // live on auth-ui under the auth-ui prefix
-            // (`SUPPERS_AI__AUTH_UI__OAUTH_*`). The framework AuthBlock
-            // owns JWT_SECRET / REQUIRE_VERIFICATION / ALLOWED_EMAIL_DOMAINS
-            // / INTERNAL_SECRET — those are auth identity infra used by
-            // AuthServiceImpl, not UI, and currently aren't exposed as
-            // declared config_keys (wafer-run gap; vars still resolve via
-            // env). Renaming from the legacy `SUPPERS_AI__AUTH__OAUTH_*`
-            // keeps the prefix-equals-block-name invariant the runtime
-            // enforces (see `block_name_to_var_prefix` in wafer-run).
-            vec![
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_ID",
-                    "Google OAuth client ID",
-                    "",
-                )
-                .name("Google Client ID")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
-                    "Google OAuth client secret",
-                    "",
-                )
-                .name("Google Client Secret")
-                .input_type(InputType::Password)
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_ID",
-                    "GitHub OAuth client ID",
-                    "",
-                )
-                .name("GitHub Client ID")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_SECRET",
-                    "GitHub OAuth client secret",
-                    "",
-                )
-                .name("GitHub Client Secret")
-                .input_type(InputType::Password)
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_ID",
-                    "Microsoft OAuth client ID",
-                    "",
-                )
-                .name("Microsoft Client ID")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_SECRET",
-                    "Microsoft OAuth client secret",
-                    "",
-                )
-                .name("Microsoft Client Secret")
-                .input_type(InputType::Password)
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
-                    "OAuth callback URL",
-                    "",
-                )
-                .name("OAuth Redirect URI")
-                .input_type(InputType::Url)
-                .optional(),
-            ]
-        })
+        .config_keys(config_vars())
         .admin_url("/b/auth/admin/settings")
     }
 

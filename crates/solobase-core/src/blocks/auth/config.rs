@@ -44,6 +44,14 @@ pub const PASSWORD_MIN_LENGTH_KEY: &str = "SOLOBASE_SHARED__AUTH__PASSWORD_MIN_L
 /// regular use never hits the natural-expiry path on every request.
 pub const ACCESS_TOKEN_LIFETIME_SECS_KEY: &str = "SUPPERS_AI__AUTH__ACCESS_TOKEN_LIFETIME_SECS";
 
+/// `SUPPERS_AI__AUTH__REQUIRE_VERIFICATION` — when `true`, users must verify
+/// their email before they can log in. Read by login/signup/refresh.
+pub const REQUIRE_VERIFICATION_KEY: &str = "SUPPERS_AI__AUTH__REQUIRE_VERIFICATION";
+
+/// `SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS` — comma-separated allowlist of
+/// signup email domains. Empty (the default) allows any domain.
+pub const ALLOWED_EMAIL_DOMAINS_KEY: &str = "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS";
+
 /// Default session lifetime when the config var is unset.
 pub const SESSION_LIFETIME_DAYS_DEFAULT: u32 = 30;
 
@@ -102,6 +110,33 @@ pub fn auth_config_vars() -> Vec<ConfigVar> {
             &ACCESS_TOKEN_LIFETIME_SECS_DEFAULT.to_string(),
         )
         .name("Access Token Lifetime (seconds)"),
+    ]
+}
+
+/// Block-scoped (`SUPPERS_AI__AUTH__*`) auth-identity config vars that the
+/// auth flows read directly via the config client (verification gate + signup
+/// domain allowlist). Declared here as [`ConfigVar`] metadata so the auth_ui
+/// admin settings page renders them through `ui::settings_form` instead of a
+/// hand-maintained tuple table. They are not contributed to a `BlockInfo`
+/// because there is no standalone `suppers-ai/auth` Block — `auth/` is a
+/// library module consumed by `auth_ui` — but they remain ConfigVar-declared
+/// in one place (no-hardcoded-lists rule).
+pub fn auth_identity_config_vars() -> Vec<ConfigVar> {
+    vec![
+        ConfigVar::new(
+            REQUIRE_VERIFICATION_KEY,
+            "Require users to verify their email before they can log in.",
+            "false",
+        )
+        .name("Require Email Verification")
+        .input_type(InputType::Toggle),
+        ConfigVar::new(
+            ALLOWED_EMAIL_DOMAINS_KEY,
+            "Restrict signup to specific email domains (comma-separated, e.g. \"company.com,org.com\"). Leave empty to allow all.",
+            "",
+        )
+        .name("Allowed Email Domains")
+        .input_type(InputType::Text),
     ]
 }
 
