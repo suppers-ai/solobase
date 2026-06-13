@@ -12,7 +12,7 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{map_bool, map_opt_str, map_str, now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__local_credentials";
 
@@ -24,26 +24,14 @@ pub struct LocalCredentialRow {
     pub created_at: String,
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<LocalCredentialRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
-    // Mirror `RecordExt::bool_field` so the column round-trips across both
-    // sqlite (INTEGER 0/1) and postgres (BOOLEAN -> JSON bool).
-    let must_reset = match m.get("must_reset") {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(Value::String(s)) => s == "true" || s == "1",
-        _ => false,
-    };
     Ok(LocalCredentialRow {
-        user_id: s("user_id").ok_or_else(|| RepoError::Db("missing user_id".into()))?,
-        password_hash: s("password_hash")
+        user_id: map_opt_str(m, "user_id")
+            .ok_or_else(|| RepoError::Db("missing user_id".into()))?,
+        password_hash: map_opt_str(m, "password_hash")
             .ok_or_else(|| RepoError::Db("missing password_hash".into()))?,
-        must_reset,
-        created_at: s("created_at").unwrap_or_default(),
+        must_reset: map_bool(m, "must_reset"),
+        created_at: map_str(m, "created_at"),
     })
 }
 

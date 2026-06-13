@@ -29,7 +29,7 @@ use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{decode_hex, map_str, now_iso, RepoError};
 use crate::blocks::helpers::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__sessions";
@@ -50,20 +50,6 @@ pub struct NewSession {
     pub expires_at: String,
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
-fn decode_hex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
-}
-
 /// Decode a `token_hash` column value, accepting either:
 /// - A TEXT hex string (live convention used by production rows + new inserts).
 /// - A `Value::Array` of `u8`-coerced numbers (legacy migration BLOB rows
@@ -82,17 +68,17 @@ fn decode_token_hash(v: &Value) -> Option<Vec<u8>> {
 }
 
 fn row_from_map(m: &HashMap<String, Value>) -> Result<SessionRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     let token_hash = m
         .get("token_hash")
         .and_then(decode_token_hash)
         .ok_or_else(|| RepoError::Db("missing token_hash".into()))?;
     Ok(SessionRow {
         token_hash,
-        user_id: s("user_id").ok_or_else(|| RepoError::Db("missing user_id".into()))?,
-        created_at: s("created_at").unwrap_or_default(),
-        last_used_at: s("last_used_at").unwrap_or_default(),
-        expires_at: s("expires_at").unwrap_or_default(),
+        user_id: super::map_opt_str(m, "user_id")
+            .ok_or_else(|| RepoError::Db("missing user_id".into()))?,
+        created_at: map_str(m, "created_at"),
+        last_used_at: map_str(m, "last_used_at"),
+        expires_at: map_str(m, "expires_at"),
     })
 }
 

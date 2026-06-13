@@ -22,7 +22,7 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{now_iso, RepoError};
 use crate::blocks::helpers::{sha256_hex, RecordExt};
 
 pub const TABLE: &str = "suppers_ai__auth__tokens";
@@ -54,10 +54,9 @@ pub async fn insert(
     data.insert("family".into(), json!(family));
     data.insert("generation".into(), json!(generation));
     data.insert("revoked".into(), json!(false));
-    data.insert(
-        "created_at".into(),
-        json!(crate::blocks::helpers::now_rfc3339()),
-    );
+    // `now_iso()` is the single auth-table timestamp writer (`…Z` form);
+    // keeps `created_at` consistent with every other auth repo module.
+    data.insert("created_at".into(), json!(now_iso()));
     data.insert("expires_at".into(), json!(expires_at));
 
     db::create(ctx, TABLE, data)

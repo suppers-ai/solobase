@@ -13,6 +13,8 @@ use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
+use super::{map_bool, map_opt_str, map_str, now_iso};
+
 pub const TABLE: &str = "suppers_ai__auth__orgs";
 
 /// Full row shape returned by [`find_by_name`] and [`upsert_claimed`].
@@ -40,26 +42,15 @@ pub enum OrgsRepoError {
     Db(String),
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<OrgRow, OrgsRepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
-    let is_reserved = match m.get("is_reserved") {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
-        _ => false,
-    };
     Ok(OrgRow {
-        id: s("id").ok_or_else(|| OrgsRepoError::Db("missing id".into()))?,
-        name: s("name").ok_or_else(|| OrgsRepoError::Db("missing name".into()))?,
-        owner_user_id: s("owner_user_id"),
-        verified_via: s("verified_via"),
-        verified_ref: s("verified_ref"),
-        is_reserved,
-        created_at: s("created_at").unwrap_or_default(),
+        id: map_opt_str(m, "id").ok_or_else(|| OrgsRepoError::Db("missing id".into()))?,
+        name: map_opt_str(m, "name").ok_or_else(|| OrgsRepoError::Db("missing name".into()))?,
+        owner_user_id: map_opt_str(m, "owner_user_id"),
+        verified_via: map_opt_str(m, "verified_via"),
+        verified_ref: map_opt_str(m, "verified_ref"),
+        is_reserved: map_bool(m, "is_reserved"),
+        created_at: map_str(m, "created_at"),
     })
 }
 

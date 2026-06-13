@@ -18,7 +18,7 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__jwt_blocklist";
 
@@ -29,10 +29,6 @@ pub struct NewBlocklistEntry<'a> {
     pub user_id: &'a str,
     /// Absolute expiry time (matches the JWT's `exp` claim) as ISO-8601.
     pub expires_at: &'a str,
-}
-
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Insert a blocklist entry. Re-inserting an existing `jti` succeeds (best-

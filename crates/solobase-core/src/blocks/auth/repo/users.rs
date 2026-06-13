@@ -7,7 +7,7 @@ use uuid::Uuid;
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{map_bool, map_opt_str, map_str, now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__users";
 
@@ -32,32 +32,17 @@ pub struct NewUser {
     pub role: String,
 }
 
-fn now_iso() -> String {
-    // Matches the plain `...Z` style already used by the migration tests; the
-    // exact formatting is not load-bearing beyond being comparable and ISO-8601.
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<UserRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
-    // Defensive bool decode — handles JSON bool, integer (TEXT-int via sqlite),
-    // and string ('true'/'1') so the row reads cleanly across all backends.
-    let b = |k: &str| match m.get(k) {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
-        _ => false,
-    };
     Ok(UserRow {
-        id: s("id").ok_or_else(|| RepoError::Db("missing id".into()))?,
-        email: s("email").ok_or_else(|| RepoError::Db("missing email".into()))?,
-        display_name: s("display_name").unwrap_or_default(),
-        avatar_url: s("avatar_url"),
-        role: s("role").unwrap_or_else(|| "user".into()),
-        disabled: b("disabled"),
-        email_verified: b("email_verified"),
-        created_at: s("created_at").unwrap_or_default(),
-        updated_at: s("updated_at").unwrap_or_default(),
+        id: map_opt_str(m, "id").ok_or_else(|| RepoError::Db("missing id".into()))?,
+        email: map_opt_str(m, "email").ok_or_else(|| RepoError::Db("missing email".into()))?,
+        display_name: map_str(m, "display_name"),
+        avatar_url: map_opt_str(m, "avatar_url"),
+        role: map_opt_str(m, "role").unwrap_or_else(|| "user".into()),
+        disabled: map_bool(m, "disabled"),
+        email_verified: map_bool(m, "email_verified"),
+        created_at: map_str(m, "created_at"),
+        updated_at: map_str(m, "updated_at"),
     })
 }
 
