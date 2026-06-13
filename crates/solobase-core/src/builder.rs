@@ -341,8 +341,7 @@ impl SolobaseBuilder {
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
         wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto)?;
 
-        let network_block = crate::blocks::network::create(network);
-        wafer.register_block("wafer-run/network", network_block)?;
+        wafer_core::service_blocks::network::register_with(&mut wafer, network)?;
 
         wafer_core::service_blocks::logger::register_with(&mut wafer, logger)?;
 

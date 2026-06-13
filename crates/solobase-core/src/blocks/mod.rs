@@ -28,7 +28,6 @@ pub mod legalpages;
 pub mod llm;
 #[cfg(feature = "block-messages")]
 pub mod messages;
-pub mod network;
 #[cfg(feature = "block-products")]
 pub mod products;
 pub mod rate_limit;
