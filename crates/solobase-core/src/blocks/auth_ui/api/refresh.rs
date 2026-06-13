@@ -16,12 +16,8 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{
-            build_auth_cookie, ensure_admin_role, expected_issuer, generate_tokens,
-            store_refresh_token,
-        },
-        repo::{sessions, tokens, users},
-        service::hash_token,
+        helpers::{ensure_admin_role, expected_issuer, issue_tokens_and_cookie},
+        repo::{tokens, users},
     },
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, ResponseBuilder},
@@ -137,109 +133,41 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         .unwrap_or("password")
         .to_string();
 
-    // Mint the new access JWT via the shared helper. We discard its refresh
-    // JWT because `generate_tokens` allocates a fresh family for it — we
-    // need the new refresh JWT to carry the *preserved* family so reuse
-    // detection survives across rotation (SEC-039).
-    let (access_token, _discarded_refresh, _discarded_new_family) =
-        match generate_tokens(ctx, &user_id, &email, &roles, &prior_auth_method).await {
-            Ok(t) => t,
-            Err(r) => return r,
-        };
-    let refresh_token =
-        match resign_refresh_with_family(ctx, &user_id, &prior_auth_method, &row.family).await {
-            Ok(t) => t,
-            Err(r) => return r,
-        };
-
-    // Atomic-ish rotation: mark old row revoked, insert new row under the
-    // same family with generation+1. If the second step fails after the
-    // first succeeds the user simply gets logged out — a recoverable UX
-    // outcome — but we never leave two live rows in a family.
+    // Atomic-ish rotation: mark the old row revoked *before* minting the
+    // replacement, so we never leave two live rows in a family. If issuance
+    // then fails the user simply gets logged out — a recoverable UX outcome.
     if let Err(e) = tokens::revoke_by_id(ctx, &row.id).await {
         tracing::warn!("refresh: failed to revoke prior token row: {e}");
         return error_response(ErrorCode::InvalidToken, "Could not rotate refresh token");
     }
-    store_refresh_token(
+
+    // Re-issue within the *preserved* family (SEC-039): passing
+    // `Some(&row.family)` makes `generate_tokens` carry the existing family on
+    // the new refresh JWT so its `family` claim agrees with the DB row that
+    // anchors reuse detection. `generation = row.generation + 1` advances the
+    // rotation counter. This is the same shared issuance tail every other
+    // login flow uses, so the userportal session row is written here too.
+    let issued = match issue_tokens_and_cookie(
         ctx,
         &user_id,
-        &refresh_token,
-        &row.family,
+        &email,
+        &roles,
+        &prior_auth_method,
+        Some(&row.family),
         row.generation + 1,
     )
-    .await;
-
-    if let Err(e) = sessions::create_for_user(ctx, &user_id, hash_token(&access_token), 1).await {
-        tracing::warn!(
-            user_id = %user_id,
-            "failed to persist session row for JWT refresh: {e}"
-        );
-    }
-
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
+    .await
+    {
+        Ok(i) => i,
+        Err(r) => return r,
+    };
 
     ResponseBuilder::new()
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .json(&serde_json::json!({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": issued.access_token,
+            "refresh_token": issued.refresh_token,
             "token_type": "Bearer",
-            "expires_in": access_lifetime
+            "expires_in": issued.access_lifetime
         }))
-}
-
-/// Mint a refresh JWT with a caller-chosen `family` claim.
-///
-/// `generate_tokens` always allocates a fresh family. On rotation we need to
-/// preserve the prior family so the JWT's `family` claim agrees with the DB
-/// row, which is the anchor for SEC-039 reuse detection. Rather than reshape
-/// the shared helper (it has four other callers — login, signup, OAuth
-/// callback, bootstrap — that legitimately want a new family), we re-sign
-/// with the desired family here.
-async fn resign_refresh_with_family(
-    ctx: &dyn Context,
-    user_id: &str,
-    auth_method: &str,
-    family: &str,
-) -> std::result::Result<String, OutputStream> {
-    use std::{collections::HashMap, time::Duration};
-
-    use crate::blocks::auth::REFRESH_TOKEN_TTL_SECS;
-
-    // [SEC-038] Stamp `iss` so the next refresh's `iss` check (lines 72-76)
-    // still succeeds. Without it, the rotated refresh JWT has no issuer and
-    // every subsequent refresh attempt fails forever.
-    let issuer = expected_issuer(ctx).await;
-
-    let mut refresh_claims = HashMap::new();
-    refresh_claims.insert(
-        "user_id".to_string(),
-        serde_json::Value::String(user_id.to_string()),
-    );
-    refresh_claims.insert(
-        "sub".to_string(),
-        serde_json::Value::String(user_id.to_string()),
-    );
-    refresh_claims.insert(
-        "type".to_string(),
-        serde_json::Value::String("refresh".to_string()),
-    );
-    refresh_claims.insert(
-        "family".to_string(),
-        serde_json::Value::String(family.to_string()),
-    );
-    refresh_claims.insert(
-        "auth_method".to_string(),
-        serde_json::Value::String(auth_method.to_string()),
-    );
-    refresh_claims.insert("iss".to_string(), serde_json::Value::String(issuer));
-
-    crypto::sign(
-        ctx,
-        &refresh_claims,
-        Duration::from_secs(REFRESH_TOKEN_TTL_SECS),
-    )
-    .await
-    .map_err(OutputStream::error)
 }

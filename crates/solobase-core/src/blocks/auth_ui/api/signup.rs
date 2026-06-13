@@ -226,33 +226,24 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         }));
     }
 
-    // Generate tokens (only when email verification is NOT required)
-    let (access_token, refresh_token, family) =
-        match generate_tokens(ctx, &user.id, &email_lower, &roles, "password").await {
-            Ok(t) => t,
+    // Mint tokens, persist the refresh + session rows, build the cookie
+    // (only when email verification is NOT required).
+    let issued =
+        match issue_tokens_and_cookie(ctx, &user.id, &email_lower, &roles, "password", None, 0)
+            .await
+        {
+            Ok(i) => i,
             Err(r) => return r,
         };
 
-    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
-
-    if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await {
-        tracing::warn!(
-            user_id = %user.id,
-            "failed to persist session row for JWT signup: {e}"
-        );
-    }
-
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
-
     ResponseBuilder::new()
         .status(201)
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .json(&serde_json::json!({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": issued.access_token,
+            "refresh_token": issued.refresh_token,
             "token_type": "Bearer",
-            "expires_in": access_lifetime,
+            "expires_in": issued.access_lifetime,
             "email_verified": true,
             "user": {
                 "id": user.id,

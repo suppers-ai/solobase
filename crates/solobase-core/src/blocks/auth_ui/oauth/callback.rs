@@ -8,7 +8,7 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
+        helpers::{ensure_admin_role, issue_tokens_and_cookie},
         repo::{oauth_pkce, provider_links, users},
         USERS_TABLE,
     },
@@ -261,8 +261,12 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         // No link yet. Try email-based account merging.
         match users::find_by_email(ctx, &email).await {
             Ok(Some(existing_user)) => {
-                // Check if the existing user account is disabled.
-                if existing_user.role == "disabled" {
+                // Check if the existing user account is disabled. The
+                // authoritative flag is `UserRow.disabled`; the previous
+                // `role == "disabled"` check tested a value nothing ever
+                // writes, so disabled accounts could still authenticate via
+                // OAuth.
+                if existing_user.disabled {
                     return err_forbidden("Account is disabled");
                 }
                 // Reuse this account; the upsert below will create the new link.
@@ -361,19 +365,26 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     let roles = ensure_admin_role(ctx, &user_id, &email).await;
-    let (jwt_token, refresh_token, family) = match generate_tokens(
+
+    // Mint tokens, persist the refresh + session rows, build the cookie via
+    // the shared issuance tail. Previously this flow hand-rolled token minting
+    // and *omitted* the session row, so OAuth logins were invisible on the
+    // userportal device list; routing through `issue_tokens_and_cookie` fixes
+    // that by construction.
+    let issued = match issue_tokens_and_cookie(
         ctx,
         &user_id,
         &email,
         &roles,
         &format!("oauth.{}", provider),
+        None,
+        0,
     )
     .await
     {
-        Ok(t) => t,
+        Ok(i) => i,
         Err(r) => return r,
     };
-    store_refresh_token(ctx, &user_id, &refresh_token, &family, 0).await;
 
     // Redirect to frontend — token is set via HttpOnly cookie only (not URL)
     let frontend_url = config::get_default(
@@ -401,12 +412,9 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
     let redirect_url = format!("{}{}", frontend_url.trim_end_matches('/'), post_login);
 
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&jwt_token, access_lifetime, ctx).await;
-
     ResponseBuilder::new()
         .status(302)
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .set_header("Location", &redirect_url)
         .json(&serde_json::json!({"redirect": redirect_url}))
 }
