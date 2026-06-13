@@ -341,7 +341,9 @@ where
             // terminate the stream with a final `event: error` frame, so the
             // consumer sees a clean SSE event instead of an abrupt disconnect.
             let Some(json) = item.ok().and_then(|v| serde_json::to_vec(&v).ok()) else {
-                let _ = sink.send_chunk(b"event: error\ndata: {}\n\n".to_vec()).await;
+                let _ = sink
+                    .send_chunk(b"event: error\ndata: {}\n\n".to_vec())
+                    .await;
                 return;
             };
             let mut frame = Vec::with_capacity(json.len() + 8);

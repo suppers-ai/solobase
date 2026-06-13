@@ -229,8 +229,9 @@ impl LlmService for ProviderLlmService {
         // surfaced synchronously before we start streaming.
         let api_key = cfg.api_key.as_deref();
         let encoded = match cfg.protocol {
-            ProviderProtocol::OpenAi => openai::encode_chat_request(&req, &cfg, api_key)
-                .map_err(map_openai_encode_error),
+            ProviderProtocol::OpenAi => {
+                openai::encode_chat_request(&req, &cfg, api_key).map_err(map_openai_encode_error)
+            }
             ProviderProtocol::Anthropic => anthropic::encode_chat_request(&req, &cfg, api_key)
                 .map_err(map_anthropic_encode_error),
             ProviderProtocol::OpenAiCompatible => {
