@@ -4,8 +4,10 @@
 //! converting their platform-specific HTTP types into a WAFER Message.
 
 use futures::StreamExt;
-use wafer_block::http_codec::{self, ResponseMetaPart};
-use wafer_block::stream::StreamEvent;
+use wafer_block::{
+    http_codec::{self, ResponseMetaPart},
+    stream::StreamEvent,
+};
 use wafer_core::clients::{config as config_client, database as db};
 use wafer_run::{
     context::Context,

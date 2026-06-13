@@ -43,7 +43,12 @@ pub fn logo_long_png() -> &'static [u8] {
 /// Square logo URL with content hash, e.g. `/b/static/solobase-logo-a1b2c3d4.png`.
 pub fn logo_icon_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("{STATIC_PREFIX}solobase-logo-{}.png", short_hash(LOGO_ICON_PNG)))
+    URL.get_or_init(|| {
+        format!(
+            "{STATIC_PREFIX}solobase-logo-{}.png",
+            short_hash(LOGO_ICON_PNG)
+        )
+    })
 }
 
 /// Long/wordmark logo URL with content hash, e.g. `/b/static/solobase-logo-long-a1b2c3d4.png`.
@@ -147,7 +152,12 @@ pub fn css_url() -> &'static str {
 /// htmx JS URL with content hash, e.g. `/b/static/htmx-a1b2c3d4.min.js`
 pub fn htmx_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("{STATIC_PREFIX}htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
+    URL.get_or_init(|| {
+        format!(
+            "{STATIC_PREFIX}htmx-{}.min.js",
+            short_hash(htmx_js().as_bytes())
+        )
+    })
 }
 
 const LLM_CHAT_JS: &str = include_str!("assets/llm-chat.js");

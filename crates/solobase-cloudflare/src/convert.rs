@@ -49,7 +49,8 @@ pub async fn worker_request_to_message(req: &Request) -> Result<(Message, InputS
         .or_else(|| req.headers().get("x-forwarded-for").ok().flatten())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let mut msg = http_codec::build_http_message(&method, &path, &query, &remote_addr, req.headers());
+    let mut msg =
+        http_codec::build_http_message(&method, &path, &query, &remote_addr, req.headers());
     // The message kind and normalized `req.resource` use the /api-stripped
     // path; `http.path` keeps the path as received on the wire.
     msg.set_meta(META_HTTP_PATH, raw_path);
