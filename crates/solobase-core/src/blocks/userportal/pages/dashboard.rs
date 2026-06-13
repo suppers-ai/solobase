@@ -11,8 +11,8 @@ use wafer_core::clients::database::Record;
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::helpers::{RecordExt, ResponseBuilder},
-    ui::{self, icons, sidebar::nav_icon, SiteConfig, UserInfo},
+    blocks::helpers::{redirect, RecordExt},
+    ui::{icons, sidebar::nav_icon, SiteConfig, UserInfo},
 };
 
 struct DashboardButton {
@@ -25,10 +25,7 @@ struct DashboardButton {
 pub async fn dashboard_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return ResponseBuilder::new()
-            .status(302)
-            .set_header("Location", "/b/auth/login")
-            .body(Vec::new(), "text/plain");
+        return redirect(302, "/b/auth/login");
     }
 
     let buttons = load_buttons(ctx).await;
@@ -56,19 +53,7 @@ pub async fn dashboard_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let markup = ui::layout::page(
-        "Account",
-        &config,
-        ui::templates::account_card_page(
-            ui::templates::AccountCard {
-                logo_url: &config.logo_url,
-                title: "Account",
-                back_href: None,
-            },
-            body,
-        ),
-    );
-    ui::html_response(markup)
+    super::account_page(&config, "Account", None, body)
 }
 
 fn nav_link(href: &str, icon: Markup, label: &str) -> Markup {

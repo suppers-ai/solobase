@@ -237,6 +237,16 @@ pub fn ok_empty() -> OutputStream {
     OutputStream::respond(vec![])
 }
 
+/// Build a redirect `OutputStream` with the given status (302, 303, …) and
+/// `Location` header. Single source of truth for the redirect response shape
+/// (status + `Location` + empty `text/plain` body) used by page handlers.
+pub fn redirect(status: u16, location: &str) -> OutputStream {
+    ResponseBuilder::new()
+        .status(status)
+        .set_header("Location", location)
+        .body(Vec::new(), "text/plain")
+}
+
 /// Return a 400 Bad Request `OutputStream`.
 pub fn err_bad_request(message: &str) -> OutputStream {
     OutputStream::error(WaferError {

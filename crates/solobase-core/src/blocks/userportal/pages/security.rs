@@ -7,18 +7,15 @@ use wafer_run::{context::Context, Message, OutputStream};
 use crate::{
     blocks::{
         auth::repo::{provider_links, users},
-        helpers::ResponseBuilder,
+        helpers::redirect,
     },
-    ui::{self, SiteConfig},
+    ui::SiteConfig,
 };
 
 pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return ResponseBuilder::new()
-            .status(302)
-            .set_header("Location", "/b/auth/login")
-            .body(Vec::new(), "text/plain");
+        return redirect(302, "/b/auth/login");
     }
 
     let links = provider_links::list_for_user(ctx, &user_id)
@@ -110,19 +107,7 @@ pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let config = SiteConfig::load(ctx).await;
-    let markup = ui::layout::page(
-        "Security",
-        &config,
-        ui::templates::account_card_page(
-            ui::templates::AccountCard {
-                logo_url: &config.logo_url,
-                title: "Security",
-                back_href: Some("/b/userportal/"),
-            },
-            body,
-        ),
-    );
-    ui::html_response(markup)
+    super::account_page(&config, "Security", Some("/b/userportal/"), body)
 }
 
 #[cfg(test)]

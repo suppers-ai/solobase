@@ -6,7 +6,7 @@ use maud::{html, Markup};
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{auth::repo::orgs, helpers::ResponseBuilder},
+    blocks::{auth::repo::orgs, helpers::redirect},
     ui::{self, SiteConfig},
 };
 
@@ -14,10 +14,7 @@ use crate::{
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return ResponseBuilder::new()
-            .status(302)
-            .set_header("Location", "/b/auth/login")
-            .body(Vec::new(), "text/plain");
+        return redirect(302, "/b/auth/login");
     }
 
     let orgs_list = orgs::list_for_user(ctx, &user_id).await.unwrap_or_default();
