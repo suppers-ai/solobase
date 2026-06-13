@@ -169,7 +169,7 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) 
             super::variables::handle_list(ctx, msg).await
         }
         ("create", "/admin/b/products/variables") => {
-            super::variables::handle_create(ctx, input).await
+            super::variables::handle_create(ctx, msg, input).await
         }
         ("update", _) if path.starts_with("/admin/b/products/variables/") => {
             super::variables::handle_update(ctx, msg, input).await

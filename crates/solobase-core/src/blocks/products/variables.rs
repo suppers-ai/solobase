@@ -2,13 +2,17 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
+use crate::blocks::crud;
+use crate::blocks::helpers::{err_internal, ok_json};
 
 /// Pricing-variable definitions (e.g. user-defined inputs available to
 /// pricing-template formulas).
 pub(crate) const TABLE: &str = "suppers_ai__products__variables";
+
+/// Path prefix preceding a variable id in update/delete requests.
+const PATH_PREFIX: &str = "/admin/b/products/variables/";
 
 pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let mut filters = Vec::new();
@@ -45,86 +49,27 @@ pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-pub async fn handle_create(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    #[derive(serde::Deserialize)]
-    struct Req {
-        name: String,
-        var_type: Option<String>,
-        default_value: Option<serde_json::Value>,
-        scope: Option<String>,
-        product_id: Option<String>,
-    }
-    let raw = input.collect_to_bytes().await;
-    let body: Req = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-    };
-
-    let mut data = HashMap::new();
-    data.insert("name".to_string(), serde_json::Value::String(body.name));
-    data.insert(
-        "var_type".to_string(),
-        serde_json::Value::String(body.var_type.unwrap_or_else(|| "number".to_string())),
-    );
-    data.insert(
-        "scope".to_string(),
-        serde_json::Value::String(body.scope.unwrap_or_else(|| "system".to_string())),
-    );
-    if let Some(default) = body.default_value {
-        data.insert("default_value".to_string(), default);
-    }
-    if let Some(pid) = body.product_id {
-        data.insert("product_id".to_string(), serde_json::Value::String(pid));
-    }
-    data.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-
-    match db::create(ctx, TABLE, data).await {
-        Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
-    }
+pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+    // Defaults applied when the body omits these columns (`var_type` and
+    // `scope` are NOT NULL with a DB default; supply them explicitly so the
+    // write succeeds regardless of the backend's default handling).
+    let defaults = HashMap::from([
+        (
+            "var_type".to_string(),
+            serde_json::Value::String("number".to_string()),
+        ),
+        (
+            "scope".to_string(),
+            serde_json::Value::String("system".to_string()),
+        ),
+    ]);
+    crud::crud_create(ctx, msg, input, TABLE, defaults).await
 }
 
 pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/variables/")
-        .unwrap_or("")
-        .to_string();
-    if id.is_empty() {
-        return err_bad_request("Missing variable ID");
-    }
-
-    let raw = input.collect_to_bytes().await;
-    let mut body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-    };
-    body.insert(
-        "updated_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-
-    match db::update(ctx, TABLE, &id, body).await {
-        Ok(record) => ok_json(&record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_update(ctx, msg, input, TABLE, PATH_PREFIX, "Variable").await
 }
 
 pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/variables/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request("Missing variable ID");
-    }
-    match db::delete(ctx, TABLE, id).await {
-        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_delete(ctx, msg, TABLE, PATH_PREFIX, "Variable").await
 }
