@@ -213,13 +213,18 @@ async fn exchange_code(
     headers.insert("Accept".to_string(), "application/json".to_string());
 
     let token_body_bytes = token_body_str.into_bytes();
-    let token_resp =
-        match network::do_request(ctx, "POST", spec.token_url, &headers, Some(&token_body_bytes))
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => return Err(err_internal("Token exchange failed", e)),
-        };
+    let token_resp = match network::do_request(
+        ctx,
+        "POST",
+        spec.token_url,
+        &headers,
+        Some(&token_body_bytes),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return Err(err_internal("Token exchange failed", e)),
+    };
 
     let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
         Ok(d) => d,
@@ -668,8 +673,9 @@ mod security_regression_tests {
             )
             .expect("test secret is long enough"),
         );
-        let crypto_block: Arc<dyn Block> =
-            Arc::new(wafer_core::service_blocks::crypto::CryptoBlock::new(crypto_svc));
+        let crypto_block: Arc<dyn Block> = Arc::new(
+            wafer_core::service_blocks::crypto::CryptoBlock::new(crypto_svc),
+        );
         ctx.register_block("wafer-run/crypto", crypto_block);
 
         // Mock network block under the production block id.

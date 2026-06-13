@@ -23,12 +23,7 @@ pub mod verify;
 /// token}` and only the template name differs. A send failure is logged and
 /// swallowed: email delivery is best-effort, and a 5xx from the email block
 /// must not turn a successful signup / reset request into an error.
-pub(crate) async fn send_template_email(
-    ctx: &dyn Context,
-    template: &str,
-    to: &str,
-    token: &str,
-) {
+pub(crate) async fn send_template_email(ctx: &dyn Context, template: &str, to: &str, token: &str) {
     let req = serde_json::json!({
         "template": template,
         "to": to,

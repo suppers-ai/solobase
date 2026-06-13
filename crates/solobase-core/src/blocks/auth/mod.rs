@@ -473,8 +473,7 @@ pub(crate) mod helpers {
         family: Option<&str>,
         generation: i64,
     ) -> std::result::Result<IssuedLogin, wafer_run::OutputStream> {
-        use super::repo::sessions;
-        use super::service::hash_token;
+        use super::{repo::sessions, service::hash_token};
 
         let (access_token, refresh_token, issued_family) =
             generate_tokens(ctx, user_id, email, roles, auth_method, family).await?;

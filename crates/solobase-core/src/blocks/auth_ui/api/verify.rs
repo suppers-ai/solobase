@@ -202,4 +202,3 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
     );
     ui::html_response(markup)
 }
-
