@@ -299,9 +299,16 @@ mod tests {
 
     /// Regression (SEC-064): the share path used to inline its own bucket/key
     /// validation that OMITTED the backslash rejection, so a share could be
-    /// created for a key (`a\..\secret`) that the upload/download path
-    /// (`is_valid_storage_key`) rejects. Now it routes through the shared
-    /// validator and rejects the key before any ownership/existence lookup.
+    /// created for a key the upload/download path (`is_valid_storage_key`)
+    /// rejects. Now it routes through the shared validator and rejects the
+    /// key before any ownership/existence lookup.
+    ///
+    /// The key here is a *backslash-only* key with NO `..` segment. This
+    /// pins the actual SEC-064 drift: the old inline check rejected `..` but
+    /// accepted a bare backslash, so a `..`-containing key (e.g. `a\..\secret`)
+    /// would have been rejected by the old code too and would not prove the
+    /// backslash branch. `a\secret` was *accepted* by the old inline check and
+    /// is *rejected* only by the shared validator's `!key.contains('\\')` arm.
     #[tokio::test]
     async fn create_share_rejects_backslash_key() {
         let ctx = TestContext::with_files().await;
@@ -309,7 +316,7 @@ mod tests {
         let out = handle_create_share(
             &ctx,
             &msg,
-            InputStream::from_bytes(share_body("photos", "a\\..\\secret")),
+            InputStream::from_bytes(share_body("photos", "a\\secret")),
         )
         .await;
         assert!(
