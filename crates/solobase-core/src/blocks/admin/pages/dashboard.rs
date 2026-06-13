@@ -4,7 +4,7 @@ use maud::html;
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::{aggregate, query, Backend};
+use wafer_sql_utils::{aggregate, query};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -74,6 +74,7 @@ async fn daily_counts_30d(
 ) -> Vec<(String, i64)> {
     use chrono::Duration;
 
+    let backend = crate::db_backend(ctx).await;
     let today = chrono::Utc::now().date_naive();
     let start = today - Duration::days(29);
     let start_iso = format!("{start}T00:00:00");
@@ -85,7 +86,7 @@ async fn daily_counts_30d(
     }];
     filters.extend(extra_filters);
 
-    let rows = match aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite) {
+    let rows = match aggregate::build_daily_count(table, "created_at", &filters, backend) {
         Ok(stmt) => db::query(ctx, &stmt).await.unwrap_or_default(),
         // `date_field` is the constant "created_at", so a build error is
         // unreachable here; fall back to an empty series defensively.
@@ -113,6 +114,12 @@ async fn daily_counts_30d(
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
+
+    // Resolve the dialect up front: the per-tile statements (and the `!Send`
+    // `sea_query::Cond` below) are built and held live across the
+    // `futures::join!` await, so the `db_backend` await must happen before
+    // any of them is constructed or the page future becomes `!Send`.
+    let backend = crate::db_backend(ctx).await;
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let today_start = format!("{today}T00:00:00");
@@ -144,7 +151,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 value: serde_json::json!(&today_start),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     let new_users_fut = db::query(ctx, &stmt_nu);
 
@@ -155,7 +162,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
             operator: FilterOp::GreaterEqual,
             value: serde_json::json!(&today_start),
         }],
-        Backend::Sqlite,
+        backend,
     );
     let requests_fut = db::query(ctx, &stmt_rq);
 
@@ -173,7 +180,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 value: serde_json::json!(&today_start),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     let errors_fut = db::query(ctx, &stmt_er);
 
@@ -185,7 +192,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
             operator: FilterOp::GreaterEqual,
             value: serde_json::json!(&today_start),
         }],
-        Backend::Sqlite,
+        backend,
     );
     let avg_ms_fut = db::query(ctx, &stmt_av);
 
@@ -206,7 +213,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
             ..Default::default()
         },
         None,
-        Backend::Sqlite,
+        backend,
     );
     let recent_users_fut = db::query(ctx, &stmt_ru);
 
@@ -225,7 +232,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
             ..Default::default()
         },
         Some(or_cond),
-        Backend::Sqlite,
+        backend,
     );
     let recent_errors_fut = db::query(ctx, &stmt_re);
 

@@ -120,9 +120,8 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
     use std::collections::HashMap;
 
     use wafer_block::db::{Filter, FilterOp, SortField};
-    use wafer_sql_utils::{
-        aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
-        Backend,
+    use wafer_sql_utils::aggregate::{
+        build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig,
     };
 
     use super::{BUCKETS_TABLE, OBJECTS_TABLE};
@@ -148,6 +147,9 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
             Vec::new()
         }
     };
+
+    // Resolve the dialect before constructing the `!Send` `GroupedQueryConfig`.
+    let backend = crate::db_backend(ctx).await;
 
     // Build a list of bucket names this user owns; restrict the GROUP BY
     // to those buckets so the count matches the previous per-bucket
@@ -177,7 +179,7 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         order_by: vec![],
         limit: None,
     };
-    let stmt = build_grouped_query(counts_cfg, Backend::Sqlite);
+    let stmt = build_grouped_query(counts_cfg, backend);
     let counts_by_bucket: HashMap<String, i64> = match db::query(ctx, &stmt).await {
         Ok(rows) => rows
             .into_iter()

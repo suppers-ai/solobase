@@ -3,9 +3,8 @@
 use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, WaferError};
-use wafer_sql_utils::{
-    aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
-    Backend,
+use wafer_sql_utils::aggregate::{
+    build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig,
 };
 
 /// Platform-billing subscription table — one row per user.
@@ -24,6 +23,7 @@ pub(crate) async fn upsert_platform(
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
     let sub_id = format!("sub_{user_id}");
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::upsert::build_upsert(
         SUBSCRIPTIONS_TABLE,
         &[
@@ -50,7 +50,7 @@ pub(crate) async fn upsert_platform(
             "status",
             "updated_at",
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -71,6 +71,7 @@ pub(crate) async fn update_status_plan(
     if let Some(plan) = plan {
         data.push(("plan".to_string(), serde_json::json!(plan)));
     }
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         SUBSCRIPTIONS_TABLE,
         &data,
@@ -79,7 +80,7 @@ pub(crate) async fn update_status_plan(
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -93,6 +94,7 @@ pub(crate) async fn mark_past_due(
     let now = chrono::Utc::now();
     let grace_end = (now + chrono::Duration::days(7)).to_rfc3339();
     let now = now.to_rfc3339();
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         SUBSCRIPTIONS_TABLE,
         &[
@@ -108,7 +110,7 @@ pub(crate) async fn mark_past_due(
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -120,6 +122,7 @@ pub(crate) async fn cancel_and_reset_addons(
     stripe_subscription_id: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         SUBSCRIPTIONS_TABLE,
         &[
@@ -135,7 +138,7 @@ pub(crate) async fn cancel_and_reset_addons(
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -152,6 +155,7 @@ pub(crate) async fn set_addon_totals(
     d1_bytes: i64,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         SUBSCRIPTIONS_TABLE,
         &[
@@ -173,7 +177,7 @@ pub(crate) async fn set_addon_totals(
                 value: serde_json::json!("active"),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -193,12 +197,13 @@ pub(crate) async fn find_user_by_stripe_sub(
         limit: 1,
         ..Default::default()
     };
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_select_columns(
         SUBSCRIPTIONS_TABLE,
         &["user_id"],
         &opts,
         None,
-        Backend::Sqlite,
+        backend,
     );
     let rows = db::query(ctx, &stmt).await.ok()?;
     rows.first()?
@@ -231,12 +236,13 @@ pub(crate) async fn active_plan_exists(ctx: &dyn Context, user_id: &str, plan: &
         limit: 1,
         ..Default::default()
     };
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_select_columns(
         SUBSCRIPTIONS_TABLE,
         &["id"],
         &opts,
         None,
-        Backend::Sqlite,
+        backend,
     );
     matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
 }
@@ -248,6 +254,10 @@ pub(crate) async fn subscription_for_user(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Option<serde_json::Value> {
+    // Resolve the dialect before constructing the `!Send` `GroupedQueryConfig`
+    // so this future stays `Send` (the config holds `Rc<dyn Iden>` and must
+    // not be live across the `db_backend` await).
+    let backend = crate::db_backend(ctx).await;
     let coalesced = |alias: &str, field: &str| AggregateColumn {
         func: AggFunc::Coalesce(serde_json::json!(0)),
         field: Some(field.into()),
@@ -281,7 +291,7 @@ pub(crate) async fn subscription_for_user(
         order_by: vec![],
         limit: Some(1),
     };
-    let stmt = build_grouped_query(cfg, Backend::Sqlite);
+    let stmt = build_grouped_query(cfg, backend);
     match db::query(ctx, &stmt).await {
         Ok(records) if !records.is_empty() => serde_json::to_value(&records[0].data).ok(),
         _ => None,

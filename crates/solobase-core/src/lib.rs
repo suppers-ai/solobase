@@ -25,5 +25,6 @@ pub mod ui;
 pub mod test_support;
 
 pub use features::FeatureConfig;
+pub use migration_helper::db_backend;
 pub use pipeline::handle_request;
 pub use routing::{ExtraRoute, RouteAccess};

@@ -18,6 +18,7 @@
 use sha2::{Digest, Sha256};
 use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
+use wafer_sql_utils::Backend;
 
 use crate::features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY};
 // NOTE: `BlockSettings::state_for` parses only the requested block's entry
@@ -27,6 +28,41 @@ use crate::features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY};
 /// Env-var name set by `solobase --run-migrations` (native) or
 /// `deploy-cloudflare.sh deploy --run-migrations` (CF).
 pub const RUN_MIGRATIONS_KEY: &str = "SOLOBASE_RUN_MIGRATIONS";
+
+/// Shared config var that selects the SQL dialect. `"postgres"`
+/// (case-insensitive) picks the PostgreSQL dialect; anything else (including
+/// the unset default) picks SQLite. Read by both the migration dispatcher
+/// ([`apply_migrations`]) and the runtime query-builder helper
+/// ([`db_backend`]) so a deployment's migrations and its live queries always
+/// render against the same dialect.
+pub const DATABASE_BACKEND_KEY: &str = "SOLOBASE_SHARED__DATABASE__BACKEND";
+
+/// Resolve the active SQL [`Backend`] from the config snapshot.
+///
+/// Reads [`DATABASE_BACKEND_KEY`] (the same var [`apply_migrations`] uses to
+/// pick which `.sql` dialect files to run) and maps `"postgres"`
+/// (case-insensitive) to [`Backend::Postgres`], everything else to
+/// [`Backend::Sqlite`].
+///
+/// This is the single runtime source of truth for the query-builder dialect:
+/// every `wafer_sql_utils::{query,aggregate,introspect,upsert}` call site in
+/// a block passes the result of this helper rather than a hardcoded
+/// `Backend::Sqlite`, so a postgres deployment renders postgres-dialect SQL
+/// at runtime, matching the migrations it applied at boot.
+///
+/// Cheap to call per request: the value comes from the in-memory config
+/// snapshot via `config::get_default` (no DB hop), so call sites read it
+/// inline rather than threading a cached `Backend` through every signature.
+pub async fn db_backend(ctx: &dyn Context) -> Backend {
+    let backend = config::get_default(ctx, DATABASE_BACKEND_KEY, "sqlite")
+        .await
+        .to_ascii_lowercase();
+    if backend == "postgres" {
+        Backend::Postgres
+    } else {
+        Backend::Sqlite
+    }
+}
 
 /// Full table name for the block_settings collection. Hardcoded here to
 /// avoid a circular dep on `crate::blocks::admin`.
@@ -62,13 +98,9 @@ pub async fn apply_migrations(
     sqlite_files: &[&str],
     postgres_files: &[&str],
 ) -> Result<(), String> {
-    let backend = config::get_default(ctx, "SOLOBASE_SHARED__DATABASE__BACKEND", "sqlite")
-        .await
-        .to_ascii_lowercase();
-    let files = if backend == "postgres" {
-        postgres_files
-    } else {
-        sqlite_files
+    let files = match db_backend(ctx).await {
+        Backend::Postgres => postgres_files,
+        Backend::Sqlite => sqlite_files,
     };
     let sql = files.join("\n");
     apply_if_blessed(ctx, block_name, &sql).await
