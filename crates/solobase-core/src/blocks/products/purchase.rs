@@ -4,7 +4,7 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
-use super::{repo, PRICING_TABLE, PRODUCTS_TABLE};
+use super::{repo, PRODUCTS_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
     RecordExt,
@@ -83,58 +83,28 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             .unwrap_or("Unknown")
             .to_string();
 
-        // Calculate price — use pricing template if set, otherwise fall back to base_price
-        let unit_price = if let Some(template_id) = product
-            .data
-            .get("pricing_template_id")
-            .and_then(|v| v.as_str())
+        // Resolve unit price via the shared resolver: apply the product's
+        // pricing template when set, otherwise fall back to `base_price`. A
+        // missing template row falls back to `base_price` (so a stale reference
+        // can't block a sale); the returned price has already passed
+        // `validate_price`, which rejects price manipulation via variables and
+        // zero-priced freebies.
+        let unit_price = match super::pricing::resolve_unit_price(
+            ctx,
+            &product,
+            &item.variables,
+            super::pricing::MissingTemplate::FallBackToBase,
+        )
+        .await
         {
-            if !template_id.is_empty() {
-                if let Ok(template) = db::get(ctx, PRICING_TABLE, template_id).await {
-                    let formula = template
-                        .data
-                        .get("price_formula")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("0");
-                    // Surface formula errors instead of falling back to 0.0 — a
-                    // broken template would otherwise sneak past `validate_price`
-                    // below and create a purchase with the wrong total.
-                    match super::pricing::evaluate_formula(formula, &item.variables) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            return err_bad_request(&format!("Pricing failed: {e}"));
-                        }
-                    }
-                } else {
-                    product
-                        .data
-                        .get("base_price")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0)
-                }
-            } else {
-                product
-                    .data
-                    .get("base_price")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
+            Ok(resolved) => resolved.unit_price,
+            Err(e) => {
+                return err_bad_request(&format!(
+                    "Invalid price for product {}: {e}",
+                    item.product_id
+                ))
             }
-        } else {
-            product
-                .data
-                .get("base_price")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0)
         };
-
-        // Reject non-positive / sub-minimum unit prices (prevent price manipulation
-        // via variables or zero-priced freebies sneaking past).
-        if let Err(e) = super::pricing::validate_price(unit_price) {
-            return err_bad_request(&format!(
-                "Invalid price for product {}: {e}",
-                item.product_id
-            ));
-        }
 
         let line_total = unit_price * item.quantity as f64;
         total_amount += line_total;
@@ -220,34 +190,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             serde_json::Value::String(now.clone()),
         );
         if let Err(e) = repo::purchases::add_line_item(ctx, item_data).await {
-            // Roll back: try to delete the purchase first; if delete fails
-            // (transient DB error, foreign-key constraints from already-
-            // inserted siblings, etc.), fall through to marking it `failed`
-            // so it can never proceed to checkout. A dangling `pending`
-            // purchase with partial line items is the worst case.
-            if let Err(del_err) = repo::purchases::delete(ctx, &purchase.id).await {
-                tracing::warn!(
-                    error = %del_err,
-                    purchase_id = %purchase.id,
-                    "rollback delete failed; marking purchase as failed"
-                );
-                let mut fail_data = HashMap::new();
-                fail_data.insert(
-                    "status".to_string(),
-                    serde_json::Value::String("failed".to_string()),
-                );
-                fail_data.insert(
-                    "updated_at".to_string(),
-                    serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-                );
-                if let Err(mark_err) = repo::purchases::update(ctx, &purchase.id, fail_data).await {
-                    tracing::error!(
-                        error = %mark_err,
-                        purchase_id = %purchase.id,
-                        "could not mark partial purchase as failed; manual cleanup required"
-                    );
-                }
-            }
+            rollback_purchase(ctx, &purchase.id).await;
             return err_internal("Failed to create line item", e);
         }
     }
@@ -258,6 +201,40 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         "total_cents": total_cents,
         "item_count": line_items_data.len()
     }))
+}
+
+/// Roll back a partially-created purchase after a line-item insert fails.
+///
+/// Tries to delete the purchase header first; if the delete fails (transient
+/// DB error, foreign-key constraints from already-inserted siblings, etc.),
+/// falls through to marking the purchase `failed` so it can never proceed to
+/// checkout. A dangling `pending` purchase with partial line items is the
+/// worst case, so this best-effort path is intentionally infallible from the
+/// caller's perspective (failures are logged, not propagated).
+async fn rollback_purchase(ctx: &dyn Context, purchase_id: &str) {
+    if let Err(del_err) = repo::purchases::delete(ctx, purchase_id).await {
+        tracing::warn!(
+            error = %del_err,
+            purchase_id = %purchase_id,
+            "rollback delete failed; marking purchase as failed"
+        );
+        let mut fail_data = HashMap::new();
+        fail_data.insert(
+            "status".to_string(),
+            serde_json::Value::String("failed".to_string()),
+        );
+        fail_data.insert(
+            "updated_at".to_string(),
+            serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+        );
+        if let Err(mark_err) = repo::purchases::update(ctx, purchase_id, fail_data).await {
+            tracing::error!(
+                error = %mark_err,
+                purchase_id = %purchase_id,
+                "could not mark partial purchase as failed; manual cleanup required"
+            );
+        }
+    }
 }
 
 pub async fn handle_list_user(ctx: &dyn Context, msg: &Message) -> OutputStream {
