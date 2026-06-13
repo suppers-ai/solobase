@@ -462,32 +462,6 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
     }
 }
 
-async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    use wafer_block::db::{Filter, FilterOp};
-
-    use super::BUCKETS_TABLE;
-
-    let filters = vec![
-        Filter {
-            field: "name".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(bucket.into()),
-        },
-        Filter {
-            field: "created_by".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.into()),
-        },
-    ];
-    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-        Ok(records) => !records.is_empty(),
-        Err(e) => {
-            tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
-            false
-        }
-    }
-}
-
 async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
     use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 
@@ -568,7 +542,9 @@ pub async fn object_list_page(
     if user_id.is_empty() {
         return crate::ui::not_found_response(msg);
     }
-    if !user_owns_bucket(ctx, &user_id, bucket).await {
+    // SSR portal is strictly owner-scoped (no admin bypass) — see the
+    // `bucket_owned_by` doc comment for the admin-policy split vs the JSON API.
+    if !super::storage::bucket_owned_by(ctx, &user_id, bucket).await {
         return crate::ui::not_found_response(msg);
     }
 
@@ -1394,7 +1370,11 @@ mod integration_tests {
     #[tokio::test]
     async fn object_list_page_404_for_other_users_bucket() {
         // Cross-user isolation: a bucket owned by another user must 404,
-        // not render its contents.
+        // not render its contents. The request is made as an ADMIN, which
+        // pins the documented policy split: the SSR portal routes through the
+        // shared `storage::bucket_owned_by` predicate and deliberately does
+        // NOT grant the admin bypass that the JSON API's
+        // `is_bucket_access_denied` does — so even an admin sees a 404 here.
         let ctx = TestContext::with_files().await;
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
@@ -1407,7 +1387,7 @@ mod integration_tests {
         let body = output_html(resp).await;
         assert!(
             body.contains("Not found") || body.contains("404"),
-            "expected 404 for cross-user bucket: {body}"
+            "expected 404 for cross-user bucket (admin, no SSR bypass): {body}"
         );
     }
 
