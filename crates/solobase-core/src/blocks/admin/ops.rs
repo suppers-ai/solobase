@@ -452,6 +452,11 @@ pub(super) async fn update_variable(
     }
 
     let mut data = HashMap::new();
+    // `key` is `NOT NULL` and supplies the row's identity on the upsert-create
+    // branch (PUT to a not-yet-present key). On the update branch it resolves
+    // to a no-op (sets `key` to its current value), so it's safe to always
+    // include — and required for the create branch to satisfy the constraint.
+    data.insert("key".to_string(), serde_json::json!(key));
     if let Some(value) = update.value {
         data.insert("value".to_string(), serde_json::json!(value));
     }
@@ -575,6 +580,80 @@ mod tests {
             .await,
         );
         assert_eq!(audit_count(&ctx, "variable.update").await, 1);
+    }
+
+    /// `update_variable` upserts: a PUT to a not-yet-present key must create a
+    /// row whose `NOT NULL` `key` column is persisted (the JSON `handle_set`
+    /// create-via-PUT contract from main). Regression for the upsert-create
+    /// branch omitting `key` and tripping the constraint.
+    #[tokio::test]
+    async fn update_variable_creates_row_for_new_key() {
+        let ctx = admin_ctx().await;
+        let msg = admin_msg("update", "/admin/settings");
+
+        // The key does not exist yet → upsert takes the create branch.
+        let record = expect_ok(
+            update_variable(
+                &ctx,
+                &msg,
+                "NEW_SITE_TAGLINE",
+                VariableUpdate {
+                    value: Some("Hello"),
+                    description: Some("a fresh key"),
+                },
+            )
+            .await,
+        );
+        assert_eq!(
+            record.data.get("key").and_then(|v| v.as_str()),
+            Some("NEW_SITE_TAGLINE"),
+            "the created row must persist its key column"
+        );
+
+        // The row is now findable by `key` (proves the NOT NULL row landed).
+        let found = db::get_by_field(
+            &ctx,
+            VARIABLES_TABLE,
+            "key",
+            serde_json::Value::String("NEW_SITE_TAGLINE".to_string()),
+        )
+        .await
+        .expect("the upserted variable is findable by key");
+        assert_eq!(
+            found.data.get("value").and_then(|v| v.as_str()),
+            Some("Hello")
+        );
+
+        // A second update on the same key takes the update branch (no
+        // duplicate row, key unchanged).
+        expect_ok(
+            update_variable(
+                &ctx,
+                &msg,
+                "NEW_SITE_TAGLINE",
+                VariableUpdate {
+                    value: Some("Goodbye"),
+                    description: None,
+                },
+            )
+            .await,
+        );
+        let rows = db::list_all(
+            &ctx,
+            VARIABLES_TABLE,
+            vec![Filter {
+                field: "key".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String("NEW_SITE_TAGLINE".to_string()),
+            }],
+        )
+        .await
+        .expect("list variables by key");
+        assert_eq!(rows.len(), 1, "update must not create a second row");
+        assert_eq!(
+            rows[0].data.get("value").and_then(|v| v.as_str()),
+            Some("Goodbye")
+        );
     }
 
     /// SEC drift: the SSR variable path ran no URL/SSRF validation. Both
