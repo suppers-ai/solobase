@@ -1,58 +1,22 @@
 //! SSR pages for the products block (admin + user views).
 
-use maud::{html, Markup, PreEscaped};
+use maud::html;
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::{config, database as db};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{repo, GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE};
 use crate::{
-    blocks::helpers::{err_bad_request, ok_json, RecordExt},
-    ui::{
-        components, icons, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    blocks::helpers::RecordExt,
+    config_vars,
+    ui::{self, components, icons, settings_form, settings_form::SettingsSection},
 };
-
-fn products_page<'a>(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
-    crumb_label: &'a str,
-    content: Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
-}
 
 // ---------------------------------------------------------------------------
 // Admin: Overview (stats)
 // ---------------------------------------------------------------------------
 
 pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let products_count = db::count(ctx, PRODUCTS_TABLE, &[]).await.unwrap_or(0);
     let groups_count = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
     let purchases_count = repo::purchases::count_all(ctx).await.unwrap_or(0);
@@ -68,15 +32,13 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    products_page(
-        "Products",
-        &config,
-        "/b/products/admin/",
-        user.as_ref(),
-        "Products",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Products", ui::NavKind::Portal, "Products"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +46,6 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -122,39 +82,25 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #products-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead {
-                                tr {
-                                    th { "Name" }
-                                    th { "Status" }
-                                    th { "Price" }
-                                    th { "Group" }
-                                    th { "Created" }
-                                }
-                            }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="5" .text-center .text-muted style="padding:2rem;" { "No products found" } }
-                                }
-                                @for record in &list.records {
-                                    @let name = record.str_field("name");
-                                    @let status = record.str_field("status");
-                                    @let price = record.str_field("price");
-                                    @let currency = record.str_field("currency");
-                                    @let group_id = record.str_field("group_id");
-                                    @let created = record.str_field("created_at");
-                                    tr {
-                                        td .font-medium { (name) }
-                                        td { (components::status_badge(status)) }
-                                        td { (price) " " span .text-muted { (currency) } }
-                                        td .text-muted .text-sm { @if group_id.is_empty() { "—" } @else { (group_id.get(..8).unwrap_or(group_id)) } }
-                                        td .text-muted .text-sm { (created.get(..10).unwrap_or(created)) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "Name", width: None },
+                        components::TableCol { label: "Status", width: None },
+                        components::TableCol { label: "Price", width: None },
+                        components::TableCol { label: "Group", width: None },
+                        components::TableCol { label: "Created", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|record| {
+                        let group_id = record.str_field("group_id");
+                        let created = record.str_field("created_at");
+                        vec![
+                            html! { span .font-medium { (record.str_field("name")) } },
+                            components::status_badge(record.str_field("status")),
+                            html! { (record.str_field("price")) " " span .text-muted { (record.str_field("currency")) } },
+                            html! { span .text-muted .text-sm { @if group_id.is_empty() { "—" } @else { (group_id.get(..8).unwrap_or(group_id)) } } },
+                            html! { span .text-muted .text-sm { (created.get(..10).unwrap_or(created)) } },
+                        ]
+                    }).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No products found" } }))
                     (components::pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/products/admin/manage"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
@@ -162,15 +108,13 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    products_page(
-        "Products",
-        &config,
-        "/b/products/admin/manage",
-        user.as_ref(),
-        "Products",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Products", ui::NavKind::Portal, "Products"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +122,6 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let opts = ListOptions {
         sort: vec![SortField {
             field: "name".into(),
@@ -196,39 +138,32 @@ pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #groups-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Name" } th { "Description" } th { "Status" } th { "Created" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="4" .text-center .text-muted style="padding:2rem;" { "No groups" } }
-                                }
-                                @for r in &list.records {
-                                    tr {
-                                        td .font-medium { (r.str_field("name")) }
-                                        td .text-muted .text-sm { (r.str_field("description")) }
-                                        td { (components::status_badge(r.str_field("status"))) }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "Name", width: None },
+                        components::TableCol { label: "Description", width: None },
+                        components::TableCol { label: "Status", width: None },
+                        components::TableCol { label: "Created", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| vec![
+                        html! { span .font-medium { (r.str_field("name")) } },
+                        html! { span .text-muted .text-sm { (r.str_field("description")) } },
+                        components::status_badge(r.str_field("status")),
+                        html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
+                    ]).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No groups" } }))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
         }
     };
 
-    products_page(
-        "Groups",
-        &config,
-        "/b/products/admin/groups",
-        user.as_ref(),
-        "Groups",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Groups", ui::NavKind::Portal, "Groups"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +171,6 @@ pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let opts = ListOptions {
         sort: vec![SortField {
             field: "name".into(),
@@ -254,38 +187,30 @@ pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #pricing-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Name" } th { "Formula" } th { "Created" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="3" .text-center .text-muted style="padding:2rem;" { "No pricing templates" } }
-                                }
-                                @for r in &list.records {
-                                    tr {
-                                        td .font-medium { (r.str_field("name")) }
-                                        td .text-sm { code { (r.str_field("price_formula")) } }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "Name", width: None },
+                        components::TableCol { label: "Formula", width: None },
+                        components::TableCol { label: "Created", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| vec![
+                        html! { span .font-medium { (r.str_field("name")) } },
+                        html! { span .text-sm { code { (r.str_field("price_formula")) } } },
+                        html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
+                    ]).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No pricing templates" } }))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
         }
     };
 
-    products_page(
-        "Pricing",
-        &config,
-        "/b/products/admin/pricing",
-        user.as_ref(),
-        "Pricing",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Pricing", ui::NavKind::Portal, "Pricing"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -293,8 +218,6 @@ pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let (page, page_size, _) = msg.pagination_params(20);
     let status_filter = msg.query("status").to_string();
 
@@ -328,27 +251,25 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #purchases-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "User" } th { "Status" } th { "Total" } th { "Provider" } th { "Date" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="5" .text-center .text-muted style="padding:2rem;" { "No purchases" } }
-                                }
-                                @for r in &list.records {
-                                    @let total_cents = r.i64_field("total_cents");
-                                    @let amount = format!("{:.2}", total_cents as f64 / 100.0);
-                                    tr {
-                                        td .text-sm { (r.str_field("user_id").get(..8).unwrap_or("—")) }
-                                        td { (components::status_badge(r.str_field("status"))) }
-                                        td .font-medium { (amount) " " span .text-muted { (r.str_field("currency")) } }
-                                        td .text-muted .text-sm { (r.str_field("provider")) }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "User", width: None },
+                        components::TableCol { label: "Status", width: None },
+                        components::TableCol { label: "Total", width: None },
+                        components::TableCol { label: "Provider", width: None },
+                        components::TableCol { label: "Date", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| {
+                        let total_cents = r.i64_field("total_cents");
+                        let amount = format!("{:.2}", total_cents as f64 / 100.0);
+                        vec![
+                            html! { span .text-sm { (r.str_field("user_id").get(..8).unwrap_or("—")) } },
+                            components::status_badge(r.str_field("status")),
+                            html! { span .font-medium { (amount) " " span .text-muted { (r.str_field("currency")) } } },
+                            html! { span .text-muted .text-sm { (r.str_field("provider")) } },
+                            html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
+                        ]
+                    }).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No purchases" } }))
                     (components::pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/products/admin/purchases"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
@@ -356,15 +277,13 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    products_page(
-        "Purchases",
-        &config,
-        "/b/products/admin/purchases",
-        user.as_ref(),
-        "Purchases",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Purchases", ui::NavKind::Portal, "Purchases"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +291,6 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
@@ -409,24 +326,19 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #my-products-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Name" } th { "Status" } th { "Price" } th { "Created" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="4" .text-center .text-muted style="padding:2rem;" { "No products yet" } }
-                                }
-                                @for r in &list.records {
-                                    tr {
-                                        td .font-medium { (r.str_field("name")) }
-                                        td { (components::status_badge(r.str_field("status"))) }
-                                        td { (r.str_field("price")) " " span .text-muted { (r.str_field("currency")) } }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "Name", width: None },
+                        components::TableCol { label: "Status", width: None },
+                        components::TableCol { label: "Price", width: None },
+                        components::TableCol { label: "Created", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| vec![
+                        html! { span .font-medium { (r.str_field("name")) } },
+                        components::status_badge(r.str_field("status")),
+                        html! { (r.str_field("price")) " " span .text-muted { (r.str_field("currency")) } },
+                        html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
+                    ]).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No products yet" } }))
                     (components::pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/products/my-products"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
@@ -434,15 +346,13 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    products_page(
-        "My Products",
-        &config,
-        "/b/products/my-products",
-        user.as_ref(),
-        "My Products",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("My Products", ui::NavKind::Portal, "My Products"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -450,8 +360,6 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
@@ -468,26 +376,23 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         div #my-purchases-content {
             @match &result {
                 Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Status" } th { "Total" } th { "Provider" } th { "Date" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="4" .text-center .text-muted style="padding:2rem;" { "No purchases yet" } }
-                                }
-                                @for r in &list.records {
-                                    @let total_cents = r.i64_field("total_cents");
-                                    @let amount = format!("{:.2}", total_cents as f64 / 100.0);
-                                    tr {
-                                        td { (components::status_badge(r.str_field("status"))) }
-                                        td .font-medium { (amount) " " span .text-muted { (r.str_field("currency")) } }
-                                        td .text-muted .text-sm { (r.str_field("provider")) }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    @let cols = [
+                        components::TableCol { label: "Status", width: None },
+                        components::TableCol { label: "Total", width: None },
+                        components::TableCol { label: "Provider", width: None },
+                        components::TableCol { label: "Date", width: None },
+                    ];
+                    @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| {
+                        let total_cents = r.i64_field("total_cents");
+                        let amount = format!("{:.2}", total_cents as f64 / 100.0);
+                        vec![
+                            components::status_badge(r.str_field("status")),
+                            html! { span .font-medium { (amount) " " span .text-muted { (r.str_field("currency")) } } },
+                            html! { span .text-muted .text-sm { (r.str_field("provider")) } },
+                            html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
+                        ]
+                    }).collect();
+                    (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No purchases yet" } }))
                     (components::pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/products/my-purchases"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
@@ -495,197 +400,78 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    products_page(
-        "My Purchases",
-        &config,
-        "/b/products/my-purchases",
-        user.as_ref(),
-        "My Purchases",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("My Purchases", ui::NavKind::Portal, "My Purchases"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
 // Admin: Settings
 // ---------------------------------------------------------------------------
 
-const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
-    (
-        "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS",
-        "Allow User Products",
-        "Allow users to create their own products.",
-        "false",
-        false,
-    ),
-    (
-        "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY",
-        "Stripe Secret Key",
-        "Stripe API secret key for payment processing.",
-        "",
-        true,
-    ),
-    (
-        "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
-        "Stripe Webhook Secret",
-        "Stripe webhook signing secret for verifying events.",
-        "",
-        true,
-    ),
-    (
-        "SUPPERS_AI__PRODUCTS__STRIPE_API_URL",
-        "Stripe API URL",
-        "Stripe API base URL (default is production).",
-        "https://api.stripe.com",
-        false,
-    ),
-    (
-        "SOLOBASE_SHARED__FRONTEND_URL",
-        "Frontend URL",
-        "Frontend URL for checkout success/cancel redirects.",
-        "http://localhost:5173",
-        false,
-    ),
-    (
-        "SUPPERS_AI__PRODUCTS__WEBHOOK_URL",
-        "Billing Webhook URL",
-        "Webhook URL for outbound billing events.",
-        "",
-        false,
-    ),
-    (
-        "SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET",
-        "Billing Webhook Secret",
-        "Signing secret for outbound billing webhooks.",
-        "",
-        true,
-    ),
-];
+/// The block + shared config vars rendered on the products settings page, in
+/// their on-page order. Pulled from the declared [`ConfigVar`] metadata — the
+/// block-owned ones from `super::config_vars()`, the shared ones from
+/// `config_vars::shared_var()` — so nothing is re-declared in a parallel tuple.
+fn settings_vars() -> SettingsVars {
+    let own = super::config_vars();
+    SettingsVars {
+        features: vec![config_vars::shared_var(
+            "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS",
+        )],
+        stripe: vec![
+            config_vars::var_in(&own, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY"),
+            config_vars::var_in(&own, "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET"),
+            config_vars::var_in(&own, "SUPPERS_AI__PRODUCTS__STRIPE_API_URL"),
+        ],
+        webhooks: vec![
+            config_vars::shared_var("SOLOBASE_SHARED__FRONTEND_URL"),
+            config_vars::var_in(&own, "SUPPERS_AI__PRODUCTS__WEBHOOK_URL"),
+            config_vars::var_in(&own, "SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET"),
+        ],
+    }
+}
+
+struct SettingsVars {
+    features: Vec<wafer_run::ConfigVar>,
+    stripe: Vec<wafer_run::ConfigVar>,
+    webhooks: Vec<wafer_run::ConfigVar>,
+}
+
+impl SettingsVars {
+    /// Flatten to a single allowlist for the save handler.
+    fn all(&self) -> Vec<wafer_run::ConfigVar> {
+        let mut v = self.features.clone();
+        v.extend(self.stripe.iter().cloned());
+        v.extend(self.webhooks.iter().cloned());
+        v
+    }
+}
 
 pub async fn settings(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
-    let mut values = Vec::new();
-    for &(key, label, help, default, sensitive) in SETTINGS_KEYS {
-        let value = config::get_default(ctx, key, default).await;
-        values.push((key, label, help, default, value, sensitive));
-    }
-
+    let vars = settings_vars();
+    let sections = [
+        SettingsSection::new("Features", icons::settings(), &vars.features),
+        SettingsSection::new("Stripe", icons::dollar_sign(), &vars.stripe),
+        SettingsSection::new("Webhooks", icons::globe(), &vars.webhooks),
+    ];
     let content = html! {
         (components::page_header("Settings", Some("Configure payments and integrations"), None))
-
-        form #settings-form onsubmit="return submitSettings(event)" {
-            h3 style="font-size:1rem;font-weight:600;margin:0 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
-                (icons::settings()) " Features"
-            }
-            @for (key, label, help, _default, ref value, _sensitive) in values.iter().take(1) {
-                div .form-group style="margin-bottom:1.25rem" {
-                    label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer" {
-                        input type="checkbox" name=(key)
-                            checked[value.as_str() == "true"]
-                            style="width:1.25rem;height:1.25rem;accent-color:var(--primary)";
-                        span .form-label style="margin:0" { (label) }
-                    }
-                    p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                }
-            }
-
-            h3 style="font-size:1rem;font-weight:600;margin:1.5rem 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
-                (icons::dollar_sign()) " Stripe"
-            }
-            @for (key, label, help, default, ref value, sensitive) in values.iter().skip(1).take(3) {
-                @if *sensitive {
-                    (render_sensitive_field(key, label, help, value))
-                } @else {
-                    div .form-group style="margin-bottom:1.25rem" {
-                        label .form-label for=(key) { (label) }
-                        input .form-input #(key) name=(key) type="text" value=(value) placeholder=(default);
-                        p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                    }
-                }
-            }
-
-            h3 style="font-size:1rem;font-weight:600;margin:1.5rem 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
-                (icons::globe()) " Webhooks"
-            }
-            @for (key, label, help, default, ref value, sensitive) in values.iter().skip(4) {
-                @if *sensitive {
-                    (render_sensitive_field(key, label, help, value))
-                } @else {
-                    div .form-group style="margin-bottom:1.25rem" {
-                        label .form-label for=(key) { (label) }
-                        input .form-input #(key) name=(key) type="text" value=(value) placeholder=(default);
-                        p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                    }
-                }
-            }
-
-            button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
-        }
-
-        script { (PreEscaped(r#"
-function submitSettings(e) {
-    e.preventDefault();
-    var form = document.getElementById('settings-form');
-    var data = {};
-    form.querySelectorAll('input[name]').forEach(function(el) {
-        if (el.type === 'checkbox') { data[el.name] = el.checked ? 'true' : 'false'; }
-        else { data[el.name] = el.value; }
-    });
-    var btn = form.querySelector('button[type="submit"]');
-    btn.disabled = true; btn.textContent = 'Saving...';
-    fetch('/b/products/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: d.message || 'Saved', type: d.error ? 'error' : 'success' } })); })
-    .catch(function(err) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Error: ' + err.message, type: 'error' } })); })
-    .finally(function() { btn.disabled = false; btn.textContent = 'Save Settings'; });
-    return false;
-}
-"#)) }
+        (settings_form::settings_form(ctx, "/b/products/admin/settings", &sections, html! {}).await)
     };
-
-    products_page(
-        "Settings",
-        &site_config,
-        "/b/products/admin/settings",
-        user.as_ref(),
-        "Settings",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Settings", ui::NavKind::Portal, "Settings"),
+        content,
     )
+    .await
 }
 
 pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    let raw = input.collect_to_bytes().await;
-    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
-    };
-    for &(key, _, _, _, _) in SETTINGS_KEYS {
-        if let Some(value) = body.get(key) {
-            if let Err(e) = config::set(ctx, key, value).await {
-                tracing::warn!(error = %e, key = key, "products: failed to set config value");
-            }
-        }
-    }
-    ok_json(&serde_json::json!({"message": "Settings saved"}))
-}
-
-fn render_sensitive_field(key: &str, label: &str, help: &str, value: &str) -> Markup {
-    let has_value = !value.is_empty();
-    html! {
-        div .form-group style="margin-bottom:1.25rem" {
-            label .form-label for=(key) { (label) }
-            div style="display:flex;align-items:center;gap:0.5rem" {
-                input .form-input #(key) name=(key) type="password" value=(value)
-                    placeholder=(if has_value { "******** (set)" } else { "Not configured" })
-                    style="flex:1";
-                button type="button" .btn .btn-ghost .btn-sm
-                    onclick={"var i=document.getElementById('" (key) "');i.type=i.type==='password'?'text':'password'"}
-                { (icons::eye()) }
-            }
-            p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-        }
-    }
+    settings_form::save_settings(ctx, input, &settings_vars().all(), "products").await
 }

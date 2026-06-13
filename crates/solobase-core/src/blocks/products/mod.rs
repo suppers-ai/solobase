@@ -24,6 +24,53 @@ use wafer_run::{
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
 
+/// The products block's own declared config vars. Single source of truth for
+/// both `BlockInfo::config_keys` and the admin settings page (which renders
+/// these via `ui::settings_form` rather than a parallel tuple table).
+pub(crate) fn config_vars() -> Vec<ConfigVar> {
+    vec![
+        ConfigVar::new(
+            "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY",
+            "Stripe API secret key",
+            "",
+        )
+        .name("Stripe Secret Key")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
+            "Stripe webhook signing secret",
+            "",
+        )
+        .name("Stripe Webhook Secret")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__PRODUCTS__STRIPE_API_URL",
+            "Stripe API base URL",
+            "https://api.stripe.com",
+        )
+        .name("Stripe API URL")
+        .input_type(InputType::Url),
+        ConfigVar::new(
+            "SUPPERS_AI__PRODUCTS__WEBHOOK_URL",
+            "Webhook URL for billing events",
+            "",
+        )
+        .name("Billing Webhook URL")
+        .input_type(InputType::Url)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET",
+            "Webhook signing secret",
+            "",
+        )
+        .name("Billing Webhook Secret")
+        .input_type(InputType::Password)
+        .auto_generate(),
+    ]
+}
+
 pub struct ProductsBlock {
     limiter: UserRateLimiter,
 }
@@ -140,27 +187,7 @@ impl Block for ProductsBlock {
                 BlockEndpoint::post("/b/products/checkout").summary("Stripe checkout").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/products/subscription").summary("Subscription status").auth(AuthLevel::Authenticated),
             ])
-            .config_keys(vec![
-                ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY", "Stripe API secret key", "")
-                    .name("Stripe Secret Key")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET", "Stripe webhook signing secret", "")
-                    .name("Stripe Webhook Secret")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_API_URL", "Stripe API base URL", "https://api.stripe.com")
-                    .name("Stripe API URL")
-                    .input_type(InputType::Url),
-                ConfigVar::new("SUPPERS_AI__PRODUCTS__WEBHOOK_URL", "Webhook URL for billing events", "")
-                    .name("Billing Webhook URL")
-                    .input_type(InputType::Url)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET", "Webhook signing secret", "")
-                    .name("Billing Webhook Secret")
-                    .input_type(InputType::Password)
-                    .auto_generate(),
-            ])
+            .config_keys(config_vars())
             .admin_url("/b/products/admin/")
             .can_disable(true)
     }
