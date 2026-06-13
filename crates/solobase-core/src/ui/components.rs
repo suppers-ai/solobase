@@ -436,6 +436,12 @@ pub struct TableCol<'a> {
 ///
 /// `rows` is a Vec because we need to know if it's empty. If empty, an
 /// `empty_state` is rendered in place of the table body.
+///
+/// Each `<td>` carries `data-label="{column label}"` so the mobile
+/// card-collapse CSS (`.data-table td::before { content: attr(data-label) }`,
+/// the PR #75 responsive fix) labels every stacked cell automatically. Cells
+/// are matched to columns positionally; a cell beyond the declared columns
+/// (shouldn't happen) gets an empty label.
 pub fn data_table<'a, F>(
     columns: &[TableCol<'a>],
     rows: Vec<Vec<maud::Markup>>,
@@ -464,7 +470,9 @@ where
                     @for (i, cells) in rows.into_iter().enumerate() {
                         @let href = row_href.as_ref().and_then(|f| f(i));
                         tr .(if href.is_some() { "data-table__row data-table__row--linked" } else { "data-table__row" }) {
-                            @for cell in cells { td { (cell) } }
+                            @for (j, cell) in cells.into_iter().enumerate() {
+                                td data-label=(columns.get(j).map(|c| c.label).unwrap_or("")) { (cell) }
+                            }
                             @if let Some(h) = href {
                                 td .data-table__row-href { a href=(h) aria-label="Open" { "›" } }
                             }

@@ -8,11 +8,7 @@ use wafer_run::{context::Context, Message, OutputStream};
 use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::{
     blocks::helpers::RecordExt,
-    ui::{
-        components, icons, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, components, icons, shell::Crumb},
 };
 
 /// Tabs navigation across the storage-admin sub-pages
@@ -38,66 +34,45 @@ pub(crate) fn admin_tabs(active: &str) -> Markup {
     }
 }
 
-fn files_page<'a>(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
+async fn files_page<'a>(
+    ctx: &dyn Context,
+    title: &'a str,
     crumb_label: &'a str,
     subtitle: Option<&'a str>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    files_page_with_action(
-        title,
-        config,
-        path,
-        user,
-        crumb_label,
-        subtitle,
-        None,
-        content,
-        msg,
-    )
+    files_page_with_action(ctx, title, crumb_label, subtitle, None, content, msg).await
 }
 
-#[allow(clippy::too_many_arguments)]
-fn files_page_with_action<'a>(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
+/// Admin storage shell. Thin wrapper over [`ui::shell_page`] that fixes the
+/// nav to Admin and keeps the storage pages' single-crumb shape; tabs ride in
+/// each caller's `list_page` `filters` slot (matching `/b/admin/users`).
+async fn files_page_with_action<'a>(
+    ctx: &dyn Context,
+    title: &'a str,
     crumb_label: &'a str,
     subtitle: Option<&'a str>,
     primary_action: Option<Markup>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action,
-        subtitle,
-        show_palette: true,
-    };
-    // Tabs are now embedded into `list_page` by each caller (in the
-    // `filters` slot, matching how the Users page wires its tab strip).
-    // That keeps the storage admin pages' padding consistent with
-    // `/b/admin/users`; previously the tabs sat outside `.page--list`
-    // and lost the page gutter.
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title,
+            nav: ui::NavKind::Admin,
+            crumbs: vec![Crumb {
+                label: crumb_label,
+                href: None,
+            }],
+            subtitle,
+            primary_action,
+        },
+        content,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -145,9 +120,6 @@ pub fn render_admin_overview_quotas_hint(quotas_count: i64) -> Markup {
 pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let stats = load_admin_stats(ctx).await;
 
     // Tabs go in the `filters` slot (their padding gutter matches
@@ -169,15 +141,14 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     files_page(
+        ctx,
         "Storage",
-        &config,
-        "/b/storage/admin/",
-        user.as_ref(),
         "Overview",
         Some("File storage statistics"),
         body,
         msg,
     )
+    .await
 }
 
 async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
@@ -274,9 +245,6 @@ pub fn render_admin_buckets_table(rows: &[AdminBucketRow]) -> Markup {
 pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let opts = ListOptions {
         sort: vec![SortField {
             field: "created_at".into(),
@@ -335,10 +303,8 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     files_page_with_action(
+        ctx,
         "Buckets",
-        &config,
-        "/b/storage/admin/buckets",
-        user.as_ref(),
         "Buckets",
         Some("All storage buckets"),
         Some(crate::ui::components::button(
@@ -350,6 +316,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         body,
         msg,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -412,9 +379,6 @@ pub fn render_admin_shares_table(rows: &[AdminShareRow]) -> Markup {
 pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let opts = ListOptions {
         sort: vec![SortField {
             field: "created_at".into(),
@@ -474,15 +438,14 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     files_page(
+        ctx,
         "Shares",
-        &config,
-        "/b/storage/admin/shares",
-        user.as_ref(),
         "Shares",
         Some("Public file share links"),
         body,
         msg,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -533,9 +496,6 @@ pub fn render_admin_quotas_table(rows: &[AdminQuotaRow]) -> Markup {
 pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let opts = ListOptions {
         sort: vec![SortField {
             field: "created_at".into(),
@@ -574,15 +534,14 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     files_page(
+        ctx,
         "Quotas",
-        &config,
-        "/b/storage/admin/quotas",
-        user.as_ref(),
         "Quotas",
         Some("Per-user storage limits"),
         body,
         msg,
     )
+    .await
 }
 
 fn format_bytes(bytes: i64) -> String {

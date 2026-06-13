@@ -8,10 +8,9 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use super::service::{display_index_name, IndexRow};
 use crate::ui::{
-    self, nav_groups,
-    shell::{Crumb, Topbar},
+    self,
+    shell::Crumb,
     templates::{detail_page, list_page, DetailHero, DetailMeta, PageHeader},
-    Page, SiteConfig, UserInfo,
 };
 
 /// htmx-friendly success render for `POST /b/vector/api/indexes` — re-loads
@@ -158,9 +157,6 @@ pub fn render_index_detail_sections(
 /// for unknown collections, so this only logs when something more serious
 /// happens.
 pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let rows = match super::service::list_index_rows(ctx).await {
         Ok(rs) => rs,
         Err(e) => {
@@ -207,37 +203,34 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         None,
     );
 
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: "Vector indexes",
-            href: None,
-        }],
-        primary_action: if backend_available {
-            Some(crate::ui::components::button(
-                crate::ui::components::BtnVariant::Primary,
-                crate::ui::components::CtrlSize::Sm,
-                "+ Create index",
-                maud::PreEscaped(
-                    r#"type="button" onclick="openModal('create-vector-index')""#.to_string(),
-                ),
-            ))
-        } else {
-            None
-        },
-        subtitle: Some("Per-index counts, model, dimensions"),
-        show_palette: true,
+    let primary_action = if backend_available {
+        Some(crate::ui::components::button(
+            crate::ui::components::BtnVariant::Primary,
+            crate::ui::components::CtrlSize::Sm,
+            "+ Create index",
+            maud::PreEscaped(
+                r#"type="button" onclick="openModal('create-vector-index')""#.to_string(),
+            ),
+        ))
+    } else {
+        None
     };
-    Page {
-        config: &config,
-        title: "Vector indexes",
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: msg.path(),
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: "Vector indexes",
+            nav: ui::NavKind::Admin,
+            crumbs: vec![Crumb {
+                label: "Vector indexes",
+                href: None,
+            }],
+            subtitle: Some("Per-index counts, model, dimensions"),
+            primary_action,
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 /// GET `/b/vector/{name}/` — admin-facing single-index detail page.
@@ -268,9 +261,6 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
         .await
         .unwrap_or_default();
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let display = display_index_name(&row.name);
     let subtitle = format!(
         "{} · {} dimensions",
@@ -295,32 +285,28 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
         Vec::<DetailMeta<'_>>::new(),
     );
 
-    let topbar = Topbar {
-        crumbs: vec![
-            Crumb {
-                label: "Vector indexes",
-                href: Some("/b/vector/"),
-            },
-            Crumb {
-                label: &display,
-                href: None,
-            },
-        ],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    let groups = nav_groups::admin();
-    Page {
-        config: &config,
-        title: display,
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: msg.path(),
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: display,
+            nav: ui::NavKind::Admin,
+            crumbs: vec![
+                Crumb {
+                    label: "Vector indexes",
+                    href: Some("/b/vector/"),
+                },
+                Crumb {
+                    label: display,
+                    href: None,
+                },
+            ],
+            subtitle: None,
+            primary_action: None,
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 #[cfg(test)]

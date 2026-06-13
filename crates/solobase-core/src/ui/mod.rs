@@ -11,6 +11,7 @@ pub mod icons;
 pub mod layout;
 pub mod nav_groups;
 pub mod palette;
+pub mod settings_form;
 pub mod shell;
 pub mod sidebar;
 pub mod templates;
@@ -187,6 +188,92 @@ impl<'a> Page<'a> {
         }
         html_response(self.render())
     }
+}
+
+/// Which audience's sidebar a shelled page should render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavKind {
+    /// End-user portal sidebar (Account / Apps).
+    Portal,
+    /// Admin sidebar (Workspace / Data / System).
+    Admin,
+}
+
+impl NavKind {
+    fn groups(self) -> Vec<NavGroup> {
+        match self {
+            NavKind::Portal => nav_groups::portal(),
+            NavKind::Admin => nav_groups::admin(),
+        }
+    }
+}
+
+/// Declarative inputs for [`shell_page`] — everything a block page needs to
+/// render the standard chrome, minus the body and the data ([`SiteConfig`] /
+/// [`UserInfo`] are loaded internally).
+pub struct Shell<'a> {
+    /// `<title>` text.
+    pub title: &'a str,
+    /// Which sidebar to render.
+    pub nav: NavKind,
+    /// Breadcrumb trail. A single `Crumb { label, href: None }` is the common case.
+    pub crumbs: Vec<shell::Crumb<'a>>,
+    /// Optional subtitle shown after the crumbs.
+    pub subtitle: Option<&'a str>,
+    /// Optional primary action button in the topbar.
+    pub primary_action: Option<maud::Markup>,
+}
+
+impl<'a> Shell<'a> {
+    /// The single-crumb, no-subtitle, no-action shell that almost every page uses.
+    pub fn simple(title: &'a str, nav: NavKind, crumb_label: &'a str) -> Self {
+        Self {
+            title,
+            nav,
+            crumbs: vec![shell::Crumb {
+                label: crumb_label,
+                href: None,
+            }],
+            subtitle: None,
+            primary_action: None,
+        }
+    }
+}
+
+/// Render `body` inside the standard page chrome (sidebar + topbar + ⌘K
+/// palette), loading [`SiteConfig`] and [`UserInfo`] internally and returning
+/// an htmx-aware [`OutputStream`]. This is the single shell constructor that
+/// replaced the six per-block `*_page` wrapper functions (`render_page`,
+/// `legalpages_page`, `messages_page`, `products_page`, `llm_page`,
+/// `files_page*`) and the inline `Page { .. }.response(msg)` reconstructions.
+///
+/// `current_path` is taken from the request path so the active sidebar item
+/// highlights correctly.
+pub async fn shell_page(
+    ctx: &dyn wafer_run::context::Context,
+    msg: &wafer_run::Message,
+    shell: Shell<'_>,
+    body: maud::Markup,
+) -> wafer_run::OutputStream {
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+    let groups = shell.nav.groups();
+    let path = msg.path().to_string();
+    Page {
+        config: &config,
+        title: shell.title,
+        nav: &groups,
+        user: user.as_ref(),
+        current_path: &path,
+        topbar: shell::Topbar {
+            crumbs: shell.crumbs,
+            subtitle: shell.subtitle,
+            primary_action: shell.primary_action,
+            show_palette: true,
+        },
+        body,
+    }
+    .response(msg)
 }
 
 /// Minimal `SiteConfig` used by the status-page helpers. They render

@@ -11,44 +11,8 @@ use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
     blocks::helpers::{err_internal, path_param, RecordExt},
-    ui::{
-        self, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, shell::Crumb},
 };
-
-fn messages_page<'a>(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
-    crumb_label: &'a str,
-    subtitle: Option<&'a str>,
-    content: Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        subtitle,
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
-}
 
 pub fn entry_card(record: &db::Record) -> Markup {
     let kind = record.str_field("kind");
@@ -108,10 +72,6 @@ pub fn entry_card(record: &db::Record) -> Markup {
 }
 
 pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
     let params = ListContextsParams {
         context_type: None,
         status: None,
@@ -177,23 +137,25 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         }
     };
 
-    messages_page(
-        "Messages",
-        &config,
-        &path,
-        user.as_ref(),
-        "Contexts",
-        Some("Conversations, tasks, and notifications"),
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell {
+            title: "Messages",
+            nav: ui::NavKind::Admin,
+            crumbs: vec![Crumb {
+                label: "Contexts",
+                href: None,
+            }],
+            subtitle: Some("Conversations, tasks, and notifications"),
+            primary_action: None,
+        },
+        content,
     )
+    .await
 }
 
 pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
     let context_id = path_param(msg, "id", "/b/messages/contexts/");
 
     if context_id.is_empty() {
@@ -249,9 +211,8 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
     // Build crumbs locally so the conversation branch can carry a working
     // [Messages] link back to /b/messages/. The default branch keeps a
     // single crumb (matches its inline "← Back" affordance in
-    // render_default_view). Inline Page::response here — parallel to
-    // T3's pages::page for LLM — so we don't have to teach messages_page
-    // about variable crumb shapes (it's still used by context_list_page).
+    // render_default_view). `shell_page` supports a full `Vec<Crumb>`, so
+    // the variable crumb shape rides through without a bespoke wrapper.
     let crumbs = if context.str_field("type") == "conversation" {
         vec![
             Crumb {
@@ -269,23 +230,19 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
             href: None,
         }]
     };
-    let topbar = Topbar {
-        crumbs,
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    let groups = nav_groups::admin();
-    crate::ui::Page {
-        config: &config,
-        title: display_title,
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: &path,
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: display_title,
+            nav: ui::NavKind::Admin,
+            crumbs,
+            subtitle: None,
+            primary_action: None,
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 /// Pure render helper: branches on `context.type`. Conversation contexts

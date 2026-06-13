@@ -715,3 +715,66 @@ async fn unknown_user_route() {
     let out = handlers::handle_user(&ctx, &msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
+
+// ============================================================
+// Page shell (ui::shell_page) + data_table adoption
+// ============================================================
+
+/// The products pages now render through `ui::shell_page`, which derives
+/// `current_path` from the request path. The overview page at `/b/products/`
+/// therefore correctly highlights the "Products" portal sidebar item — the old
+/// `products_page` wrapper hardcoded `current_path="/b/products/admin/"`, which
+/// never matched the `/b/products/` nav href, so the item rendered inactive.
+/// This is the one intended visual-baseline shift in S2-M's page-shell
+/// migration; pin it so it can't silently regress.
+#[tokio::test]
+async fn overview_highlights_products_nav_via_request_path() {
+    let ctx = ctx().await;
+    let (msg, _input) = admin_get_msg("/b/products/");
+    let html = output_to_html(super::super::pages::overview(&ctx, &msg).await).await;
+
+    // Full shell chrome present (shell_page wrapped a non-htmx request in the
+    // sidebar+topbar document, not a bare fragment). The `.shell` wrapper only
+    // exists on the full page, so it's the distinguishing marker.
+    assert!(html.contains(r#"class="shell""#), "expected shell chrome");
+    assert!(
+        html.contains(r#"class="sidebar"#),
+        "expected sidebar in full doc"
+    );
+    // Products portal nav item is active because current_path == its href.
+    assert!(
+        html.contains(r#"href="/b/products/""#),
+        "Products nav item should be present"
+    );
+    assert!(
+        html.contains("is-active"),
+        "the active sidebar item (Products) should carry is-active"
+    );
+}
+
+/// The products list pages adopt `ui::components::data_table`, which carries
+/// the PR #75 mobile card-collapse fix via `td[data-label]`. Assert the manage
+/// page renders the `.data-table` structure with per-cell data labels (so the
+/// mobile baseline collapse works) instead of the old `.table-container`.
+#[tokio::test]
+async fn manage_products_uses_data_table_with_mobile_labels() {
+    let ctx = ctx().await;
+    let (c, c_input) = admin_create_msg(
+        "/admin/b/products/products",
+        serde_json::json!({ "name": "Widget", "base_price": 5 }),
+    );
+    handlers::handle_admin(&ctx, &c, c_input).await;
+
+    let (msg, _input) = admin_get_msg("/b/products/admin/manage");
+    let html = output_to_html(super::super::pages::manage_products(&ctx, &msg).await).await;
+
+    assert!(
+        html.contains(r#"class="data-table""#),
+        "manage page should render the shared data_table component"
+    );
+    assert!(
+        html.contains(r#"data-label="Name""#),
+        "data_table cells should carry data-label for the mobile card collapse"
+    );
+    assert!(html.contains("Widget"), "the seeded product should render");
+}

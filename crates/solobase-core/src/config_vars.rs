@@ -137,6 +137,41 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
     vars
 }
 
+/// Look up a single `SOLOBASE_SHARED__*` config var by key.
+///
+/// The settings pages assemble their sections by pulling the exact
+/// [`ConfigVar`] metadata they want to show — shared vars come from here,
+/// block-owned vars come from the block's own `info().config_keys` (via
+/// [`var_in`]). This keeps [`ConfigVar`] the single source of truth: no page
+/// re-declares a key's label/default/input_type in a parallel tuple table.
+///
+/// Panics in debug if the key isn't a known shared var — that's a programming
+/// error (a settings page asking for a var that was never declared), caught at
+/// the first test run rather than silently rendering an empty field.
+pub fn shared_var(key: &str) -> ConfigVar {
+    shared_config_vars()
+        .into_iter()
+        .find(|v| v.key == key)
+        .unwrap_or_else(|| {
+            debug_assert!(false, "settings page requested unknown shared var: {key}");
+            ConfigVar::new(key, "", "")
+        })
+}
+
+/// Look up a single config var by key within a block's own declared
+/// `config_keys`. The companion to [`shared_var`] for block-owned vars.
+///
+/// Panics in debug if the key isn't declared by the block.
+pub fn var_in(vars: &[ConfigVar], key: &str) -> ConfigVar {
+    vars.iter()
+        .find(|v| v.key == key)
+        .cloned()
+        .unwrap_or_else(|| {
+            debug_assert!(false, "settings page requested undeclared block var: {key}");
+            ConfigVar::new(key, "", "")
+        })
+}
+
 /// Collect all known config variables: shared + all block-declared.
 pub fn collect_all_config_vars(block_infos: &[wafer_run::BlockInfo]) -> Vec<ConfigVar> {
     let mut all = shared_config_vars();

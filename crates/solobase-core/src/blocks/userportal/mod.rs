@@ -1,4 +1,4 @@
-use maud::{html, PreEscaped};
+use maud::html;
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
@@ -8,12 +8,8 @@ use wafer_run::{
 
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
-    blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
-    ui::{
-        components, icons, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    blocks::helpers::{err_forbidden, err_internal, err_not_found, ok_json},
+    ui::{self, components, icons, settings_form},
 };
 
 pub(crate) mod migrations;
@@ -225,37 +221,6 @@ impl UserPortalBlock {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn render_page(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
-    crumb_label: &'static str,
-    content: maud::Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
-}
-
 async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::Record> {
     db::list(
         ctx,
@@ -312,143 +277,46 @@ async fn handle_update_profile(
 // Admin: Branding Settings
 // ---------------------------------------------------------------------------
 
-fn portal_settings_keys() -> [(
-    &'static str,
-    &'static str,
-    &'static str,
-    &'static str,
-    &'static str,
-); 6] {
+/// The shared branding config vars rendered on the portal settings page,
+/// pulled from their central `config_vars::shared_var` declarations (single
+/// source of truth — no parallel tuple table that had drifted on the logo-URL
+/// input types and the favicon default).
+fn branding_vars() -> Vec<wafer_run::ConfigVar> {
     [
-        (
-            "SOLOBASE_SHARED__APP_NAME",
-            "Application Name",
-            "Display name shown in headers, emails, and login pages.",
-            "Solobase",
-            "text",
-        ),
-        (
-            "SOLOBASE_SHARED__LOGO_URL",
-            "Logo URL",
-            "URL of the logo image shown in the header and login pages.",
-            crate::ui::assets::logo_long_url(),
-            "text",
-        ),
-        (
-            "SOLOBASE_SHARED__LOGO_ICON_URL",
-            "Logo Icon URL",
-            "Small icon version of the logo (used in favicons and compact views).",
-            crate::ui::assets::logo_icon_url(),
-            "text",
-        ),
-        (
-            "SOLOBASE_SHARED__AUTH_LOGO_URL",
-            "Auth Logo URL",
-            "Override logo for login/signup pages. Falls back to Logo URL if empty.",
-            "",
-            "text",
-        ),
-        (
-            "SOLOBASE_SHARED__FAVICON_URL",
-            "Favicon URL",
-            "URL of the favicon for browser tabs.",
-            "",
-            "text",
-        ),
-        (
-            "SOLOBASE_SHARED__PRIMARY_COLOR",
-            "Primary Color",
-            "Primary brand color used for buttons, links, and accents.",
-            "#6366f1",
-            "color",
-        ),
+        "SOLOBASE_SHARED__APP_NAME",
+        "SOLOBASE_SHARED__LOGO_URL",
+        "SOLOBASE_SHARED__LOGO_ICON_URL",
+        "SOLOBASE_SHARED__AUTH_LOGO_URL",
+        "SOLOBASE_SHARED__FAVICON_URL",
+        "SOLOBASE_SHARED__PRIMARY_COLOR",
     ]
+    .into_iter()
+    .map(crate::config_vars::shared_var)
+    .collect()
 }
 
 async fn admin_settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
-    let mut values = Vec::new();
-    for &(key, label, help, default, input_type) in portal_settings_keys().iter() {
-        let value = config::get_default(ctx, key, default).await;
-        values.push((key, label, help, default, value, input_type));
-    }
-
+    let vars = branding_vars();
+    let sections = [settings_form::SettingsSection::new(
+        "Branding",
+        icons::settings(),
+        &vars,
+    )];
     let content = html! {
         (components::page_header("Branding Settings", Some("Customize your application appearance"), None))
-
-        form #settings-form onsubmit="return submitPortalSettings(event)" {
-            h3 style="font-size:1rem;font-weight:600;margin:0 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
-                (icons::settings()) " Branding"
-            }
-
-            @for (key, label, help, default, ref value, input_type) in &values {
-                div .form-group style="margin-bottom:1.25rem" {
-                    label .form-label for=(key) { (label) }
-                    @if *input_type == "color" {
-                        div style="display:flex;align-items:center;gap:0.75rem" {
-                            input .form-input #(key) name=(key) type="text" value=(value) style="flex:1";
-                            input type="color" value=(value)
-                                style="width:40px;height:36px;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:2px"
-                                onchange={"document.getElementById('" (key) "').value=this.value"};
-                        }
-                    } @else {
-                        input .form-input #(key) name=(key) type="text" value=(value) placeholder=(default);
-                    }
-                    p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                }
-            }
-
-            button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
-        }
-
-        script { (PreEscaped(r#"
-function submitPortalSettings(e) {
-    e.preventDefault();
-    var form = document.getElementById('settings-form');
-    var data = {};
-    form.querySelectorAll('input[name]').forEach(function(el) { data[el.name] = el.value; });
-    var btn = form.querySelector('button[type="submit"]');
-    btn.disabled = true; btn.textContent = 'Saving...';
-    fetch('/b/userportal/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: d.message || 'Saved', type: d.error ? 'error' : 'success' } })); })
-    .catch(function(err) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Error: ' + err.message, type: 'error' } })); })
-    .finally(function() { btn.disabled = false; btn.textContent = 'Save Settings'; });
-    return false;
-}
-"#)) }
+        (settings_form::settings_form(ctx, "/b/userportal/admin/settings", &sections, html! {}).await)
     };
-
-    render_page(
-        "Settings",
-        &site_config,
-        "/b/userportal/admin/settings",
-        user.as_ref(),
-        "Settings",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Settings", ui::NavKind::Portal, "Settings"),
+        content,
     )
+    .await
 }
 
 async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    let raw = input.collect_to_bytes().await;
-    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        // Previously returned 200 OK with an `error` key — clients would
-        // still treat that as success. Use the proper 4xx so the caller can
-        // branch on status alone (matches legalpages handle_save).
-        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
-    };
-    for &(key, _, _, _, _) in portal_settings_keys().iter() {
-        if let Some(value) = body.get(key) {
-            if let Err(e) = config::set(ctx, key, value).await {
-                tracing::warn!(error = %e, key = key, "userportal: failed to set config value");
-            }
-        }
-    }
-    ok_json(&serde_json::json!({"message": "Settings saved"}))
+    settings_form::save_settings(ctx, input, &branding_vars(), "userportal").await
 }
 
 #[cfg(test)]

@@ -114,6 +114,15 @@ pub async fn output_to_json(out: OutputStream) -> serde_json::Value {
     }
 }
 
+/// Collect an `OutputStream`'s body and decode it as a UTF-8 string (for
+/// asserting on rendered SSR HTML). Empty string if the stream errored.
+pub async fn output_to_html(out: OutputStream) -> String {
+    match out.collect_buffered().await {
+        Ok(buf) => String::from_utf8(buf.body).unwrap_or_default(),
+        Err(_) => String::new(),
+    }
+}
+
 /// Check if an `OutputStream` terminated with an error of the given code.
 pub async fn output_is_error(out: OutputStream, expected: ErrorCode) -> bool {
     use wafer_run::streams::output::TerminalNotResponse;

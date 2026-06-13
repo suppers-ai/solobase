@@ -20,6 +20,37 @@ use crate::{
     ui::{self, templates, SiteConfig},
 };
 
+/// The legalpages block's own declared config vars. Single source of truth for
+/// both `BlockInfo::config_keys` and the admin settings page (rendered via
+/// `ui::settings_form`, not a parallel tuple table that had drifted on the
+/// `BG_COLOR` default).
+pub(crate) fn config_vars() -> Vec<ConfigVar> {
+    vec![
+        ConfigVar::new(
+            "SUPPERS_AI__LEGALPAGES__BG_COLOR",
+            "Background color for public legal pages (empty = use design token default)",
+            "",
+        )
+        .name("Background Color")
+        .input_type(InputType::Color)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__LEGALPAGES__BACK_URL",
+            "Back button URL in the header (e.g., your website homepage)",
+            "/",
+        )
+        .name("Back Button URL")
+        .input_type(InputType::Url),
+        ConfigVar::new(
+            "SUPPERS_AI__LEGALPAGES__FOOTER",
+            "Custom footer text (HTML allowed)",
+            "",
+        )
+        .name("Footer Text")
+        .optional(),
+    ]
+}
+
 pub struct LegalPagesBlock;
 
 impl LegalPagesBlock {
@@ -468,18 +499,7 @@ impl Block for LegalPagesBlock {
                 BlockEndpoint::patch("/b/legalpages/api/documents/{id}").summary("Update document").auth(AuthLevel::Admin),
                 BlockEndpoint::post("/b/legalpages/api/documents/{id}/publish").summary("Publish document").auth(AuthLevel::Admin),
             ])
-            .config_keys(vec![
-                ConfigVar::new("SUPPERS_AI__LEGALPAGES__BG_COLOR", "Background color for public legal pages (empty = use design token default)", "")
-                    .name("Background Color")
-                    .input_type(InputType::Color)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__LEGALPAGES__BACK_URL", "Back button URL in the header (e.g., your website homepage)", "/")
-                    .name("Back Button URL")
-                    .input_type(InputType::Url),
-                ConfigVar::new("SUPPERS_AI__LEGALPAGES__FOOTER", "Custom footer text (HTML allowed)", "")
-                    .name("Footer Text")
-                    .optional(),
-            ])
+            .config_keys(config_vars())
             .admin_url("/b/legalpages/admin")
             .can_disable(true)
             .default_enabled(false)
