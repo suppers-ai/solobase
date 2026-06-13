@@ -5,6 +5,7 @@ use wafer_run::{
     context::Context, ConfigVar, ErrorCode, InputStream, InputType, Message, OutputStream,
 };
 
+use super::ops::{self, MASKED_VALUE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
 };
@@ -104,19 +105,6 @@ pub const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
 /// reference this table by name.
 pub const VARIABLES_TABLE: &str = "suppers_ai__admin__variables";
 
-const MASKED_VALUE: &str = "********";
-
-/// SEC-060: unified sensitive-key check used by both `handle_list_full` and
-/// `handle_list`. A value is sensitive if the row's `sensitive` flag is 1
-/// OR the key name follows the `_SECRET` / `_KEY` suffix convention. Both
-/// listing endpoints must agree on this — the previous code masked on the
-/// suffix in `list_full` but only on the flag in `list`, so an admin who
-/// forgot to flip the `sensitive` flag on a `*_SECRET` key would have it
-/// leak through the lightweight listing.
-fn is_sensitive_key(key: &str, sensitive_flag: i64) -> bool {
-    sensitive_flag == 1 || key.ends_with("_SECRET") || key.ends_with("_KEY")
-}
-
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
@@ -136,72 +124,6 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     }
 }
 
-/// Validate a URL-type config value against SSRF attacks.
-/// Empty values are allowed (clears the setting).
-/// Relative paths starting with `/` (but not `//`) are allowed.
-/// Otherwise must be HTTPS, or http://localhost for local development.
-/// Private/internal IP ranges are blocked to prevent SSRF.
-fn validate_url_value(value: &str) -> Result<(), String> {
-    if value.is_empty() {
-        return Ok(());
-    }
-    // Allow relative paths
-    if value.starts_with('/') && !value.starts_with("//") {
-        return Ok(());
-    }
-    // Block newlines (header injection)
-    if value.contains('\n') || value.contains('\r') {
-        return Err("URL must not contain newlines".to_string());
-    }
-    // Must be https:// or http://localhost for dev
-    let is_localhost = value.starts_with("http://localhost");
-    if !value.starts_with("https://") && !is_localhost {
-        return Err("URL must use HTTPS (or http://localhost for development)".to_string());
-    }
-    // Extract hostname and check for private/internal IPs
-    let host = value
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .and_then(|authority| {
-            // Handle [IPv6]:port
-            if authority.starts_with('[') {
-                authority.strip_prefix('[')?.split(']').next()
-            } else {
-                authority.split(':').next()
-            }
-        })
-        .unwrap_or("");
-
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
-                    || v4.is_loopback()                // 127.x
-                    || v4.is_link_local()              // 169.254.x
-                    || v4.octets()[0] == 0; // 0.0.0.0/8
-                if is_blocked && !is_localhost {
-                    return Err("URL must not point to private/internal IP addresses".to_string());
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                if v6.is_loopback() {
-                    return Err("URL must not point to loopback address".to_string());
-                }
-                // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
-                if let Some(v4) = v6.to_ipv4_mapped() {
-                    if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
-                        return Err(
-                            "URL must not point to private/internal IP addresses".to_string()
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
     match db::list_all(ctx, VARIABLES_TABLE, vec![]).await {
         Ok(records) => {
@@ -209,7 +131,7 @@ async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
                 .iter()
                 .map(|record| {
                     let key = record.str_field("key").to_string();
-                    let is_sensitive = is_sensitive_key(&key, record.i64_field("sensitive"));
+                    let is_sensitive = ops::is_sensitive_key(&key, record.i64_field("sensitive"));
                     let is_system = key.starts_with("SOLOBASE_SHARED__");
                     // Mask sensitive values even in the "full" listing
                     let value = if is_sensitive {
@@ -242,7 +164,7 @@ async fn handle_list(ctx: &dyn Context) -> OutputStream {
             let mut settings = HashMap::new();
             for record in &records {
                 let key = record.str_field("key");
-                let is_sensitive = is_sensitive_key(key, record.i64_field("sensitive"));
+                let is_sensitive = ops::is_sensitive_key(key, record.i64_field("sensitive"));
                 let value = if is_sensitive {
                     serde_json::Value::String(MASKED_VALUE.to_string())
                 } else {
@@ -281,7 +203,10 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await
     {
         Ok(mut record) => {
-            let is_sensitive = record.i64_field("sensitive") == 1;
+            // SEC-060: mask on the row flag OR the `_SECRET` / `_KEY` suffix —
+            // the single-key getter previously masked on the flag alone, so a
+            // `*_SECRET` key with the flag unset leaked its value here.
+            let is_sensitive = ops::is_sensitive_key(key, record.i64_field("sensitive"));
             if is_sensitive {
                 record.data.insert(
                     "value".to_string(),
@@ -312,40 +237,29 @@ async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Prevent setting sensitive keys (secrets/keys) to empty (would break auth)
-    if key.ends_with("_SECRET") || key.ends_with("_KEY") {
-        let val_str = body.value.as_str().unwrap_or("");
-        if val_str.is_empty() {
-            return err_bad_request(&format!("Cannot set {} to an empty value", key));
-        }
-    }
+    // The `value` column is TEXT; a string value is stored verbatim, anything
+    // else as its JSON form (the prior validation already read it via
+    // `as_str().unwrap_or("")`, so non-string values were treated as empty).
+    let value = match &body.value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
 
-    // Validate URL-type keys
-    if key.ends_with("_URL") {
-        let val_str = body.value.as_str().unwrap_or("");
-        if let Err(e) = validate_url_value(val_str) {
-            return err_bad_request(&format!("Invalid value for {}: {}", key, e));
-        }
-    }
-
-    let mut data = json_map(serde_json::json!({
-        "key": key,
-        "value": body.value,
-        "updated_by": msg.user_id()
-    }));
-    helpers::stamp_updated(&mut data);
-
-    match db::upsert(
+    // Guards (sensitive-empty + URL/SSRF), audit-log write, and upsert live in
+    // the shared ops layer so the SSR variable surface can't diverge.
+    match ops::update_variable(
         ctx,
-        VARIABLES_TABLE,
-        "key",
-        serde_json::Value::String(key.to_string()),
-        data,
+        msg,
+        key,
+        ops::VariableUpdate {
+            value: Some(&value),
+            description: None,
+        },
     )
     .await
     {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
+        Err(out) => out,
     }
 }
 
@@ -363,30 +277,21 @@ async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
-    if body.key.is_empty() {
-        return err_bad_request("key is required");
-    }
-
-    // Validate URL-type keys
-    if body.key.ends_with("_URL") {
-        let val_str = body.value.as_deref().unwrap_or("");
-        if let Err(e) = validate_url_value(val_str) {
-            return err_bad_request(&format!("Invalid value for {}: {}", body.key, e));
-        }
-    }
-
-    let data = json_map(serde_json::json!({
-        "key": body.key,
-        "value": body.value.unwrap_or_default(),
-        "name": body.name.unwrap_or_else(|| body.key.clone()),
-        "description": body.description.unwrap_or_default(),
-        "sensitive": if body.sensitive.unwrap_or(false) { 1 } else { 0 },
-        "updated_by": msg.user_id(),
-        "created_at": helpers::now_rfc3339()
-    }));
-    match db::create(ctx, VARIABLES_TABLE, data).await {
+    // Key-empty guard, URL/SSRF validation, audit-log write, and the create
+    // live in the shared ops layer so the SSR variable surface can't diverge.
+    match ops::create_variable(
+        ctx,
+        msg,
+        &body.key,
+        body.value.as_deref().unwrap_or(""),
+        body.name.as_deref(),
+        body.description.as_deref(),
+        body.sensitive.unwrap_or(false),
+    )
+    .await
+    {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
+        Err(out) => out,
     }
 }
 
@@ -808,6 +713,43 @@ mod tests {
         assert!(
             block_settings::is_enabled(&ctx, name).await,
             "is_enabled should return true after set_enabled(true)"
+        );
+    }
+
+    /// SEC-060 regression: the single-key getter must mask a `*_SECRET` value
+    /// even when its `sensitive` flag is 0 (the prior code masked on the flag
+    /// alone, leaking the secret here).
+    #[tokio::test]
+    async fn handle_get_masks_secret_suffix_without_flag() {
+        use crate::test_support::{admin_msg, output_json};
+
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        // Insert a *_SECRET row with the sensitive flag explicitly unset.
+        let mut data = json_map(serde_json::json!({
+            "key": "STRIPE_SECRET",
+            "value": "sk_live_supersecret",
+            "name": "Stripe secret",
+            "sensitive": 0,
+        }));
+        helpers::stamp_created(&mut data);
+        db::create(&ctx, VARIABLES_TABLE, data)
+            .await
+            .expect("seed secret var");
+
+        let msg = admin_msg("retrieve", "/admin/settings/STRIPE_SECRET");
+        let out = handle(&ctx, &msg, InputStream::empty()).await;
+        let body = output_json(out).await;
+        // `Record` serializes as `{ id, data: { value, ... } }`.
+        assert_eq!(
+            body.get("data")
+                .and_then(|d| d.get("value"))
+                .and_then(|v| v.as_str()),
+            Some(MASKED_VALUE),
+            "a *_SECRET value must be masked even with the sensitive flag unset"
         );
     }
 }
