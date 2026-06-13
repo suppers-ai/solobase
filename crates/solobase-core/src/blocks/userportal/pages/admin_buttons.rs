@@ -8,7 +8,7 @@ use maud::html;
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use super::super::{load_buttons, render_page};
+use super::super::load_buttons;
 // Crate-rooted path (rather than `super::super::TABLE`) so the WRAP-grant
 // audit (scripts/audit-wrap-grants.sh) can statically resolve the constant
 // to this block's table.
@@ -18,7 +18,7 @@ use crate::{
         err_bad_request, err_internal, err_not_found, json_map, parse_form_body, stamp_created,
         stamp_updated, RecordExt,
     },
-    ui::{self, components, icons, sidebar::nav_icon, SiteConfig, UserInfo},
+    ui::{self, components, icons, sidebar::nav_icon},
 };
 
 /// Known icon names available for button configuration.
@@ -40,8 +40,6 @@ const ICON_OPTIONS: &[(&str, &str)] = &[
 ];
 
 pub async fn admin_buttons_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let buttons = load_buttons(ctx).await;
 
     let content = html! {
@@ -93,15 +91,13 @@ pub async fn admin_buttons_page(ctx: &dyn Context, msg: &Message) -> OutputStrea
         (render_buttons_table(&buttons))
     };
 
-    render_page(
-        "Portal Buttons",
-        &site_config,
-        "/b/userportal/admin/buttons",
-        user.as_ref(),
-        "Portal Buttons",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Portal Buttons", ui::NavKind::Portal, "Portal Buttons"),
+        content,
     )
+    .await
 }
 
 fn render_buttons_table(buttons: &[db::Record]) -> maud::Markup {

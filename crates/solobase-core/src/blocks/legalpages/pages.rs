@@ -16,46 +16,10 @@ use crate::{
         self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
         ResponseBuilder,
     },
-    ui::{
-        components, icons, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, components, icons, settings_form},
 };
 
 const COLLECTION: &str = super::COLLECTION;
-
-/// Wrap content in the legalpages portal shell (sidebar + layout).
-fn legalpages_page<'a>(
-    title: &str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
-    crumb_label: &'a str,
-    content: Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
-}
 
 // ---------------------------------------------------------------------------
 // Document lookup
@@ -125,9 +89,6 @@ async fn find_current_doc(ctx: &dyn Context, doc_type: &str) -> Option<db::Recor
 // ---------------------------------------------------------------------------
 
 pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let doc = find_current_doc(ctx, doc_type).await;
     let default_title = if doc_type == "privacy" {
         "Privacy Policy"
@@ -156,15 +117,13 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
         doc_type, doc_id, title, content, status, updated_at, version,
     );
 
-    legalpages_page(
-        default_title,
-        &config,
-        &format!("/b/legalpages/admin/{doc_type}"),
-        user.as_ref(),
-        default_title,
-        page_content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple(default_title, ui::NavKind::Portal, default_title),
+        page_content,
     )
+    .await
 }
 
 /// Build the editor markup. Split out from `editor_page` so it can be
@@ -404,9 +363,6 @@ const EDITOR_JS: &str = r#"
 // ---------------------------------------------------------------------------
 
 pub async fn endpoints_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let content = html! {
         (components::page_header("API Endpoints", Some("Available endpoints for legal pages"), None))
 
@@ -540,15 +496,13 @@ pub async fn endpoints_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    legalpages_page(
-        "Endpoints",
-        &config,
-        "/b/legalpages/admin/endpoints",
-        user.as_ref(),
-        "Endpoints",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Endpoints", ui::NavKind::Portal, "Endpoints"),
+        content,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -675,39 +629,32 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream
 // Settings page
 // ---------------------------------------------------------------------------
 
-const SETTINGS_KEYS: &[(&str, &str, &str, &str)] = &[
-    (
-        "SUPPERS_AI__LEGALPAGES__BG_COLOR",
-        "Background Color",
-        "Background color for the public legal pages.",
-        "#f8fafc",
-    ),
-    (
-        "SUPPERS_AI__LEGALPAGES__BACK_URL",
-        "Back Button URL",
-        "Where the back arrow in the header links to (e.g., your website homepage).",
-        "/",
-    ),
-    (
-        "SUPPERS_AI__LEGALPAGES__FOOTER",
-        "Footer Text",
-        "Custom footer text (HTML allowed). Leave empty for default copyright.",
-        "",
-    ),
-];
-
 pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    use wafer_core::clients::config;
+    let vars = super::config_vars();
+    let sections = [settings_form::SettingsSection::new(
+        "Appearance",
+        icons::settings(),
+        &vars,
+    )];
 
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
-    // Load current values
-    let mut values = Vec::new();
-    for &(key, label, help, default) in SETTINGS_KEYS {
-        let value = config::get_default(ctx, key, default).await;
-        values.push((key, label, help, default, value));
-    }
+    // The live-preview links ride in the form's `extra` slot so they stay
+    // inside the settings form (above the Save button), as before.
+    let preview = html! {
+        div .card style="margin-bottom:1.25rem;padding:1rem" {
+            h4 style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem" { "Preview" }
+            p .text-muted style="font-size:0.8rem;margin-bottom:0.75rem" {
+                "See how your changes look on the public pages."
+            }
+            div style="display:flex;gap:0.5rem" {
+                a .btn .btn-sm .btn-ghost href="/b/legalpages/privacy" target="_blank" {
+                    (icons::eye()) " Privacy Policy"
+                }
+                a .btn .btn-sm .btn-ghost href="/b/legalpages/terms" target="_blank" {
+                    (icons::eye()) " Terms of Service"
+                }
+            }
+        }
+    };
 
     let saved = msg.query("saved") == "1";
 
@@ -720,115 +667,20 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             }
         }
 
-        form #settings-form onsubmit="return submitSettings(event)" {
-            @for (key, label, help, _default, value) in &values {
-                div .form-group style="margin-bottom:1.25rem" {
-                    label .form-label for=(key) { (label) }
-                    @if *key == "SUPPERS_AI__LEGALPAGES__FOOTER" {
-                        textarea .form-input #(key) name=(key)
-                            rows="3"
-                            placeholder="Leave empty for default copyright text"
-                            style="font-family:monospace;font-size:0.9rem"
-                        { (value) }
-                    } @else if *key == "SUPPERS_AI__LEGALPAGES__BG_COLOR" {
-                        div style="display:flex;align-items:center;gap:0.75rem" {
-                            input .form-input #(key) name=(key)
-                                type="text"
-                                value=(value)
-                                style="flex:1";
-                            input type="color" value=(value)
-                                style="width:40px;height:36px;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:2px"
-                                onchange={"document.getElementById('" (key) "').value=this.value"};
-                        }
-                    } @else {
-                        input .form-input #(key) name=(key)
-                            type="text"
-                            value=(value)
-                            placeholder=(*_default);
-                    }
-                    p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                }
-            }
-
-            // Preview section
-            div .card style="margin-bottom:1.25rem;padding:1rem" {
-                h4 style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem" { "Preview" }
-                p .text-muted style="font-size:0.8rem;margin-bottom:0.75rem" {
-                    "See how your changes look on the public pages."
-                }
-                div style="display:flex;gap:0.5rem" {
-                    a .btn .btn-sm .btn-ghost href="/b/legalpages/privacy" target="_blank" {
-                        (icons::eye()) " Privacy Policy"
-                    }
-                    a .btn .btn-sm .btn-ghost href="/b/legalpages/terms" target="_blank" {
-                        (icons::eye()) " Terms of Service"
-                    }
-                }
-            }
-
-            button .btn .btn-primary type="submit" { "Save Settings" }
-        }
-
-        script { (PreEscaped(r#"
-        function submitSettings(e) {
-            e.preventDefault();
-            var form = document.getElementById('settings-form');
-            var data = {};
-            var inputs = form.querySelectorAll('input[name], textarea[name]');
-            inputs.forEach(function(el) { data[el.name] = el.value; });
-            var btn = form.querySelector('button[type="submit"]');
-            btn.disabled = true; btn.textContent = 'Saving...';
-            fetch('/b/legalpages/admin/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                document.body.dispatchEvent(new CustomEvent('showToast', {
-                    detail: { message: d.message || 'Saved', type: d.error ? 'error' : 'success' }
-                }));
-            })
-            .catch(function(err) {
-                document.body.dispatchEvent(new CustomEvent('showToast', {
-                    detail: { message: 'Error: ' + err.message, type: 'error' }
-                }));
-            })
-            .finally(function() { btn.disabled = false; btn.textContent = 'Save Settings'; });
-            return false;
-        }
-        "#)) }
+        (settings_form::settings_form(ctx, "/b/legalpages/admin/settings", &sections, preview).await)
     };
 
-    legalpages_page(
-        "Settings",
-        &site_config,
-        "/b/legalpages/admin/settings",
-        user.as_ref(),
-        "Settings",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("Settings", ui::NavKind::Portal, "Settings"),
+        content,
     )
+    .await
 }
 
 pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    use wafer_core::clients::config;
-
-    let raw = input.collect_to_bytes().await;
-    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
-    };
-
-    for &(key, _, _, _) in SETTINGS_KEYS {
-        if let Some(value) = body.get(key) {
-            if let Err(e) = config::set(ctx, key, value).await {
-                tracing::warn!(error = %e, key = key, "legalpages: failed to set config value");
-            }
-        }
-    }
-
-    ok_json(&serde_json::json!({"message": "Settings saved"}))
+    settings_form::save_settings(ctx, input, &super::config_vars(), "legalpages").await
 }
 
 // ---------------------------------------------------------------------------
