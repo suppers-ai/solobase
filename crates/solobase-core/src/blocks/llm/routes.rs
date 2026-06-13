@@ -28,7 +28,7 @@ use super::{
     LlmBlock, DEFAULT_PROVIDER,
 };
 use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, path_param,
 };
 
 /// Legacy default provider block name that must be replaced with the first
@@ -380,21 +380,8 @@ struct ProviderBody {
     enabled: Option<bool>,
 }
 
-/// Extract `:id` from `/b/llm/api/providers/{id}[/...]`.
-///
-/// The route is registered as a single `/b/llm` prefix in `routing.rs`; the
-/// runtime does not extract path params, so we parse from `msg.path()` and
-/// fall back to `msg.var("id")` for callers that do supply it (tests, future
-/// router enhancements).
-fn extract_provider_id(msg: &Message) -> &str {
-    let var = msg.var("id");
-    if !var.is_empty() {
-        return var;
-    }
-    let path = msg.path();
-    let suffix = path.strip_prefix("/b/llm/api/providers/").unwrap_or("");
-    suffix.split('/').next().unwrap_or("")
-}
+/// Path prefix preceding the provider id in the JSON API routes.
+const PROVIDERS_PREFIX: &str = "/b/llm/api/providers/";
 
 /// Render a `ProviderConfig` as the JSON shape returned by list/create/update.
 fn provider_to_json(id: &str, cfg: &ProviderConfig) -> serde_json::Value {
@@ -580,7 +567,7 @@ pub(super) async fn update_provider(
     if !helpers::is_admin(msg) {
         return err_forbidden("admin role required");
     }
-    let id = extract_provider_id(msg).to_string();
+    let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
     }
@@ -657,7 +644,7 @@ pub(super) async fn delete_provider(
     if !helpers::is_admin(msg) {
         return err_forbidden("admin role required");
     }
-    let id = extract_provider_id(msg).to_string();
+    let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
     }
@@ -801,7 +788,7 @@ pub(super) async fn discover_models(
     if !helpers::is_admin(msg) {
         return err_forbidden("admin role required");
     }
-    let id = extract_provider_id(msg).to_string();
+    let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
     }
@@ -1172,7 +1159,7 @@ mod tests {
         // Direct id at end of path
         let mut m = Message::new("update:/b/llm/api/providers/abc123");
         m.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/providers/abc123");
-        assert_eq!(extract_provider_id(&m), "abc123");
+        assert_eq!(path_param(&m, "id", PROVIDERS_PREFIX), "abc123");
 
         // Id followed by a sub-resource (discover-models)
         let mut m2 = Message::new("create:/b/llm/api/providers/abc123/discover-models");
@@ -1180,12 +1167,12 @@ mod tests {
             wafer_run::META_REQ_RESOURCE,
             "/b/llm/api/providers/abc123/discover-models",
         );
-        assert_eq!(extract_provider_id(&m2), "abc123");
+        assert_eq!(path_param(&m2, "id", PROVIDERS_PREFIX), "abc123");
 
         // Empty when no id provided
         let mut m3 = Message::new("delete:/b/llm/api/providers/");
         m3.set_meta(wafer_run::META_REQ_RESOURCE, "/b/llm/api/providers/");
-        assert_eq!(extract_provider_id(&m3), "");
+        assert_eq!(path_param(&m3, "id", PROVIDERS_PREFIX), "");
 
         // `msg.var("id")` takes precedence
         let mut m4 = Message::new("update:/b/llm/api/providers/from-path");
@@ -1197,7 +1184,7 @@ mod tests {
             format!("{}id", wafer_run::META_REQ_PARAM_PREFIX),
             "from-var",
         );
-        assert_eq!(extract_provider_id(&m4), "from-var");
+        assert_eq!(path_param(&m4, "id", PROVIDERS_PREFIX), "from-var");
     }
 
     #[test]

@@ -53,7 +53,7 @@ use super::{
     service::{self, REGISTRY_TABLE, TABLE_PREFIX},
 };
 use crate::blocks::helpers::{
-    err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json,
+    err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json, path_param,
 };
 
 /// Route dispatcher for the `suppers-ai/vector` block.
@@ -279,7 +279,7 @@ async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> 
 // ---------------------------------------------------------------------------
 
 async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let name = extract_index_name(msg);
+    let name = path_param(msg, "name", "/b/vector/api/indexes/");
     if name.is_empty() {
         return err_bad_request("index name is required");
     }
@@ -312,23 +312,6 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
         Err(e) => err_internal("delete_index failed", e),
     }
-}
-
-/// Extract `{name}` from `/b/vector/api/indexes/{name}`.
-///
-/// Prefers the router-populated `name` path variable when available, falling
-/// back to string-splitting for direct handler invocation (e.g. in tests).
-fn extract_index_name(msg: &Message) -> &str {
-    let var = msg.var("name");
-    if !var.is_empty() {
-        return var;
-    }
-    msg.path()
-        .strip_prefix("/b/vector/api/indexes/")
-        .unwrap_or("")
-        .split('/')
-        .next()
-        .unwrap_or("")
 }
 
 // ---------------------------------------------------------------------------

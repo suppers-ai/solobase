@@ -39,23 +39,6 @@ pub(crate) const COLLECTION: &str = "suppers_ai__legalpages__documents";
 /// Path prefix preceding the document id in the JSON API routes.
 const API_DOC_PREFIX: &str = "/b/legalpages/api/documents/";
 
-/// Extract document ID from a publish path like
-/// `/b/legalpages/api/documents/{id}/publish`.
-///
-/// The pure-CRUD routes go through `blocks::crud` (which extracts the id
-/// itself); this stays only for the publish route, which has a trailing
-/// `/publish` segment to strip.
-fn extract_doc_id(msg: &Message) -> &str {
-    // Try router-extracted var first (native axum), fall back to path parsing (CF)
-    let var = msg.var("id");
-    if !var.is_empty() {
-        return var;
-    }
-    let suffix = msg.path().strip_prefix(API_DOC_PREFIX).unwrap_or("");
-    // Strip trailing /publish or /
-    suffix.split('/').next().unwrap_or("")
-}
-
 impl LegalPagesBlock {
     async fn handle_get_public(&self, ctx: &dyn Context, doc_type: &str) -> OutputStream {
         use wafer_core::clients::config;
@@ -222,7 +205,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
-        let id = extract_doc_id(msg);
+        let id = helpers::path_param(msg, "id", API_DOC_PREFIX);
         if id.is_empty() {
             return err_bad_request("Missing document ID");
         }

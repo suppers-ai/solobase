@@ -10,7 +10,7 @@ use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
-    blocks::helpers::{err_internal, RecordExt},
+    blocks::helpers::{err_internal, path_param, RecordExt},
     ui::{
         self, nav_groups,
         shell::{Crumb, Topbar},
@@ -194,12 +194,7 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
-    let context_id = path
-        .strip_prefix("/b/messages/contexts/")
-        .unwrap_or("")
-        .split('/')
-        .next()
-        .unwrap_or("");
+    let context_id = path_param(msg, "id", "/b/messages/contexts/");
 
     if context_id.is_empty() {
         return ui::not_found_response(msg);
