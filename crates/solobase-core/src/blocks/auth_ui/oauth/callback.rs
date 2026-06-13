@@ -8,7 +8,10 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{ensure_admin_role, issue_tokens_and_cookie},
+        helpers::{
+            email_domain_allowed, ensure_admin_role, initial_role_for, issue_tokens_and_cookie,
+            signup_allowed,
+        },
         repo::{oauth_pkce, provider_links, users},
         USERS_TABLE,
     },
@@ -273,32 +276,19 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 existing_user.id
             }
             Ok(None) => {
-                // Brand-new user — enforce signup gates.
-                let allow_signup =
-                    config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
-                if allow_signup != "true" && allow_signup != "1" {
+                // Brand-new user — enforce signup gates. Shared with the JSON
+                // signup handler so the ALLOW_SIGNUP / ALLOWED_EMAIL_DOMAINS /
+                // bootstrap-admin rules can't drift between the two flows.
+                if !signup_allowed(ctx).await {
                     return err_forbidden("Signups are currently disabled");
                 }
 
-                let allowed_domains =
-                    config::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "").await;
-                if !allowed_domains.is_empty() {
-                    let email_domain = email.split_once('@').map(|x| x.1).unwrap_or("");
-                    let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
-                    if !allowed {
-                        return err_forbidden("Signups from this email domain are not allowed");
-                    }
+                if !email_domain_allowed(ctx, &email).await {
+                    return err_forbidden("Signups from this email domain are not allowed");
                 }
 
                 // Determine role: admin if email matches bootstrap email.
-                let admin_email =
-                    config::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
-                        .await;
-                let role = if !admin_email.is_empty() && email.eq_ignore_ascii_case(&admin_email) {
-                    "admin"
-                } else {
-                    "user"
-                };
+                let role = initial_role_for(ctx, &email).await;
 
                 let display_name = if name.is_empty() {
                     email.clone()

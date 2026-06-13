@@ -177,6 +177,53 @@ pub(crate) mod helpers {
         roles
     }
 
+    /// Whether new-account registration is allowed
+    /// (`SOLOBASE_SHARED__ALLOW_SIGNUP`, default on). The single signup toggle
+    /// across the JSON signup endpoint and the OAuth callback's
+    /// brand-new-user branch — `SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED` was a
+    /// dead duplicate with the opposite default and has been removed.
+    pub(crate) async fn signup_allowed(ctx: &dyn wafer_run::context::Context) -> bool {
+        let raw = config_client::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
+        raw == "true" || raw == "1"
+    }
+
+    /// Whether `email`'s domain is permitted to register.
+    ///
+    /// When `SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS` is unset (the default)
+    /// every domain is allowed. When set to a comma-separated allow-list, only
+    /// matching domains pass. `email` is expected pre-lowercased; the domain is
+    /// the substring after the last `@` (empty for a malformed address, which
+    /// then fails a non-empty allow-list).
+    pub(crate) async fn email_domain_allowed(
+        ctx: &dyn wafer_run::context::Context,
+        email: &str,
+    ) -> bool {
+        let allowed =
+            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "").await;
+        if allowed.is_empty() {
+            return true;
+        }
+        let domain = email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
+        allowed.split(',').any(|d| d.trim() == domain)
+    }
+
+    /// The role a newly registered user should receive: `"admin"` when `email`
+    /// matches the configured `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL`,
+    /// otherwise `"user"`. Shared by the JSON signup and OAuth-callback create
+    /// paths so the bootstrap-admin rule can't drift between them.
+    pub(crate) async fn initial_role_for(
+        ctx: &dyn wafer_run::context::Context,
+        email: &str,
+    ) -> &'static str {
+        use super::config::BOOTSTRAP_ADMIN_EMAIL_KEY;
+        let admin_email = config_client::get_default(ctx, BOOTSTRAP_ADMIN_EMAIL_KEY, "").await;
+        if !admin_email.is_empty() && email.eq_ignore_ascii_case(&admin_email) {
+            "admin"
+        } else {
+            "user"
+        }
+    }
+
     /// Resolve the configured access-token lifetime (SEC-042). Reads
     /// `SUPPERS_AI__AUTH__ACCESS_TOKEN_LIFETIME_SECS`; falls back to the
     /// declared default (30 min) if unset or unparseable.
@@ -359,6 +406,20 @@ pub(crate) mod helpers {
         )
     }
 
+    /// Resolve the configured minimum signup password length
+    /// (`SOLOBASE_SHARED__AUTH__PASSWORD_MIN_LENGTH`). Falls back to the
+    /// declared default (8) if unset or unparseable. Read by the signup
+    /// handler so the admin-visible config var is actually enforced instead of
+    /// a hardcoded literal.
+    pub(crate) async fn password_min_length(ctx: &dyn wafer_run::context::Context) -> usize {
+        use super::config::{PASSWORD_MIN_LENGTH_DEFAULT, PASSWORD_MIN_LENGTH_KEY};
+        let raw = config_client::get_default(ctx, PASSWORD_MIN_LENGTH_KEY, "").await;
+        raw.parse::<usize>()
+            .ok()
+            .filter(|n| *n > 0)
+            .unwrap_or(PASSWORD_MIN_LENGTH_DEFAULT as usize)
+    }
+
     /// Resolve the configured session-row lifetime in days
     /// (`SOLOBASE_SHARED__AUTH__SESSION_LIFETIME_DAYS`). Falls back to the
     /// declared default if unset or unparseable. The session row is the
@@ -374,13 +435,13 @@ pub(crate) mod helpers {
     }
 
     /// Outcome of [`issue_tokens_and_cookie`]: the freshly minted token pair,
-    /// its rotation family, the access-token lifetime (seconds) and the
-    /// ready-to-set `auth_token` cookie. Callers add only their response shape
-    /// (JSON body vs. 302 redirect).
+    /// the access-token lifetime (seconds) and the ready-to-set `auth_token`
+    /// cookie. Callers add only their response shape (JSON body vs. 302
+    /// redirect). The rotation family is persisted internally (on the refresh
+    /// row); no caller needs it back, so it is intentionally not surfaced here.
     pub(crate) struct IssuedLogin {
         pub access_token: String,
         pub refresh_token: String,
-        pub family: String,
         pub access_lifetime: u64,
         pub cookie: String,
     }
@@ -415,10 +476,10 @@ pub(crate) mod helpers {
         use super::repo::sessions;
         use super::service::hash_token;
 
-        let (access_token, refresh_token, family) =
+        let (access_token, refresh_token, issued_family) =
             generate_tokens(ctx, user_id, email, roles, auth_method, family).await?;
 
-        store_refresh_token(ctx, user_id, &refresh_token, &family, generation).await;
+        store_refresh_token(ctx, user_id, &refresh_token, &issued_family, generation).await;
 
         let lifetime_days = session_lifetime_days(ctx).await;
         if let Err(e) =
@@ -437,7 +498,6 @@ pub(crate) mod helpers {
         Ok(IssuedLogin {
             access_token,
             refresh_token,
-            family,
             access_lifetime,
             cookie,
         })

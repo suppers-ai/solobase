@@ -5,7 +5,10 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::issue_tokens_and_cookie,
+        helpers::{
+            email_domain_allowed, initial_role_for, issue_tokens_and_cookie, password_min_length,
+            signup_allowed,
+        },
         repo::{local_credentials, users},
         USERS_TABLE,
     },
@@ -26,8 +29,7 @@ async fn user_exists(ctx: &dyn Context, email_lower: &str) -> Result<bool, Strin
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Enforce ALLOW_SIGNUP on the API (not just the page)
-    let allow_signup = config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
-    if allow_signup != "true" && allow_signup != "1" {
+    if !signup_allowed(ctx).await {
         return error_response(ErrorCode::Forbidden, "Signups are currently disabled");
     }
 
@@ -50,23 +52,18 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Check allowed email domains (if configured)
-    let allowed_domains =
-        config::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "").await;
-    if !allowed_domains.is_empty() {
-        let email_domain = parts[1];
-        let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
-        if !allowed {
-            return error_response(
-                ErrorCode::InvalidEmail,
-                "Signups from this email domain are not allowed",
-            );
-        }
+    if !email_domain_allowed(ctx, &email_lower).await {
+        return error_response(
+            ErrorCode::InvalidEmail,
+            "Signups from this email domain are not allowed",
+        );
     }
 
-    if body.password.len() < 8 {
+    let min_len = password_min_length(ctx).await;
+    if body.password.len() < min_len {
         return error_response(
             ErrorCode::PasswordTooShort,
-            "Password must be at least 8 characters",
+            &format!("Password must be at least {min_len} characters"),
         );
     }
     if body.password.len() > 1024 {
@@ -158,17 +155,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Determine the role: admin if the email matches the configured bootstrap
     // admin email (re-uses the same key as bootstrap for consistency).
-    let admin_email = config::get_default(
-        ctx,
-        crate::blocks::auth::config::BOOTSTRAP_ADMIN_EMAIL_KEY,
-        "",
-    )
-    .await;
-    let role = if !admin_email.is_empty() && email_lower.eq_ignore_ascii_case(&admin_email) {
-        "admin"
-    } else {
-        "user"
-    };
+    let role = initial_role_for(ctx, &email_lower).await;
 
     // Insert via typed repo — no password_hash on the users row.
     let user = match users::insert(
