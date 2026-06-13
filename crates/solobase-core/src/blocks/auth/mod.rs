@@ -11,7 +11,7 @@
 //! What lives in this module after the split:
 //!
 //! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
-//!   `migrations`, `pat`, `providers`, `repo`, `service`, `session`).
+//!   `migrations`, `repo`, `service`).
 //! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
 //!   the four `*_TABLE` re-exports from `repo/{api_keys,rate_limits,tokens,
 //!   users}.rs`, `DUMMY_HASH`).
@@ -24,10 +24,8 @@ pub mod bootstrap;
 pub mod cache;
 pub mod config;
 pub mod migrations;
-pub mod pat;
 pub mod repo;
 pub mod service;
-pub mod session;
 
 use std::{collections::HashMap, time::Duration};
 
