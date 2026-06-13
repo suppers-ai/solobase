@@ -24,8 +24,8 @@ use solobase_core::{
 };
 use wafer_block::http_codec;
 use wafer_run::{
-    context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream, Message,
-    OutputStream, META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
+    context::Context, streams::output::TerminalNotResponse, InputStream, Message, OutputStream,
+    META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
 };
 
 // ---------------------------------------------------------------------------
