@@ -14,76 +14,14 @@ export interface Extension {
   };
 }
 
-export interface ExtensionHealth {
-  extension: string;
-  status: "healthy" | "unhealthy" | "unknown";
-  message: string;
-  last_checked: string;
-}
-
 export class ExtensionsService extends BaseService {
   /**
-   * List all available extensions
+   * List all available extensions (registered blocks)
    */
   async list(): Promise<Extension[]> {
     return this.request<Extension[]>({
       method: "GET",
       url: "/b/admin/api/extensions",
-    });
-  }
-
-  /**
-   * Get details of a specific extension
-   */
-  async get(name: string): Promise<Extension> {
-    return this.request<Extension>({
-      method: "GET",
-      url: `/b/admin/api/extensions/${name}`,
-    });
-  }
-
-  /**
-   * Enable an extension
-   */
-  async enable(name: string, config?: Record<string, any>): Promise<void> {
-    await this.request<void>({
-      method: "POST",
-      url: `/b/admin/api/extensions/${name}/enable`,
-      data: config,
-    });
-  }
-
-  /**
-   * Disable an extension
-   */
-  async disable(name: string): Promise<void> {
-    await this.request<void>({
-      method: "POST",
-      url: `/b/admin/api/extensions/${name}/disable`,
-    });
-  }
-
-  /**
-   * Update extension configuration
-   */
-  async updateConfig(name: string, config: Record<string, any>): Promise<void> {
-    await this.request<void>({
-      method: "PATCH",
-      url: `/b/admin/api/extensions/${name}/config`,
-      data: config,
-    });
-  }
-
-  /**
-   * Get extension health status
-   */
-  async health(name?: string): Promise<ExtensionHealth | ExtensionHealth[]> {
-    const url = name
-      ? `/b/admin/api/extensions/${name}/health`
-      : "/b/admin/api/extensions/health";
-    return this.request<ExtensionHealth | ExtensionHealth[]>({
-      method: "GET",
-      url,
     });
   }
 

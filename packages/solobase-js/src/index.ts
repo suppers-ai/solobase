@@ -43,7 +43,6 @@ export type {
 
 export type {
   Extension,
-  ExtensionHealth,
 } from './services/extensions.service';
 
 // Default export
