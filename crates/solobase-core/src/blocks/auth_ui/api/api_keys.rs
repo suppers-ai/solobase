@@ -112,7 +112,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             // payload as before so existing API consumers don't break.
             if !msg.get_meta("http.header.hx-request").is_empty() {
                 let key_for_display = key_string.clone();
-                let name = record.name.clone();
+                let name = record.name;
                 // Inline JS handler for the copy button. The key text lives
                 // in #new-api-key — read `innerText` (not the JS string) so
                 // we never have to escape the key into a JS literal, and so
@@ -179,9 +179,8 @@ pub async fn handle_revoke(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id();
 
     // Verify ownership
-    let key = match api_keys::find_by_id(ctx, id).await {
-        Ok(Some(k)) => k,
-        Ok(None) | Err(_) => return err_not_found("API key not found"),
+    let Ok(Some(key)) = api_keys::find_by_id(ctx, id).await else {
+        return err_not_found("API key not found");
     };
     if key.user_id != user_id && !helpers::is_admin(msg) {
         return err_forbidden("Cannot revoke another user's API key");
@@ -202,9 +201,8 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id();
 
     // Verify ownership
-    let key = match api_keys::find_by_id(ctx, id).await {
-        Ok(Some(k)) => k,
-        Ok(None) | Err(_) => return err_not_found("API key not found"),
+    let Ok(Some(key)) = api_keys::find_by_id(ctx, id).await else {
+        return err_not_found("API key not found");
     };
     if key.user_id != user_id && !helpers::is_admin(msg) {
         return err_forbidden("Cannot delete another user's API key");

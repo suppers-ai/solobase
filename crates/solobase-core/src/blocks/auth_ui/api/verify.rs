@@ -45,16 +45,15 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     // Find user by verification token. The DB column stores
     // `sha256_hex(raw)`; hash the supplied token the same way before
     // comparing.
-    let user = match users::find_by_verification_token(ctx, &sha256_hex(token.as_bytes())).await {
-        Ok(Some(u)) => u,
-        Ok(None) | Err(_) => {
-            return html_respond(
-                "Invalid Link",
-                "This verification link is invalid or has expired. Please request a new one.",
-                false,
-                &logo_url,
-            )
-        }
+    let Ok(Some(user)) =
+        users::find_by_verification_token(ctx, &sha256_hex(token.as_bytes())).await
+    else {
+        return html_respond(
+            "Invalid Link",
+            "This verification link is invalid or has expired. Please request a new one.",
+            false,
+            &logo_url,
+        );
     };
 
     if user.email_verified {
@@ -93,9 +92,8 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     let email_lower = body.email.trim().to_lowercase();
     let safe_msg = "If that email is registered, a verification link has been sent.";
 
-    let user = match users::find_by_email(ctx, &email_lower).await {
-        Ok(Some(u)) => u,
-        Ok(None) | Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
+    let Ok(Some(user)) = users::find_by_email(ctx, &email_lower).await else {
+        return ok_json(&serde_json::json!({"message": safe_msg}));
     };
 
     if user.email_verified {

@@ -15,9 +15,8 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if user_id.is_empty() {
         return error_response(ErrorCode::NotAuthenticated, "Not authenticated");
     }
-    let user = match users::find_by_id(ctx, user_id).await {
-        Ok(Some(u)) => u,
-        Ok(None) | Err(_) => return err_not_found("User not found"),
+    let Ok(Some(user)) = users::find_by_id(ctx, user_id).await else {
+        return err_not_found("User not found");
     };
     let roles = get_user_roles(ctx, user_id).await;
     ok_json(&serde_json::json!({

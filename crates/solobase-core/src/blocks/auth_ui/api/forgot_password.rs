@@ -22,9 +22,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let email_lower = body.email.trim().to_lowercase();
     let safe_msg = "If that email is registered, a password reset link has been sent.";
 
-    let user = match users::find_by_email(ctx, &email_lower).await {
-        Ok(Some(u)) => u,
-        Ok(None) | Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
+    let Ok(Some(user)) = users::find_by_email(ctx, &email_lower).await else {
+        return ok_json(&serde_json::json!({"message": safe_msg}));
     };
 
     // Generate reset token (expires in 1 hour). The raw token goes in the

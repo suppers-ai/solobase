@@ -36,11 +36,9 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Find user by reset token. The DB column stores `sha256_hex(raw)`;
     // hash the supplied token the same way before comparing.
-    let user = match users::find_by_reset_token(ctx, &sha256_hex(body.token.as_bytes())).await {
-        Ok(Some(u)) => u,
-        Ok(None) | Err(_) => {
-            return error_response(ErrorCode::InvalidToken, "Invalid or expired reset token")
-        }
+    let Ok(Some(user)) = users::find_by_reset_token(ctx, &sha256_hex(body.token.as_bytes())).await
+    else {
+        return error_response(ErrorCode::InvalidToken, "Invalid or expired reset token");
     };
 
     // Check expiry — reject if missing or malformed (tokens must have an expiry)
