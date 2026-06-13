@@ -5,10 +5,7 @@ use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::{query, Backend};
 
 use crate::{
-    blocks::{
-        admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
-        helpers::RecordExt,
-    },
+    blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, helpers::RecordExt},
     ui::{components, icons},
 };
 
