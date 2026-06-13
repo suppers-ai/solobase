@@ -262,8 +262,9 @@ mod tests {
 
     #[test]
     fn auth_config_vars_declares_password_min_length() {
-        let keys: Vec<String> = auth_config_vars().iter().map(|v| v.key.clone()).collect();
-        assert!(keys.contains(&PASSWORD_MIN_LENGTH_KEY.to_string()));
+        let vars = auth_config_vars();
+        let keys: Vec<&str> = vars.iter().map(|v| v.key.as_str()).collect();
+        assert!(keys.contains(&PASSWORD_MIN_LENGTH_KEY));
     }
 
     #[test]
@@ -271,10 +272,13 @@ mod tests {
         // SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED was a dead duplicate of the
         // shared SOLOBASE_SHARED__ALLOW_SIGNUP toggle (opposite default, no
         // reader) and has been removed. The admin UI must not advertise it.
-        let keys: Vec<String> = auth_config_vars().iter().map(|v| v.key.clone()).collect();
-        assert!(!keys
-            .iter()
-            .any(|k| k == "SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED"));
+        let vars = auth_config_vars();
+        assert!(
+            !vars
+                .iter()
+                .any(|v| v.key == "SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED"),
+            "dead SIGNUP_ENABLED var must not be advertised"
+        );
     }
 
     #[test]
