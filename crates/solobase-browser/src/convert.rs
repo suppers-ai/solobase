@@ -1,59 +1,27 @@
+//! HTTP ↔ Message conversion for the browser Service Worker adapter.
+//!
+//! Thin platform glue: the protocol mapping (method→action table, request
+//! meta layout, response-meta classification, `ErrorCode`→status table) lives
+//! in `wafer_block::http_codec` — the same implementation the native axum
+//! listener and the Cloudflare adapter use. Only `web_sys` I/O lives here:
+//! reading the request body/headers, the Service-Worker cookie re-injection,
+//! and building `web_sys::Response` (buffered or `ReadableStream`-backed).
+
 use futures::{SinkExt, StreamExt};
 use js_sys::{ArrayBuffer, Uint8Array};
 use wafer_block::{
-    meta::{
-        META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
-        META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX,
-        META_RESP_HEADER_PREFIX, META_RESP_STATUS,
-    },
+    http_codec::{self, ResponseMetaPart},
+    meta::META_RESP_CONTENT_TYPE,
     stream::StreamEvent,
     streams::{
         input::InputStream,
-        output::{OutputStream, TerminalNotResponse},
+        output::{BufferedResponse, OutputStream, TerminalNotResponse},
     },
-    ErrorCode, Message, MetaEntry, MetaGet,
+    Message, MetaEntry, MetaGet,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, ResponseInit};
-
-use crate::helpers::urlencoding_decode;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn http_method_to_action(method: &str) -> &'static str {
-    match method.to_uppercase().as_str() {
-        "GET" | "HEAD" => "retrieve",
-        "POST" => "create",
-        "PUT" | "PATCH" => "update",
-        "DELETE" => "delete",
-        _ => "execute",
-    }
-}
-
-fn error_code_to_http_status(code: &ErrorCode) -> u16 {
-    match code {
-        ErrorCode::Ok => 200,
-        ErrorCode::Cancelled => 499,
-        ErrorCode::InvalidArgument => 400,
-        ErrorCode::DeadlineExceeded => 504,
-        ErrorCode::NotFound => 404,
-        ErrorCode::AlreadyExists => 409,
-        ErrorCode::PermissionDenied => 403,
-        ErrorCode::ResourceExhausted => 429,
-        ErrorCode::FailedPrecondition => 412,
-        ErrorCode::Aborted => 409,
-        ErrorCode::OutOfRange => 400,
-        ErrorCode::Unimplemented => 501,
-        ErrorCode::Internal => 500,
-        ErrorCode::Unavailable => 503,
-        ErrorCode::DataLoss => 500,
-        ErrorCode::Unauthenticated => 401,
-        _ => 500,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Request conversion
@@ -61,9 +29,11 @@ fn error_code_to_http_status(code: &ErrorCode) -> u16 {
 
 /// Convert a browser `web_sys::Request` into a WAFER `(Message, InputStream)` pair.
 ///
-/// Mirrors `http_to_message()` from `wafer-block-http-listener`.  The remote
-/// address is always `"127.0.0.1"` — in a Service Worker the request comes
-/// from the same device.
+/// The protocol mapping (kind, `http.*` / `req.*` meta, method→action, header
+/// and query decoding) is delegated to `http_codec::build_http_message`; only
+/// the `web_sys` body/header reads and the Service-Worker cookie re-injection
+/// are browser-specific. The remote address is always `"127.0.0.1"` — in a
+/// Service Worker the request comes from the same device.
 pub async fn request_to_message(
     request: &web_sys::Request,
 ) -> Result<(Message, InputStream), JsValue> {
@@ -94,68 +64,42 @@ pub async fn request_to_message(
         arr.to_vec()
     };
 
-    let mut msg = Message::new(format!("{}:{}", method, path));
-
-    // HTTP-specific meta (mirrors the native listener).
-    msg.set_meta("http.method", method.clone());
-    msg.set_meta("http.path", path.clone());
-    msg.set_meta("http.raw_query", raw_query.clone());
-    msg.set_meta("http.remote_addr", "127.0.0.1");
-
-    // Collect headers into meta.
+    // Collect headers into (name, value) pairs for the codec.
+    let mut header_pairs: Vec<(String, String)> = Vec::new();
     let headers: Headers = request.headers();
-    // Iterate the headers JS iterator.
     let iter =
         js_sys::try_iter(&headers)?.ok_or_else(|| JsValue::from_str("headers not iterable"))?;
-    let mut content_type = String::new();
-    let mut host = String::new();
     for item in iter {
         let item = item?;
         // Each entry is a JS Array [name, value].
         let arr: js_sys::Array = item.dyn_into()?;
-        let key = arr.get(0).as_string().unwrap_or_default().to_lowercase();
+        let key = arr.get(0).as_string().unwrap_or_default();
         let val = arr.get(1).as_string().unwrap_or_default();
-        if key == "content-type" {
-            content_type = val.clone();
-        }
-        if key == "host" {
-            host = val.clone();
-        }
-        msg.set_meta(format!("http.header.{}", key), val);
+        header_pairs.push((key, val));
     }
-
-    msg.set_meta("http.content_type", content_type.clone());
-    msg.set_meta("http.host", host);
 
     // Re-inject the `Cookie` header from the SW's CookieStore.
     // `FetchEvent.request.headers` filters `Cookie` out per the SW spec, so
-    // the header-iteration loop above never sees it even though the browser
-    // sends cookies on same-origin requests. CookieStore is the only way to
-    // read them back inside the SW.
+    // the header iteration above never sees it even though the browser sends
+    // cookies on same-origin requests. CookieStore is the only way to read
+    // them back inside the SW.
     let cookie_val = crate::bridge::read_cookie_header().await;
     if let Some(s) = cookie_val.as_string() {
         if !s.is_empty() {
-            msg.set_meta("http.header.cookie", s);
+            header_pairs.push(("cookie".to_string(), s));
         }
     }
 
-    // Normalised request meta.
-    msg.set_meta(META_REQ_ACTION, http_method_to_action(&method));
-    msg.set_meta(META_REQ_RESOURCE, path.clone());
-    msg.set_meta(META_REQ_CLIENT_IP, "127.0.0.1");
-    msg.set_meta(META_REQ_CONTENT_TYPE, content_type);
-
-    // Decode query parameters into both `http.query.*` and `req.query.*`.
-    if !raw_query.is_empty() {
-        for pair in raw_query.split('&') {
-            let mut parts = pair.splitn(2, '=');
-            if let (Some(key), Some(val)) = (parts.next(), parts.next()) {
-                let decoded_val = urlencoding_decode(val);
-                msg.set_meta(format!("http.query.{}", key), decoded_val.clone());
-                msg.set_meta(format!("{}{}", META_REQ_QUERY_PREFIX, key), decoded_val);
-            }
-        }
-    }
+    // `build_http_message` builds `kind`, `http.*` and normalized `req.*` meta
+    // from the method+path. The browser serves paths as-received (no `/api`
+    // prefix to strip, unlike the Cloudflare adapter), so no post-fixup.
+    let msg = http_codec::build_http_message(
+        &method,
+        &path,
+        &raw_query,
+        "127.0.0.1",
+        header_pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    );
 
     Ok((msg, InputStream::from_bytes(body)))
 }
@@ -164,65 +108,26 @@ pub async fn request_to_message(
 // Response conversion
 // ---------------------------------------------------------------------------
 
-/// Apply response meta entries to a `web_sys::Headers` object.
-///
-/// Mirrors `apply_response_meta()` from the native listener.
-fn apply_response_meta(headers: &Headers, meta: &[wafer_block::MetaEntry]) -> Result<(), JsValue> {
-    for entry in meta {
-        let k = entry.key.as_str();
-        let v = &entry.value;
-        match k {
-            k if k == META_RESP_STATUS || k == "http.status" => {
-                // Status is handled separately; skip.
-            }
-            k if k.starts_with(META_RESP_COOKIE_PREFIX)
-                || k.starts_with("http.resp.set-cookie.") =>
-            {
-                headers.append("Set-Cookie", v)?;
-            }
-            k if k.starts_with(META_RESP_HEADER_PREFIX) => {
-                let header_name = &k[META_RESP_HEADER_PREFIX.len()..];
-                headers.set(header_name, v)?;
-            }
-            k if k.starts_with("http.resp.header.") => {
-                let header_name = &k[17..];
-                headers.set(header_name, v)?;
-            }
-            k if k == META_RESP_CONTENT_TYPE || k == "Content-Type" => {
-                headers.set("Content-Type", v)?;
-            }
-            _ => {}
+/// Apply classified response-meta parts to a `web_sys::Headers`. Status parts
+/// are resolved separately (see `http_codec::resolve_status`) and skipped here.
+/// Only the canonical `resp.*` meta keys are honored — legacy aliases
+/// (`http.status`, `http.resp.header.*`, `http.resp.set-cookie.*`, a literal
+/// `Content-Type` meta key) are ignored by `http_codec`.
+fn apply_response_meta(headers: &Headers, meta: &[MetaEntry]) -> Result<(), JsValue> {
+    for part in http_codec::response_meta_parts(meta) {
+        match part {
+            ResponseMetaPart::Status(_) => {}
+            ResponseMetaPart::Header { name, value } => headers.set(name, value)?,
+            ResponseMetaPart::SetCookie(v) => headers.append("Set-Cookie", v)?,
+            ResponseMetaPart::ContentType(v) => headers.set("Content-Type", v)?,
         }
     }
     Ok(())
 }
 
-fn get_status_code(meta: &[wafer_block::MetaEntry], default_code: u16) -> u16 {
-    if let Some(code) = MetaGet::get(meta, META_RESP_STATUS) {
-        if let Ok(n) = code.parse::<u16>() {
-            return n;
-        }
-    }
-    if let Some(code) = MetaGet::get(meta, "http.status") {
-        if let Ok(n) = code.parse::<u16>() {
-            return n;
-        }
-    }
-    default_code
-}
-
-fn get_error_status_code(
-    error: Option<&wafer_block::WaferError>,
-    meta: &[wafer_block::MetaEntry],
-) -> u16 {
-    let from_meta = get_status_code(meta, 0);
-    if from_meta > 0 {
-        return from_meta;
-    }
-    if let Some(err) = error {
-        return error_code_to_http_status(&err.code);
-    }
-    500
+/// True when `meta` carries an explicit `resp.content_type` entry.
+fn has_content_type(meta: &[MetaEntry]) -> bool {
+    MetaGet::contains_key(meta, META_RESP_CONTENT_TYPE)
 }
 
 /// Build a `web_sys::Response` from raw bytes, a status code, and a
@@ -247,14 +152,6 @@ fn make_response(
     }
 }
 
-/// True for content-types that should stream body chunks to the browser as
-/// they're produced rather than buffer the entire response. Today: SSE and
-/// generic byte streams (which feature blocks use for downloads / archives).
-fn is_streaming_content_type(ct: &str) -> bool {
-    let lower = ct.to_ascii_lowercase();
-    lower.starts_with("text/event-stream") || lower.starts_with("application/octet-stream")
-}
-
 /// Pull `Meta` events off the front of an `OutputStream`, stopping at the
 /// first non-Meta event. Returns the accumulated meta and the next event
 /// (if any). Used by `output_to_response` to peek the response's headers
@@ -270,14 +167,6 @@ async fn drain_leading_meta(output: &mut OutputStream) -> (Vec<MetaEntry>, Optio
     (meta, None)
 }
 
-/// Build a `ReadableStream` body that pipes remaining `Chunk` events from an
-/// `OutputStream` to the browser. The first chunk (already pulled from the
-/// stream) is pushed first, then the loop drains the rest.
-///
-/// Terminal events (`Complete`, `Error`, `Drop`, `Continue`) close the stream.
-/// `Error` after we've already started writing the body is the stream just
-/// being aborted — there's no way to flip the HTTP status mid-response, so
-/// we close the stream and let the browser surface the truncation.
 /// Build a JS `ReadableStream` that yields `first_chunk` and then every
 /// subsequent `Chunk` event from `remaining`. Mid-body `Meta` is dropped
 /// (too late to apply to HTTP headers); any terminal closes the stream.
@@ -338,193 +227,168 @@ fn make_streaming_body(
 /// Convert a WAFER `OutputStream` into a browser `web_sys::Response`.
 ///
 /// Two paths:
-/// 1. **Buffered** (default) — for blocks that emit `Chunk(bytes), Complete{meta}`
-///    via `respond_with_meta`. Status, headers, and body all live in the
-///    terminal `Complete{meta}` for those blocks, so we have to read the
-///    whole stream before we can build the `Response`. Same behaviour as
-///    before this commit.
-/// 2. **Streaming** — for blocks that emit leading `Meta` events declaring
+/// 1. **Streaming** — for blocks that emit leading `Meta` events declaring
 ///    `Content-Type: text/event-stream` (or `application/octet-stream`)
-///    BEFORE the first `Chunk`. We build a `Response` with a `ReadableStream`
-///    body and pipe subsequent chunks straight to the browser, so a
-///    multi-minute SSE response doesn't get held back behind a buffer that
-///    flushes at the very end (which Chrome's idle keep-alive treats as a
-///    hung fetch and drops with `net::ERR_FAILED`).
+///    BEFORE the first `Chunk`. We classify the leading meta with
+///    `http_codec::response_meta_parts` and apply status + headers to a
+///    `Response` backed by a `ReadableStream`, piping subsequent chunks
+///    straight to the browser — so a multi-minute SSE response isn't held
+///    back behind a buffer that flushes at the very end (which Chrome's idle
+///    keep-alive treats as a hung fetch and drops with `net::ERR_FAILED`).
+///    The meta is applied *before the body finishes*, so this path must NOT
+///    route through `collect_http_response` (which buffers).
+/// 2. **Buffered** (default) — for blocks that emit `Chunk(bytes),
+///    Complete{meta}` via `respond_with_meta`. Status, headers, and body all
+///    live in the terminal, so we read the whole stream before building the
+///    `Response`. The terminal-event mapping mirrors
+///    `http_codec::collect_http_response` (whose drift decisions —
+///    `Continue` → empty `200`, default `Content-Type: application/json`,
+///    `Ok`/`Halt` identical — are pinned by the codec's tests).
 pub async fn output_to_response(mut output: OutputStream) -> Result<web_sys::Response, JsValue> {
-    // Peek leading Meta events without consuming Chunks. The streaming path
-    // is signalled by an early Content-Type meta; buffered blocks send no
-    // Meta before their first Chunk, so this just returns an empty vec for
-    // them and the loop below falls through to `collect_buffered`.
+    // Peek leading Meta events without consuming Chunks. The streaming path is
+    // signalled by an early Content-Type meta; buffered blocks send no Meta
+    // before their first Chunk, so this returns an empty vec for them and the
+    // buffered branch below handles the terminal.
     let (leading_meta, next_event) = drain_leading_meta(&mut output).await;
 
-    let leading_ct = MetaGet::get(&leading_meta, META_RESP_CONTENT_TYPE)
-        .or_else(|| MetaGet::get(&leading_meta, "Content-Type"));
+    let leading_ct = http_codec::response_meta_parts(&leading_meta).find_map(|part| match part {
+        ResponseMetaPart::ContentType(ct) => Some(ct.to_string()),
+        _ => None,
+    });
 
     if let (Some(ct), Some(StreamEvent::Chunk(first))) = (leading_ct, &next_event) {
-        if is_streaming_content_type(ct) {
+        if is_streaming_content_type(&ct) {
             return build_streaming_response(leading_meta, first.clone(), output);
         }
     }
 
-    // Buffered path — drain the rest, prepending whatever we've already
-    // pulled (leading meta + the next event we peeked).
-    let (terminal_result, mut prelude_meta, mut prelude_body) = match next_event {
-        Some(StreamEvent::Chunk(b)) => {
-            // Continue collecting from where we are. Build a synthetic stream
-            // that yields the rest of `output` and replays the chunk we just
-            // peeked at the front.
-            (output.collect_buffered().await, leading_meta, b)
-        }
-        Some(StreamEvent::Complete { meta }) => {
-            // Terminal landed before any chunk — this is a header-only OK.
-            // Combine prelude + terminal meta and emit an empty body.
-            let mut all_meta = leading_meta;
-            all_meta.extend(meta);
-            return finalise_buffered(Ok(buffered_view(Vec::new(), all_meta)));
-        }
-        Some(StreamEvent::Error(err)) => {
-            return finalise_buffered(Err(TerminalNotResponse::Error(*err)));
-        }
-        Some(StreamEvent::Drop) => {
-            return finalise_buffered(Err(TerminalNotResponse::Drop));
-        }
-        Some(StreamEvent::Continue(msg)) => {
-            return finalise_buffered(Err(TerminalNotResponse::Continue(msg)));
-        }
-        Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumes Meta events"),
-        Some(StreamEvent::Halt { body, meta }) => {
-            // Halt before any chunk — short-circuit terminal carrying its
-            // own body+meta. Combine the prelude meta we drained with the
-            // Halt's meta and finalise as a buffered Halt terminal.
-            use wafer_run::streams::output::BufferedResponse;
-            let mut all_meta = leading_meta;
-            all_meta.extend(meta);
-            return finalise_buffered(Err(TerminalNotResponse::Halt(BufferedResponse {
-                body,
-                meta: all_meta,
-            })));
-        }
-        None => {
-            // Stream ended after meta-only with no terminal — malformed.
-            return finalise_buffered(Err(TerminalNotResponse::Malformed));
-        }
-    };
+    // Buffered path — drain the remainder, prepending the leading meta + the
+    // event we peeked, then map the terminal to a response exactly as
+    // `http_codec::collect_http_response` would for a non-peeked stream.
+    let terminal = collect_buffered_with_prelude(output, leading_meta, next_event).await;
+    finalise_buffered(terminal)
+}
 
-    match terminal_result {
-        Ok(buf) => {
-            // Merge the leading meta we drained earlier with the buffered tail.
-            prelude_meta.extend(buf.meta);
-            prelude_body.extend(buf.body);
-            finalise_buffered(Ok(buffered_view(prelude_body, prelude_meta)))
+/// True for content-types that should stream body chunks to the browser as
+/// they're produced rather than buffer the entire response. Today: SSE and
+/// generic byte streams (which feature blocks use for downloads / archives).
+fn is_streaming_content_type(ct: &str) -> bool {
+    let lower = ct.to_ascii_lowercase();
+    lower.starts_with("text/event-stream") || lower.starts_with("application/octet-stream")
+}
+
+/// Drain the remaining stream into a buffered terminal, prepending the
+/// already-peeked leading meta + next event. Mirrors the contract of
+/// `OutputStream::collect_buffered` (a `Halt` terminal replaces any streamed
+/// prelude), reproduced here because `solobase-browser` cannot depend on
+/// `solobase-core`'s `pipeline::collect_buffered_with_prelude`.
+async fn collect_buffered_with_prelude(
+    rest: OutputStream,
+    leading_meta: Vec<MetaEntry>,
+    next_event: Option<StreamEvent>,
+) -> Result<BufferedResponse, TerminalNotResponse> {
+    match next_event {
+        Some(StreamEvent::Chunk(first)) => match rest.collect_buffered().await {
+            Ok(buf) => {
+                let mut body = first;
+                body.extend(buf.body);
+                let mut meta = leading_meta;
+                meta.extend(buf.meta);
+                Ok(BufferedResponse { body, meta })
+            }
+            Err(terminal) => Err(terminal),
+        },
+        Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumes Meta events"),
+        Some(StreamEvent::Complete { meta }) => {
+            let mut all_meta = leading_meta;
+            all_meta.extend(meta);
+            Ok(BufferedResponse {
+                body: Vec::new(),
+                meta: all_meta,
+            })
         }
-        Err(other) => finalise_buffered(Err(other)),
+        Some(StreamEvent::Halt { body, meta }) => {
+            // Halt carries a complete response; per the `collect_buffered`
+            // contract any prior streamed events — the prelude included — are
+            // replaced by its payload.
+            Err(TerminalNotResponse::Halt(BufferedResponse { body, meta }))
+        }
+        Some(StreamEvent::Error(err)) => Err(TerminalNotResponse::Error(*err)),
+        Some(StreamEvent::Drop) => Err(TerminalNotResponse::Drop),
+        Some(StreamEvent::Continue(msg)) => Err(TerminalNotResponse::Continue(msg)),
+        None => Err(TerminalNotResponse::Malformed),
     }
 }
 
-/// Local mirror of `wafer_block::streams::output::BufferedOutput` so we can
-/// re-enter the buffered finaliser with a synthetic value built from the
-/// leading-meta drain. Carries body bytes + accumulated meta.
-struct BufferedView {
-    body: Vec<u8>,
-    meta: Vec<MetaEntry>,
-}
-
-fn buffered_view(body: Vec<u8>, meta: Vec<MetaEntry>) -> BufferedView {
-    BufferedView { body, meta }
-}
-
+/// Map a buffered terminal to a `web_sys::Response`, mirroring
+/// `http_codec::collect_http_response`'s terminal handling (the codec maps to
+/// transport-neutral parts; we apply them to `web_sys` types here).
 fn finalise_buffered(
-    result: Result<BufferedView, TerminalNotResponse>,
+    result: Result<BufferedResponse, TerminalNotResponse>,
 ) -> Result<web_sys::Response, JsValue> {
     match result {
-        Ok(buf) => {
-            let status = get_status_code(&buf.meta, 200);
+        // Ok and Halt are the single buffered code path (codec finding 55).
+        Ok(buf) | Err(TerminalNotResponse::Halt(buf)) => {
+            let status = http_codec::resolve_status(&buf.meta, 200);
             let headers = Headers::new()?;
             apply_response_meta(&headers, &buf.meta)?;
-
-            let has_ct = MetaGet::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
-                || MetaGet::contains_key(&buf.meta, "Content-Type");
-            if !has_ct {
-                headers.set("Content-Type", "application/json")?;
+            if !has_content_type(&buf.meta) {
+                headers.set("Content-Type", http_codec::DEFAULT_RESPONSE_CONTENT_TYPE)?;
             }
-
             make_response(buf.body, status, headers)
         }
 
         Err(TerminalNotResponse::Error(err)) => {
-            let status = get_error_status_code(Some(&err), &err.meta);
+            let status = http_codec::resolve_error_status(&err);
             let headers = Headers::new()?;
             apply_response_meta(&headers, &err.meta)?;
-            headers.set("Content-Type", "application/json")?;
-
+            // Error bodies ARE JSON; a `resp.content_type` on the error meta is
+            // superseded (exactly one Content-Type, matching the codec).
+            headers.set("Content-Type", http_codec::DEFAULT_RESPONSE_CONTENT_TYPE)?;
             let body = serde_json::json!({
                 "error": err.code,
                 "message": err.message,
             })
             .to_string()
             .into_bytes();
-
             make_response(body, status, headers)
         }
 
-        Err(TerminalNotResponse::Drop) => {
-            let headers = Headers::new()?;
-            make_response(Vec::new(), 204, headers)
-        }
+        Err(TerminalNotResponse::Drop) => make_response(Vec::new(), 204, Headers::new()?),
 
-        Err(TerminalNotResponse::Continue(_msg)) => {
+        Err(TerminalNotResponse::Continue(msg)) => {
+            // Codec drift: `Continue` at the HTTP boundary → empty-body 200
+            // with the message's response meta applied (nowhere to forward).
             let headers = Headers::new()?;
-            headers.set("Content-Type", "application/json")?;
-            make_response(
-                b"{\"error\":\"continue not supported by listener\"}".to_vec(),
-                500,
-                headers,
-            )
+            apply_response_meta(&headers, &msg.meta)?;
+            headers.set("Content-Type", http_codec::DEFAULT_RESPONSE_CONTENT_TYPE)?;
+            make_response(Vec::new(), 200, headers)
         }
 
         Err(TerminalNotResponse::Malformed) => {
+            web_sys::console::error_1(
+                &"solobase-browser: stream ended without terminal event".into(),
+            );
             let headers = Headers::new()?;
-            headers.set("Content-Type", "application/json")?;
-            make_response(
-                b"{\"error\":\"stream ended without terminal event\"}".to_vec(),
-                500,
-                headers,
-            )
-        }
-
-        Err(TerminalNotResponse::Halt(buf)) => {
-            // Halt is a successful short-circuit terminal — the body+meta
-            // ARE the response. Same wire shape as the Ok arm.
-            let status = get_status_code(&buf.meta, 200);
-            let headers = Headers::new()?;
-            apply_response_meta(&headers, &buf.meta)?;
-
-            let has_ct = MetaGet::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
-                || MetaGet::contains_key(&buf.meta, "Content-Type");
-            if !has_ct {
-                headers.set("Content-Type", "application/json")?;
-            }
-
-            make_response(buf.body, status, headers)
+            make_response(b"internal server error".to_vec(), 500, headers)
         }
     }
 }
 
 /// Build a streaming `web_sys::Response` from the leading meta (carrying
-/// status + headers) and an `OutputStream` whose remaining events should be
-/// piped into the body.
+/// status + headers) and an `OutputStream` whose remaining events are piped
+/// into the body. Meta is classified and applied *before* the body finishes —
+/// the whole point of the streaming path.
 fn build_streaming_response(
     leading_meta: Vec<MetaEntry>,
     first_chunk: Vec<u8>,
     remaining: OutputStream,
 ) -> Result<web_sys::Response, JsValue> {
-    let status = get_status_code(&leading_meta, 200);
+    let status = http_codec::resolve_status(&leading_meta, 200);
     let headers = Headers::new()?;
     apply_response_meta(&headers, &leading_meta)?;
 
-    let has_ct = MetaGet::contains_key(&leading_meta, META_RESP_CONTENT_TYPE)
-        || MetaGet::contains_key(&leading_meta, "Content-Type");
-    if !has_ct {
+    if !has_content_type(&leading_meta) {
         // Streaming bodies without an explicit Content-Type fall back to
         // octet-stream rather than the JSON default the buffered path uses.
         headers.set("Content-Type", "application/octet-stream")?;

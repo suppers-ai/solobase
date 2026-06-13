@@ -4,12 +4,16 @@
 //! converting their platform-specific HTTP types into a WAFER Message.
 
 use futures::StreamExt;
-use wafer_block::stream::StreamEvent;
+use wafer_block::{
+    http_codec::{self, ResponseMetaPart},
+    stream::StreamEvent,
+};
 use wafer_core::clients::{config as config_client, database as db};
 use wafer_run::{
-    context::Context, streams::output::TerminalNotResponse, BlockInfo, ErrorCode, InputStream,
-    Message, MetaEntry, OutputStream, WaferError, META_REQ_RESOURCE, META_RESP_CONTENT_TYPE,
-    META_RESP_STATUS,
+    context::Context,
+    streams::output::{BufferedResponse, OutputSink, TerminalNotResponse},
+    BlockInfo, ErrorCode, InputStream, Message, MetaEntry, OutputStream, WaferError,
+    META_REQ_RESOURCE,
 };
 
 use crate::{
@@ -140,12 +144,7 @@ pub async fn handle_request(
         OutputStream,
     ) = match collect_buffered_with_prelude(stream, leading_meta, next_event).await {
         Ok(buf) => {
-            let code = buf
-                .meta
-                .iter()
-                .find(|m| m.key == META_RESP_STATUS || m.key == "http.status")
-                .and_then(|m| m.value.parse::<i64>().ok())
-                .unwrap_or(200);
+            let code = i64::from(http_codec::resolve_status(&buf.meta, 200));
             (
                 "OK",
                 code,
@@ -172,12 +171,7 @@ pub async fn handle_request(
             }),
         ),
         Err(TerminalNotResponse::Halt(buf)) => {
-            let code = buf
-                .meta
-                .iter()
-                .find(|m| m.key == META_RESP_STATUS || m.key == "http.status")
-                .and_then(|m| m.value.parse::<i64>().ok())
-                .unwrap_or(200);
+            let code = i64::from(http_codec::resolve_status(&buf.meta, 200));
             (
                 "OK",
                 code,
@@ -194,8 +188,11 @@ pub async fn handle_request(
     let duration_ms = i64::try_from(crate::blocks::helpers::now_millis().saturating_sub(start_ms))
         .unwrap_or(i64::MAX);
 
-    // Skip logging static asset requests to reduce noise
-    if !path.starts_with("/static/") && path != "/health" {
+    // Skip logging static asset requests to reduce noise (one request_logs
+    // write per CSS/JS/font/logo fetch otherwise). The prefix is the shared
+    // `routing::STATIC_PREFIX` const so it can't drift from the routing
+    // table and the `ui::assets` URL builders again.
+    if !path.starts_with(routing::STATIC_PREFIX) && path != "/health" {
         let mut data = std::collections::HashMap::new();
         data.insert("method".to_string(), serde_json::json!(method));
         data.insert("path".to_string(), serde_json::json!(path));
@@ -226,7 +223,7 @@ fn replay_buffered(body: Vec<u8>, meta: Vec<MetaEntry>) -> OutputStream {
 /// Pull `Meta` events off the front of an `OutputStream`, stopping at the
 /// first non-`Meta` event. Returns the accumulated meta and the next event
 /// (if any). Lets the pipeline peek the response's headers before deciding
-/// whether to stream the body or buffer + log.
+/// whether to stream the body or buffer it.
 async fn drain_leading_meta(stream: &mut OutputStream) -> (Vec<MetaEntry>, Option<StreamEvent>) {
     let mut meta = Vec::new();
     while let Some(ev) = stream.next().await {
@@ -238,18 +235,52 @@ async fn drain_leading_meta(stream: &mut OutputStream) -> (Vec<MetaEntry>, Optio
     (meta, None)
 }
 
+/// The canonical `resp.content_type` among the leading meta entries, if any.
+/// Legacy aliases (a literal `Content-Type` meta key) are not honored — the
+/// canonical-keys-only policy is pinned by `wafer_block::http_codec`.
 fn leading_content_type(meta: &[MetaEntry]) -> Option<&str> {
-    for entry in meta {
-        if entry.key == META_RESP_CONTENT_TYPE || entry.key == "Content-Type" {
-            return Some(entry.value.as_str());
-        }
-    }
-    None
+    http_codec::response_meta_parts(meta).find_map(|part| match part {
+        ResponseMetaPart::ContentType(ct) => Some(ct),
+        _ => None,
+    })
 }
 
+/// True for content-types that should stream body chunks to the client as
+/// they're produced rather than buffer the entire response. Today: SSE and
+/// generic byte streams (which feature blocks use for downloads / archives).
 fn is_streaming_content_type(ct: &str) -> bool {
     let lower = ct.to_ascii_lowercase();
     lower.starts_with("text/event-stream") || lower.starts_with("application/octet-stream")
+}
+
+/// Forward one `StreamEvent` into an `OutputSink`. Returns the sink back for
+/// non-terminal events so the caller can keep pumping; terminal events (and
+/// a hung-up consumer) consume it and return `None`.
+async fn forward_event(sink: OutputSink, ev: StreamEvent) -> Option<OutputSink> {
+    match ev {
+        StreamEvent::Chunk(bytes) => sink.send_chunk(bytes).await.ok().map(|()| sink),
+        StreamEvent::Meta(entry) => sink.send_meta(entry).await.ok().map(|()| sink),
+        StreamEvent::Complete { meta } => {
+            let _ = sink.complete(meta).await;
+            None
+        }
+        StreamEvent::Error(err) => {
+            let _ = sink.error(*err).await;
+            None
+        }
+        StreamEvent::Drop => {
+            let _ = sink.drop_request().await;
+            None
+        }
+        StreamEvent::Continue(msg) => {
+            let _ = sink.continue_with(msg).await;
+            None
+        }
+        StreamEvent::Halt { body, meta } => {
+            let _ = sink.halt(body, meta).await;
+            None
+        }
+    }
 }
 
 /// Replay leading meta + the peeked event + remaining stream events into a
@@ -266,123 +297,79 @@ fn rebuild_streaming(
                 return;
             }
         }
+        let Some(next_event) = next_event else {
+            // The stream ended right after its leading meta with no
+            // terminal; close out as an empty Complete.
+            let _ = sink.complete(Vec::new()).await;
+            return;
+        };
+        let Some(mut sink) = forward_event(sink, next_event).await else {
+            return;
+        };
         let mut rest = rest;
-        match next_event {
-            Some(StreamEvent::Chunk(b)) => {
-                if sink.send_chunk(b).await.is_err() {
-                    return;
-                }
-            }
-            Some(StreamEvent::Meta(_)) => {
-                unreachable!("drain_leading_meta consumed all leading Meta")
-            }
-            Some(StreamEvent::Complete { meta }) => {
-                let _ = sink.complete(meta).await;
-                return;
-            }
-            Some(StreamEvent::Error(err)) => {
-                let _ = sink.error(*err).await;
-                return;
-            }
-            Some(StreamEvent::Drop) => {
-                let _ = sink.drop_request().await;
-                return;
-            }
-            Some(StreamEvent::Continue(m)) => {
-                let _ = sink.continue_with(m).await;
-                return;
-            }
-            Some(StreamEvent::Halt { body, meta }) => {
-                let _ = sink.halt(body, meta).await;
-                return;
-            }
-            None => {
-                let _ = sink.complete(vec![]).await;
-                return;
-            }
-        }
-        // Pump the rest of the events.
         while let Some(ev) = rest.next().await {
-            match ev {
-                StreamEvent::Chunk(b) => {
-                    if sink.send_chunk(b).await.is_err() {
-                        return;
-                    }
-                }
-                StreamEvent::Meta(entry) => {
-                    if sink.send_meta(entry).await.is_err() {
-                        return;
-                    }
-                }
-                StreamEvent::Complete { meta } => {
-                    let _ = sink.complete(meta).await;
-                    return;
-                }
-                StreamEvent::Error(err) => {
-                    let _ = sink.error(*err).await;
-                    return;
-                }
-                StreamEvent::Drop => {
-                    let _ = sink.drop_request().await;
-                    return;
-                }
-                StreamEvent::Continue(m) => {
-                    let _ = sink.continue_with(m).await;
-                    return;
-                }
-                StreamEvent::Halt { body, meta } => {
-                    let _ = sink.halt(body, meta).await;
-                    return;
-                }
+            match forward_event(sink, ev).await {
+                Some(s) => sink = s,
+                None => return,
             }
         }
+        // `rest` ended without a terminal; `from_producer` auto-Completes.
     })
 }
 
-/// Drain remaining stream events into a buffer, prepending the leading meta
-/// + the already-peeked next event. Returns the same shape as
-/// `OutputStream::collect_buffered` so the buffered branch in handle_request
-/// can keep working unchanged.
+/// Collect the remaining stream events into a buffer, prepending the leading
+/// meta + the already-peeked next event. Equivalent to running
+/// [`OutputStream::collect_buffered`] over the reassembled stream — including
+/// its contract that a `Halt` terminal **replaces** any previously streamed
+/// chunks/meta (mixing them is a producer bug `collect_buffered` warns
+/// about), so the prelude is discarded on that path.
+///
+/// `next_event` must come from [`drain_leading_meta`] (i.e. it is never
+/// `StreamEvent::Meta`).
 async fn collect_buffered_with_prelude(
     rest: OutputStream,
     leading_meta: Vec<MetaEntry>,
     next_event: Option<StreamEvent>,
-) -> Result<wafer_run::streams::output::BufferedResponse, TerminalNotResponse> {
-    use wafer_run::streams::output::BufferedResponse;
-
-    let mut body = Vec::new();
-    let mut meta = leading_meta;
-    let mut rest = rest;
-
-    // Two phases share the same accumulator+terminal logic: process the
-    // already-peeked event, then drain the rest. Capture the "next event to
-    // consider" in a small generator that yields the peek first then pulls
-    // from `rest`.
-    let mut peeked = next_event;
-    loop {
-        let ev = match peeked.take() {
-            Some(e) => Some(e),
-            None => rest.next().await,
-        };
-        match ev {
-            Some(StreamEvent::Chunk(b)) => body.extend(b),
-            Some(StreamEvent::Meta(entry)) => meta.push(entry),
-            Some(StreamEvent::Complete { meta: m }) => {
-                meta.extend(m);
-                return Ok(BufferedResponse { body, meta });
+) -> Result<BufferedResponse, TerminalNotResponse> {
+    match next_event {
+        // Body already started: drain the remainder with the standard
+        // collector and stitch the prelude onto the front of a successful
+        // response. Non-Complete terminals pass through unchanged, exactly
+        // as `collect_buffered` would have produced them.
+        Some(StreamEvent::Chunk(first)) => match rest.collect_buffered().await {
+            Ok(buf) => {
+                let mut body = first;
+                body.extend(buf.body);
+                let mut meta = leading_meta;
+                meta.extend(buf.meta);
+                Ok(BufferedResponse { body, meta })
             }
-            Some(StreamEvent::Error(err)) => return Err(TerminalNotResponse::Error(*err)),
-            Some(StreamEvent::Drop) => return Err(TerminalNotResponse::Drop),
-            Some(StreamEvent::Continue(m)) => return Err(TerminalNotResponse::Continue(m)),
-            Some(StreamEvent::Halt {
-                body: halt_body,
-                meta: halt_meta,
-            }) => {
-                body.extend(halt_body);
-                meta.extend(halt_meta);
-                return Err(TerminalNotResponse::Halt(BufferedResponse { body, meta }));
-            }
-            None => return Err(TerminalNotResponse::Malformed),
+            Err(terminal) => Err(terminal),
+        },
+        Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumes Meta events"),
+        Some(StreamEvent::Complete { meta }) => {
+            let mut all_meta = leading_meta;
+            all_meta.extend(meta);
+            Ok(BufferedResponse {
+                body: Vec::new(),
+                meta: all_meta,
+            })
         }
+        Some(StreamEvent::Halt { body, meta }) => {
+            // Halt carries a complete response; per the `collect_buffered`
+            // contract any prior streamed events — the prelude included —
+            // are replaced by its payload.
+            if !leading_meta.is_empty() {
+                tracing::warn!(
+                    discarded_meta_entries = leading_meta.len(),
+                    "Halt terminal arrived after leading Meta; discarding prelude (producer must not mix Halt with streamed events)"
+                );
+            }
+            Err(TerminalNotResponse::Halt(BufferedResponse { body, meta }))
+        }
+        Some(StreamEvent::Error(err)) => Err(TerminalNotResponse::Error(*err)),
+        Some(StreamEvent::Drop) => Err(TerminalNotResponse::Drop),
+        Some(StreamEvent::Continue(msg)) => Err(TerminalNotResponse::Continue(msg)),
+        None => Err(TerminalNotResponse::Malformed),
     }
 }

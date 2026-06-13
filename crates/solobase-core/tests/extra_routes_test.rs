@@ -22,9 +22,10 @@ use solobase_core::{
     features::FeatureConfig,
     routing::{self, ExtraRoute, RouteAccess},
 };
+use wafer_block::http_codec;
 use wafer_run::{
-    context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream, Message,
-    OutputStream, META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
+    context::Context, streams::output::TerminalNotResponse, InputStream, Message, OutputStream,
+    META_AUTH_USER_ID, META_REQ_RESOURCE, META_RESP_STATUS,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,28 +115,14 @@ fn make_msg_with_admin(path: &str, user_id: &str) -> Message {
     msg
 }
 
-/// Collect the stream and return the "HTTP-ish" status code.
-///
-/// The pipeline treats Error terminals as HTTP responses by mapping the
-/// `ErrorCode` to a status code (mirroring how `pipeline::handle_request`
-/// builds the log entry). For our tests:
-/// - Buffered response with `resp.status=200` → 200
-/// - `ErrorCode::NotFound` → 404
-/// - `ErrorCode::PermissionDenied` → 403
+/// Collect the stream and return the "HTTP-ish" status code via the
+/// canonical `wafer_block::http_codec` status resolution (explicit
+/// `resp.status` override, else the `ErrorCode`-derived status for Error
+/// terminals — NotFound → 404, PermissionDenied → 403, Unauthenticated → 401).
 async fn response_status(stream: OutputStream) -> i64 {
     match stream.collect_buffered().await {
-        Ok(buf) => buf
-            .meta
-            .iter()
-            .find(|m| m.key == META_RESP_STATUS || m.key == "http.status")
-            .and_then(|m| m.value.parse::<i64>().ok())
-            .unwrap_or(200),
-        Err(TerminalNotResponse::Error(err)) => match err.code {
-            ErrorCode::NotFound => 404,
-            ErrorCode::PermissionDenied => 403,
-            ErrorCode::Unauthenticated => 401,
-            _ => 500,
-        },
+        Ok(buf) => i64::from(http_codec::resolve_status(&buf.meta, 200)),
+        Err(TerminalNotResponse::Error(err)) => i64::from(http_codec::resolve_error_status(&err)),
         Err(other) => panic!("unexpected terminal: {other:?}"),
     }
 }
