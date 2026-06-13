@@ -8,11 +8,13 @@
 use maud::{html, Markup, PreEscaped};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
+use super::service;
 use crate::{
     blocks::helpers::{
-        self, err_bad_request, err_internal, json_map, ok_json, RecordExt, ResponseBuilder,
+        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
+        ResponseBuilder,
     },
     ui::{
         components, icons, nav_groups,
@@ -137,14 +139,7 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
         Some(d) => {
             let t = d.str_field("title");
             let title = if t.is_empty() { default_title } else { t };
-            let ver = d
-                .data
-                .get("version")
-                .and_then(|v| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-                .unwrap_or(1);
+            let ver = super::service::doc_version(d).unwrap_or(1);
             (
                 d.id.as_str(),
                 title,
@@ -638,95 +633,41 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
 }
 
 /// Save and publish a document. Archives any previously published document
-/// of the same type.
+/// of the same type (publish-then-archive ordering lives in
+/// `service::publish_document`).
 pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let body: SaveRequest = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")})),
+        // Previously returned 200 OK with an `error` key — clients would
+        // still treat that as success. Use the proper 4xx so the caller
+        // can branch on status alone (matches `handle_save`).
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
-    let now = helpers::now_rfc3339();
-
-    // Use user-provided version if > 0, otherwise auto-increment
-    let next_version = if body.version > 0 {
-        body.version
-    } else {
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "doc_type".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(&body.doc_type),
-            }],
-            sort: vec![SortField {
-                field: "version".into(),
-                desc: true,
-            }],
-            limit: 1,
-            ..Default::default()
-        };
-        db::list(ctx, COLLECTION, &opts)
-            .await
-            .ok()
-            .and_then(|r| {
-                r.records.first().and_then(|r| {
-                    let v = r.data.get("version")?;
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-            })
-            .unwrap_or(0)
-            + 1
+    let published = match service::publish_document(
+        ctx,
+        service::PublishRequest {
+            doc_type: &body.doc_type,
+            doc_id: &body.doc_id,
+            title: Some(&body.title),
+            content: Some(&body.content),
+            version: body.version,
+            created_by: msg.user_id(),
+        },
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Document not found"),
+        Err(e) => return err_internal("Failed to publish legal page", e),
     };
-
-    // Publish the new/updated doc first, then archive previous published
-    // docs of this type. Archiving up-front would leave the doc-type with
-    // no published version if the publish step then failed.
-    let published_id = if !body.doc_id.is_empty() {
-        let data = json_map(serde_json::json!({
-            "title": body.title,
-            "content": body.content,
-            "status": "published",
-            "version": next_version,
-            "published_at": now,
-            "updated_at": now
-        }));
-        match db::update(ctx, COLLECTION, &body.doc_id, data).await {
-            Ok(_) => body.doc_id.clone(),
-            Err(e) => {
-                return err_bad_request(&format!("Failed to publish: {e}"));
-            }
-        }
-    } else {
-        let data = json_map(serde_json::json!({
-            "doc_type": body.doc_type,
-            "title": body.title,
-            "content": body.content,
-            "status": "published",
-            "version": next_version,
-            "created_at": now,
-            "updated_at": now,
-            "published_at": now,
-            "created_by": msg.user_id()
-        }));
-        match db::create(ctx, COLLECTION, data).await {
-            Ok(record) => record.id,
-            Err(e) => {
-                return err_bad_request(&format!("Failed to publish: {e}"));
-            }
-        }
-    };
-
-    // New doc is live; safe to archive earlier published siblings now.
-    // `published_id` (and not just `doc_id_for_archive`) ensures we don't
-    // archive the doc we just created.
-    archive_published(ctx, &body.doc_type, &published_id).await;
 
     ok_json(&serde_json::json!({
-        "doc_id": published_id,
+        "doc_id": published.record.id,
         "status": "published",
-        "version": next_version,
-        "message": format!("Published as v{}", next_version)
+        "version": published.version,
+        "message": format!("Published as v{}", published.version)
     }))
 }
 
@@ -888,36 +829,6 @@ pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> Outp
     }
 
     ok_json(&serde_json::json!({"message": "Settings saved"}))
-}
-
-/// Archive all published documents of a given type, except the specified ID.
-async fn archive_published(ctx: &dyn Context, doc_type: &str, except_id: &str) {
-    let existing = db::list_all(
-        ctx,
-        COLLECTION,
-        vec![
-            Filter {
-                field: "doc_type".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(doc_type),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("published"),
-            },
-        ],
-    )
-    .await;
-    if let Ok(records) = existing {
-        for r in records {
-            if r.id == except_id {
-                continue;
-            }
-            let upd = json_map(serde_json::json!({"status": "archived"}));
-            let _ = db::update(ctx, COLLECTION, &r.id, upd).await;
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

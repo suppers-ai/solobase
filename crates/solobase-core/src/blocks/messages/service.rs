@@ -1,7 +1,8 @@
 //! Service layer for the messages block.
 //!
-//! Plain async functions — no HTTP awareness. Both REST and A2A handlers
-//! call these. All database interactions live here.
+//! Plain async functions — no HTTP awareness. Shared by the REST, A2A,
+//! and SSR-page handlers. Pure-CRUD REST shells with no business logic
+//! (get context/entry, delete entry) go through `blocks::crud` instead.
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
@@ -38,7 +39,7 @@ pub async fn create_context(
     recipient_id: &str,
     parent_id: Option<&str>,
     metadata: Option<serde_json::Value>,
-) -> Result<db::Record, String> {
+) -> Result<db::Record, WaferError> {
     let metadata = metadata.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
     let mut data = json_map(serde_json::json!({
@@ -56,9 +57,7 @@ pub async fn create_context(
 
     helpers::stamp_created(&mut data);
 
-    db::create(ctx, CONTEXTS_TABLE, data)
-        .await
-        .map_err(|e| format!("Database error: {e}"))
+    db::create(ctx, CONTEXTS_TABLE, data).await
 }
 
 pub async fn get_context(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
@@ -77,7 +76,7 @@ pub struct ListContextsParams {
 pub async fn list_contexts(
     ctx: &dyn Context,
     params: &ListContextsParams,
-) -> Result<db::RecordList, String> {
+) -> Result<db::RecordList, WaferError> {
     let filters = [
         ("type", params.context_type.as_deref()),
         ("status", params.status.as_deref()),
@@ -99,9 +98,7 @@ pub async fn list_contexts(
         skip_count: false,
     };
 
-    db::list(ctx, CONTEXTS_TABLE, &opts)
-        .await
-        .map_err(|e| format!("Database error: {e}"))
+    db::list(ctx, CONTEXTS_TABLE, &opts).await
 }
 
 pub async fn update_context(
@@ -121,7 +118,7 @@ pub async fn update_context(
     db::update(ctx, CONTEXTS_TABLE, id, data).await
 }
 
-pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), String> {
+pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), WaferError> {
     // Cascade delete entries first
     let filters = vec![Filter {
         field: "context_id".to_string(),
@@ -132,9 +129,7 @@ pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), String> {
         tracing::warn!("Failed to cascade delete entries for context {id}: {e}");
     }
 
-    db::delete(ctx, CONTEXTS_TABLE, id)
-        .await
-        .map_err(|e| format!("Database error: {e}"))
+    db::delete(ctx, CONTEXTS_TABLE, id).await
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +145,7 @@ pub async fn add_entry(
     content: &str,
     content_type: Option<&str>,
     metadata: Option<serde_json::Value>,
-) -> Result<db::Record, String> {
+) -> Result<db::Record, WaferError> {
     let metadata = metadata.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
     let content_type = content_type.unwrap_or("text/plain");
 
@@ -167,9 +162,7 @@ pub async fn add_entry(
         "created_at": now,
     }));
 
-    let record = db::create(ctx, ENTRIES_TABLE, data)
-        .await
-        .map_err(|e| format!("Database error: {e}"))?;
+    let record = db::create(ctx, ENTRIES_TABLE, data).await?;
 
     // Bump parent context's updated_at
     let mut context_update = std::collections::HashMap::new();
@@ -179,10 +172,6 @@ pub async fn add_entry(
     }
 
     Ok(record)
-}
-
-pub async fn get_entry(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
-    db::get(ctx, ENTRIES_TABLE, id).await
 }
 
 pub struct ListEntriesParams {
@@ -196,7 +185,7 @@ pub async fn list_entries(
     ctx: &dyn Context,
     context_id: &str,
     params: &ListEntriesParams,
-) -> Result<db::RecordList, String> {
+) -> Result<db::RecordList, WaferError> {
     let mut filters = vec![Filter {
         field: "context_id".to_string(),
         operator: FilterOp::Equal,
@@ -229,11 +218,5 @@ pub async fn list_entries(
         skip_count: false,
     };
 
-    db::list(ctx, ENTRIES_TABLE, &opts)
-        .await
-        .map_err(|e| format!("Database error: {e}"))
-}
-
-pub async fn delete_entry(ctx: &dyn Context, id: &str) -> Result<(), WaferError> {
-    db::delete(ctx, ENTRIES_TABLE, id).await
+    db::list(ctx, ENTRIES_TABLE, &opts).await
 }

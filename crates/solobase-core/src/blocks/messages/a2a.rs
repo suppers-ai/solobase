@@ -166,7 +166,7 @@ async fn handle_send_message(
 
         service::create_context(ctx, "task", &title, "", "", None, None)
             .await
-            .map_err(|e| (-32000, e))?
+            .map_err(|e| (-32000, format!("Database error: {e}")))?
     };
 
     let parts_meta = if parts.is_empty() {
@@ -185,7 +185,7 @@ async fn handle_send_message(
         parts_meta,
     )
     .await
-    .map_err(|e| (-32000, e))?;
+    .map_err(|e| (-32000, format!("Database error: {e}")))?;
 
     if context_id.is_none() {
         let mut updates = std::collections::HashMap::new();
@@ -226,7 +226,7 @@ async fn handle_list_tasks(
 
     let result = service::list_contexts(ctx, &list_params)
         .await
-        .map_err(|e| (-32000, e))?;
+        .map_err(|e| (-32000, format!("Database error: {e}")))?;
 
     let total_count = result.total_count;
     // Consume the records — each task carries metadata/parent_id we'd
