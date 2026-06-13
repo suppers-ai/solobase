@@ -13,7 +13,8 @@ use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream}
 use super::service;
 use crate::{
     blocks::helpers::{
-        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
+        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
+        ResponseBuilder,
     },
     ui::{
         components, icons, nav_groups,
