@@ -196,8 +196,7 @@ async fn admin_pricing_template_crud() {
         "/admin/b/products/pricing",
         serde_json::json!({
             "name": "volume-discount",
-            "price_formula": "base * quantity * 0.9",
-            "conditions": [{"field": "quantity", "operator": ">", "value": 10, "formula": "base * quantity * 0.8"}]
+            "price_formula": "base * quantity * 0.9"
         }),
     );
     let create_out = handlers::handle_admin(&ctx, &create, create_input).await;

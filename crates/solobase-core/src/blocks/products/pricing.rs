@@ -77,33 +77,10 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
         return err_bad_request(&e);
     }
 
-    // Check conditions
-    let conditions = template.data.get("conditions");
-    let final_price = if let Some(serde_json::Value::Array(conds)) = conditions {
-        let mut price = unit_price;
-        for cond in conds {
-            if let Some(cond_obj) = cond.as_object() {
-                if evaluate_condition(cond_obj, &body.variables) {
-                    if let Some(cond_formula) = cond_obj.get("formula").and_then(|v| v.as_str()) {
-                        if let Ok(p) = evaluate_formula(cond_formula, &body.variables) {
-                            price = p;
-                        }
-                    }
-                }
-            }
-        }
-        price
-    } else {
-        unit_price
-    };
-    if let Err(e) = validate_price(final_price) {
-        return err_bad_request(&e);
-    }
-
-    let total = final_price * body.quantity as f64;
+    let total = unit_price * body.quantity as f64;
 
     ok_json(&serde_json::json!({
-        "unit_price": final_price,
+        "unit_price": unit_price,
         "quantity": body.quantity,
         "total": total,
         "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
@@ -313,26 +290,5 @@ fn parse_factor(
             Ok(-val)
         }
         _ => Err(format!("Unexpected token at position {}", pos)),
-    }
-}
-
-fn evaluate_condition(
-    cond: &serde_json::Map<String, serde_json::Value>,
-    variables: &HashMap<String, f64>,
-) -> bool {
-    let field = cond.get("field").and_then(|v| v.as_str()).unwrap_or("");
-    let operator = cond.get("operator").and_then(|v| v.as_str()).unwrap_or("");
-    let value = cond.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
-
-    let field_value = variables.get(field).copied().unwrap_or(0.0);
-
-    match operator {
-        ">" | "gt" => field_value > value,
-        ">=" | "gte" => field_value >= value,
-        "<" | "lt" => field_value < value,
-        "<=" | "lte" => field_value <= value,
-        "==" | "eq" => (field_value - value).abs() < f64::EPSILON,
-        "!=" | "neq" => (field_value - value).abs() >= f64::EPSILON,
-        _ => false,
     }
 }
