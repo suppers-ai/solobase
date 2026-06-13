@@ -3,6 +3,7 @@ mod database;
 mod iam;
 mod logs;
 pub mod migrations;
+mod ops;
 mod pages;
 mod route;
 mod settings;

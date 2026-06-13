@@ -25,7 +25,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     match (action, path) {
         // Roles
         ("retrieve", "/admin/iam/roles") => handle_list_roles(ctx).await,
-        ("create", "/admin/iam/roles") => handle_create_role(ctx, input).await,
+        ("create", "/admin/iam/roles") => handle_create_role(ctx, msg, input).await,
         ("update", _) if path.starts_with("/admin/iam/roles/") => {
             handle_update_role(ctx, msg, input).await
         }
@@ -63,7 +63,7 @@ async fn handle_list_roles(ctx: &dyn Context) -> OutputStream {
     }
 }
 
-async fn handle_create_role(ctx: &dyn Context, input: InputStream) -> OutputStream {
+async fn handle_create_role(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -75,16 +75,18 @@ async fn handle_create_role(ctx: &dyn Context, input: InputStream) -> OutputStre
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
-    let mut data = json_map(serde_json::json!({
-        "name": body.name,
-        "description": body.description.unwrap_or_default(),
-        "permissions": body.permissions.unwrap_or_default(),
-        "is_system": false
-    }));
-    helpers::stamp_created(&mut data);
-    match db::create(ctx, ROLES_TABLE, data).await {
+    // Validation, audit-log write, and the create live in the shared ops layer.
+    match super::ops::create_role(
+        ctx,
+        msg,
+        &body.name,
+        body.description.as_deref(),
+        body.permissions,
+    )
+    .await
+    {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
+        Err(out) => out,
     }
 }
 
@@ -138,21 +140,11 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
 async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request("Missing role ID");
-    }
-
-    // Check if system role
-    if let Ok(role) = db::get(ctx, ROLES_TABLE, id).await {
-        if role.bool_field("is_system") {
-            return err_forbidden("Cannot delete system role");
-        }
-    }
-
-    match db::delete(ctx, ROLES_TABLE, id).await {
+    // System-role guard, delete, and audit-log write live in the shared ops
+    // layer (the JSON path previously logged nothing).
+    match super::ops::delete_role(ctx, msg, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
-        Err(e) => err_internal("Database error", e),
+        Err(out) => out,
     }
 }
 
