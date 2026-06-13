@@ -7,15 +7,16 @@
 use std::collections::HashMap;
 
 use serde_json::json;
-use solobase_core::blocks::admin::{migrations, VARIABLES_TABLE};
+use solobase_core::{
+    blocks::admin::{migrations, VARIABLES_TABLE},
+    test_support::TestContext,
+};
 use wafer_block::db::ListOptions;
 use wafer_core::clients::database as db;
 
-use crate::common::MigrationTestCtx;
-
 /// Insert a variables row with the bare minimum NOT NULL columns. The
 /// `id` PK is generated from `key` for determinism.
-async fn insert_var(ctx: &MigrationTestCtx, key: &str, value: &str) {
+async fn insert_var(ctx: &TestContext, key: &str, value: &str) {
     let mut data: HashMap<String, serde_json::Value> = HashMap::new();
     data.insert("id".to_string(), json!(format!("v-{key}")));
     data.insert("key".to_string(), json!(key));
@@ -32,7 +33,7 @@ async fn insert_var(ctx: &MigrationTestCtx, key: &str, value: &str) {
         .unwrap_or_else(|e| panic!("create row {key}: {e}"));
 }
 
-async fn read_block_column(ctx: &MigrationTestCtx, key: &str) -> Option<String> {
+async fn read_block_column(ctx: &TestContext, key: &str) -> Option<String> {
     let opts = ListOptions {
         limit: 100,
         ..Default::default()
@@ -54,7 +55,7 @@ async fn read_block_column(ctx: &MigrationTestCtx, key: &str) -> Option<String> 
 
 #[tokio::test]
 async fn migration_002_adds_block_column_and_index() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = TestContext::new().await;
     migrations::apply(&ctx).await.expect("apply migrations");
 
     // PRAGMA table_info verifies the column was added.
@@ -88,7 +89,7 @@ async fn migration_002_adds_block_column_and_index() {
 
 #[tokio::test]
 async fn migration_002_backfills_block_column_from_key_prefix() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = TestContext::new().await;
     // Apply migration 001 to create the table, then insert pre-002 rows, then
     // run migration 002 to exercise the backfill UPDATE.
     //
@@ -141,7 +142,7 @@ async fn migration_002_backfills_block_column_from_key_prefix() {
 
 #[tokio::test]
 async fn migrations_are_idempotent_on_first_run() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = TestContext::new().await;
     migrations::apply(&ctx).await.expect("first apply");
     // 002's `ALTER TABLE ADD COLUMN` is *not* idempotent on SQLite, so the
     // runner is expected to only run new migrations on subsequent calls.
