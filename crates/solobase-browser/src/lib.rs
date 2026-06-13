@@ -23,6 +23,13 @@ pub mod image;
 pub mod llm;
 pub mod vector;
 
+// Pure param/row codec for the sql.js bridge edge — split out of the
+// wasm32-only `database` module so it unit-tests on the host. Only consumed by
+// the wasm32 `database` module, so it's compiled on wasm32 (real use) or under
+// `test` (host unit tests) — not on plain native builds, where it'd be dead.
+#[cfg(any(target_arch = "wasm32", test))]
+mod db_codec;
+
 // wasm32-only — use wasm-bindgen, web-sys, js-sys.
 #[cfg(target_arch = "wasm32")]
 pub mod asset_loader;
@@ -34,8 +41,6 @@ pub mod convert;
 pub mod crypto;
 #[cfg(target_arch = "wasm32")]
 pub mod database;
-#[cfg(target_arch = "wasm32")]
-mod helpers;
 #[cfg(target_arch = "wasm32")]
 pub mod logger;
 #[cfg(target_arch = "wasm32")]

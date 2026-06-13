@@ -40,6 +40,8 @@ block-userportal = ["solobase-core/block-userportal"]
 wafer-run = { workspace = true }
 wafer-block = { workspace = true }
 wafer-core = { workspace = true }
+# Shared SQL planning (DbExec primitives call introspect::build_table_exists).
+wafer-sql-utils = { workspace = true }
 
 # Solobase shared core. `default-features = false` strips the native
 # block set (sqlite/storage-local/llm/etc.); the wasm32-clean feature

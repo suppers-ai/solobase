@@ -1,33 +1,28 @@
 //! Async database service backed by Cloudflare D1 (SQLite at the edge).
 //!
-//! Implements the shared `DatabaseService` trait from wafer-core so D1Block
-//! can reuse the shared message handler.
+//! D1 implements only the [`DbExec`] execution *primitives* (prepare/bind/run
+//! via [`json_value_to_js`]); all `get/list/count/sum/create/update/delete`
+//! orchestration — filter/IN expansion, sorted-key INSERT/UPDATE construction,
+//! lazy column-add, table-exists guards — is inherited from the shared
+//! `wafer-core` [`DbExec`] defaults, identical to `wafer-block-sqlite` and
+//! `wafer-block-postgres`. The `DatabaseService` impl forwards each method into
+//! the matching `DbExec` default.
 //!
-//! ## Lazy column-add (cached)
+//! ## Lazy column-add
 //!
 //! Tables themselves must exist before any `create()` — every block ships
-//! explicit `migrations/*.sql` applied from the `Init` lifecycle. Reads
-//! against a missing table still return empty/NotFound (mirrors
-//! `wafer-block-sqlite`), but writes against a missing table now surface
-//! D1's `no such table` instead of silently materializing it.
-//!
-//! What survives: on `create()` we run `PRAGMA table_info` + the necessary
-//! `ALTER TABLE ADD COLUMN` for any data key not yet on the table, matching
-//! the `update` / `update_where` paths in sqlite + postgres.
-//!
-//! Schema checks are cached per-isolate via `SCHEMA_CACHE`. After a column
-//! set is verified once, subsequent inserts to the same columns skip both
-//! the PRAGMA and any ALTERs entirely.
+//! explicit `migrations/*.sql` applied from the `Init` lifecycle. The shared
+//! `DbExec::ensure_data_columns`/`ensure_query_columns` add only *columns* on
+//! demand (always `TEXT` on SQLite), matching the native sqlite/postgres
+//! backends. Reads against a missing table return empty/NotFound via the
+//! `dbx_table_exists` guard the defaults run first.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::OnceLock,
+use wafer_block::db::{Filter, ListOptions};
+use wafer_core::interfaces::database::{
+    exec::DbExec,
+    service::{Column, DatabaseError, DatabaseService, Record, RecordList, Table},
 };
-
-use wafer_block::db::{Filter, FilterOp, ListOptions};
-use wafer_core::interfaces::database::service::{
-    Column, DatabaseError, DatabaseService, Record, RecordList, Table,
-};
+use wafer_sql_utils::{introspect, Backend};
 use wasm_bindgen::JsValue;
 use worker::*;
 
@@ -41,126 +36,16 @@ impl D1DatabaseService {
         Self { db }
     }
 
-    /// For each key in `data` that isn't already a column on `table`,
-    /// run `ALTER TABLE ... ADD COLUMN ... TEXT`. The only error we tolerate
-    /// is "duplicate column name" — that's the benign race where a
-    /// concurrent isolate ALTER'd the same column between our PRAGMA and our
-    /// ALTER. Every other error propagates so a real schema problem
-    /// surfaces immediately rather than as a cryptic INSERT failure.
-    ///
-    /// `table` and the data keys are assumed to have already been
-    /// run through `sanitize_ident`.
-    async fn add_missing_columns(
+    /// Bind `params` (the JSON form produced by `sea_values_to_json`) to a
+    /// prepared statement, mapping each value to a `JsValue` at the edge.
+    fn prepare_bind(
         &self,
-        table: &str,
-        data: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), DatabaseError> {
-        let existing = self.list_table_columns(table).await?;
-        for key in data.keys() {
-            let safe_key = sanitize_ident(key);
-            if existing.contains(&safe_key.to_lowercase()) {
-                continue;
-            }
-            let result = self
-                .db
-                .prepare(&format!(
-                    "ALTER TABLE {} ADD COLUMN {} TEXT",
-                    table, safe_key
-                ))
-                .run()
-                .await;
-            if let Err(e) = result {
-                let msg = e.to_string();
-                if !is_duplicate_column(&msg) {
-                    return Err(db_err(format!("ALTER TABLE {table} ADD {safe_key}: {msg}")));
-                }
-            }
-        }
-        Ok(())
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<D1PreparedStatement, DatabaseError> {
+        let js_params: Vec<JsValue> = params.iter().map(json_value_to_js).collect();
+        self.db.prepare(sql).bind(&js_params).map_err(db_err)
     }
-
-    /// Names of columns currently on `table`, lowercased for
-    /// case-insensitive comparison. Returns an empty set on missing
-    /// table — callers fall back to the same behaviour as if the table
-    /// had no extra columns to skip.
-    async fn list_table_columns(&self, table: &str) -> Result<HashSet<String>, DatabaseError> {
-        let stmt = self.db.prepare(&format!("PRAGMA table_info({})", table));
-        let result = match stmt.all().await {
-            Ok(r) => r,
-            Err(e) if is_no_such_table(&e.to_string()) => return Ok(HashSet::new()),
-            Err(e) => return Err(db_err(e)),
-        };
-        let rows: Vec<serde_json::Value> = result.results().map_err(db_err)?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| {
-                r.get("name")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_lowercase)
-            })
-            .collect())
-    }
-
-    /// Ensure every key in `data` is a column on `table`.
-    /// First call per (isolate, table) runs PRAGMA + the needed ALTERs;
-    /// subsequent calls hit the in-memory cache and skip the schema work
-    /// entirely. The table itself must already exist — block migrations
-    /// run at `Init` are responsible for that.
-    async fn ensure_columns(
-        &self,
-        table: &str,
-        data: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), DatabaseError> {
-        let needed: HashSet<String> = data
-            .keys()
-            .map(|k| sanitize_ident(k).to_lowercase())
-            .collect();
-
-        // Fast path: cached set covers all needed columns.
-        {
-            let cache = schema_cache().lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(known) = cache.get(table) {
-                if needed.iter().all(|k| known.contains(k)) {
-                    return Ok(());
-                }
-            }
-        }
-
-        // Slow path: ALTER in any missing columns.
-        self.add_missing_columns(table, data).await?;
-
-        // Re-read the column set and update the cache so subsequent
-        // inserts see the now-superset and take the fast path.
-        if let Ok(cols) = self.list_table_columns(table).await {
-            schema_cache()
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(table.to_string(), cols);
-        }
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Per-isolate schema cache
-// ---------------------------------------------------------------------------
-
-/// Per-isolate cache of "tables we've already verified exist with these
-/// columns" — keyed by sanitized table name, value is the lowercased
-/// column-name set.
-///
-/// On every Worker request we'd otherwise run `CREATE TABLE IF NOT EXISTS`
-/// + `PRAGMA table_info` for every insert. This cache makes that work
-/// run once per (isolate, table) pair instead — first request after a
-/// cold isolate pays the cost; warm-isolate requests skip both queries.
-///
-/// Blocks that own their schema apply per-block migrations from `Init`
-/// (see `auth/migrations/`, `admin/migrations/`); the cache is the fallback
-/// for blocks whose schema isn't declared via per-block migrations.
-static SCHEMA_CACHE: OnceLock<std::sync::Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
-
-fn schema_cache() -> &'static std::sync::Mutex<HashMap<String, HashSet<String>>> {
-    SCHEMA_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
 // SAFETY: `D1DatabaseService` holds a `D1Database` handle scoped to a single
@@ -170,26 +55,104 @@ fn schema_cache() -> &'static std::sync::Mutex<HashMap<String, HashSet<String>>>
 unsafe impl Send for D1DatabaseService {}
 unsafe impl Sync for D1DatabaseService {}
 
+// ---------------------------------------------------------------------------
+// DbExec primitives — the only backend-specific execution code.
+// ---------------------------------------------------------------------------
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl DbExec for D1DatabaseService {
+    const BACKEND: Backend = Backend::Sqlite;
+
+    async fn run_fetch(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<Vec<Record>, DatabaseError> {
+        let stmt = self.prepare_bind(sql, params)?;
+        let results = stmt.all().await.map_err(db_err)?;
+        let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
+        Ok(rows.into_iter().map(json_to_record).collect())
+    }
+
+    async fn run_fetch_one(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<Record, DatabaseError> {
+        let stmt = self.prepare_bind(sql, params)?;
+        let row = match stmt.first::<serde_json::Value>(None).await {
+            Ok(row) => row,
+            // A `get`-by-id against a not-yet-created table is "not found",
+            // matching the native backends' `QueryReturnedNoRows` mapping.
+            Err(e) if is_no_such_table(&e.to_string()) => return Err(DatabaseError::NotFound),
+            Err(e) => return Err(db_err(e)),
+        };
+        row.map(json_to_record).ok_or(DatabaseError::NotFound)
+    }
+
+    async fn run_execute(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<i64, DatabaseError> {
+        let result = self
+            .prepare_bind(sql, params)?
+            .run()
+            .await
+            .map_err(db_err)?;
+        // worker-rs 0.7 exposes D1Result::meta().changes (Option<usize>) for
+        // mutations — surface a real rows_affected so the shared defaults can
+        // map 0-rows to NotFound on update/delete-by-id.
+        let changes = result
+            .meta()
+            .map_err(db_err)?
+            .and_then(|m| m.changes)
+            .unwrap_or(0);
+        Ok(changes as i64)
+    }
+
+    async fn run_scalar_i64(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<i64, DatabaseError> {
+        let stmt = self.prepare_bind(sql, params)?;
+        let row = stmt
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(db_err)?;
+        Ok(scalar_i64(row))
+    }
+
+    async fn run_scalar_f64(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<f64, DatabaseError> {
+        let stmt = self.prepare_bind(sql, params)?;
+        let row = stmt
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(db_err)?;
+        Ok(scalar_f64(row))
+    }
+
+    async fn dbx_table_exists(&self, table: &str) -> Result<bool, DatabaseError> {
+        let (sql, params) = introspect::build_table_exists(table, Backend::Sqlite);
+        Ok(self.run_scalar_i64(&sql, &params).await? > 0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DatabaseService — forwards into the shared DbExec defaults.
+// ---------------------------------------------------------------------------
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DatabaseService for D1DatabaseService {
     async fn get(&self, collection: &str, id: &str) -> Result<Record, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let stmt = self
-            .db
-            .prepare(&format!("SELECT * FROM {} WHERE id = ?", table))
-            .bind(&[id.into()])
-            .map_err(db_err)?;
-
-        let row = match stmt.first::<serde_json::Value>(None).await {
-            Ok(row) => row,
-            Err(e) if is_no_such_table(&e.to_string()) => return Err(DatabaseError::NotFound),
-            Err(e) => return Err(db_err(e)),
-        };
-        match row {
-            Some(val) => Ok(json_to_record(val)),
-            None => Err(DatabaseError::NotFound),
-        }
+        DbExec::get(self, collection, id).await
     }
 
     async fn list(
@@ -197,219 +160,32 @@ impl DatabaseService for D1DatabaseService {
         collection: &str,
         opts: &ListOptions,
     ) -> Result<RecordList, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let (where_sql, params) = build_where_clause(&opts.filters);
-        let limit_for_empty = if opts.limit > 0 { opts.limit } else { 100 };
-
-        // Count total — skipped when caller passed skip_count: true.
-        let total_count: Option<i64> = if opts.skip_count {
-            None
-        } else {
-            let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
-            let count_stmt = self.db.prepare(&count_sql).bind(&params).map_err(db_err)?;
-            let count_row = match count_stmt.first::<serde_json::Value>(None).await {
-                Ok(row) => row,
-                Err(e) if is_no_such_table(&e.to_string()) => {
-                    return Ok(RecordList {
-                        records: Vec::new(),
-                        total_count: 0,
-                        page: 1,
-                        page_size: limit_for_empty,
-                    });
-                }
-                Err(e) => return Err(db_err(e)),
-            };
-            Some(
-                count_row
-                    .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
-                    .unwrap_or(0),
-            )
-        };
-
-        // Data query
-        let mut sql = format!("SELECT * FROM {} WHERE {}", table, where_sql);
-
-        if !opts.sort.is_empty() {
-            let order: Vec<String> = opts
-                .sort
-                .iter()
-                .map(|s| {
-                    let col = sanitize_ident(&s.field);
-                    if s.desc {
-                        format!("{} DESC", col)
-                    } else {
-                        format!("{} ASC", col)
-                    }
-                })
-                .collect();
-            sql.push_str(&format!(" ORDER BY {}", order.join(", ")));
-        }
-
-        let limit = if opts.limit > 0 { opts.limit } else { 100 };
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, opts.offset));
-
-        let stmt = self.db.prepare(&sql).bind(&params).map_err(db_err)?;
-        let results = match stmt.all().await {
-            Ok(r) => r,
-            Err(e) if is_no_such_table(&e.to_string()) => {
-                return Ok(RecordList {
-                    records: Vec::new(),
-                    total_count: total_count.unwrap_or(0),
-                    page: 1,
-                    page_size: limit_for_empty,
-                });
-            }
-            Err(e) => return Err(db_err(e)),
-        };
-        let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
-
-        let page = if limit > 0 {
-            (opts.offset / limit) + 1
-        } else {
-            1
-        };
-
-        let records: Vec<Record> = rows.into_iter().map(json_to_record).collect();
-        let total_count = total_count.unwrap_or(records.len() as i64);
-        Ok(RecordList {
-            records,
-            total_count,
-            page,
-            page_size: limit,
-        })
+        DbExec::list(self, collection, opts).await
     }
 
     async fn create(
         &self,
         collection: &str,
-        data: HashMap<String, serde_json::Value>,
+        data: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Record, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let mut data = data;
-        data.entry("created_at".to_string())
-            .or_insert_with(|| serde_json::Value::String(now.clone()));
-        data.entry("updated_at".to_string())
-            .or_insert_with(|| serde_json::Value::String(now));
-
-        // Lazy column-add: matches the sqlite/postgres `create` paths.
-        // The table itself must already exist via the block's migration
-        // files. Cached per isolate — first call per (isolate, table) runs
-        // PRAGMA table_info + any ALTER TABLE ADD COLUMN needed; subsequent
-        // calls hit the in-memory cache and skip all schema work.
-        self.ensure_columns(&table, &data).await?;
-
-        let mut columns = vec!["id".to_string()];
-        let mut placeholders = vec!["?".to_string()];
-        let mut params: Vec<JsValue> = vec![id.clone().into()];
-
-        // Sorted-key iteration — keep the generated INSERT stable across
-        // isolates so D1 sees one prepared statement per (table, column-set).
-        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        for (key, val) in &entries {
-            columns.push(sanitize_ident(key));
-            placeholders.push("?".to_string());
-            params.push(json_value_to_js(val));
-        }
-
-        let sql = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            table,
-            columns.join(", "),
-            placeholders.join(", ")
-        );
-
-        self.db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-
-        Ok(Record { id, data })
+        DbExec::create(self, collection, data).await
     }
 
     async fn update(
         &self,
         collection: &str,
         id: &str,
-        data: HashMap<String, serde_json::Value>,
+        data: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Record, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let mut sets = Vec::new();
-        let mut params: Vec<JsValue> = Vec::new();
-
-        let mut data = data;
-        data.insert("updated_at".to_string(), serde_json::Value::String(now));
-
-        // Iterate in sorted-key order so the generated SET clause is stable
-        // across calls. HashMap order is randomized per isolate, which would
-        // otherwise produce N permutations of the same UPDATE — each treated
-        // as a distinct prepared statement by D1's plan cache.
-        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        for (key, val) in &entries {
-            sets.push(format!("{} = ?", sanitize_ident(key)));
-            params.push(json_value_to_js(val));
-        }
-
-        params.push(id.into());
-
-        let sql = format!("UPDATE {} SET {} WHERE id = ?", table, sets.join(", "));
-
-        self.db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-
-        self.get(collection, id).await
+        DbExec::update(self, collection, id, data).await
     }
 
     async fn delete(&self, collection: &str, id: &str) -> Result<(), DatabaseError> {
-        let table = sanitize_ident(collection);
-        let sql = format!("DELETE FROM {} WHERE id = ?", table);
-
-        self.db
-            .prepare(&sql)
-            .bind(&[id.into()])
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-        Ok(())
+        DbExec::delete(self, collection, id).await
     }
 
     async fn count(&self, collection: &str, filters: &[Filter]) -> Result<i64, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let (where_sql, params) = build_where_clause(filters);
-
-        let sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
-
-        let row = match self
-            .db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .first::<serde_json::Value>(None)
-            .await
-        {
-            Ok(row) => row,
-            Err(e) if is_no_such_table(&e.to_string()) => return Ok(0),
-            Err(e) => return Err(db_err(e)),
-        };
-
-        Ok(row
-            .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
-            .unwrap_or(0))
+        DbExec::count(self, collection, filters).await
     }
 
     async fn sum(
@@ -418,31 +194,7 @@ impl DatabaseService for D1DatabaseService {
         field: &str,
         filters: &[Filter],
     ) -> Result<f64, DatabaseError> {
-        let col = sanitize_ident(field);
-        let table = sanitize_ident(collection);
-        let (where_sql, params) = build_where_clause(filters);
-
-        let sql = format!(
-            "SELECT COALESCE(SUM({}), 0) as s FROM {} WHERE {}",
-            col, table, where_sql
-        );
-
-        let row = match self
-            .db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .first::<serde_json::Value>(None)
-            .await
-        {
-            Ok(row) => row,
-            Err(e) if is_no_such_table(&e.to_string()) => return Ok(0.0),
-            Err(e) => return Err(db_err(e)),
-        };
-
-        Ok(row
-            .and_then(|v| v.get("s").and_then(|s| s.as_f64()))
-            .unwrap_or(0.0))
+        DbExec::sum(self, collection, field, filters).await
     }
 
     async fn query_raw(
@@ -450,11 +202,7 @@ impl DatabaseService for D1DatabaseService {
         query: &str,
         args: &[serde_json::Value],
     ) -> Result<Vec<Record>, DatabaseError> {
-        let params: Vec<JsValue> = args.iter().map(json_value_to_js).collect();
-        let stmt = self.db.prepare(query).bind(&params).map_err(db_err)?;
-        let results = stmt.all().await.map_err(db_err)?;
-        let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
-        Ok(rows.into_iter().map(json_to_record).collect())
+        DbExec::query_raw(self, query, args).await
     }
 
     async fn exec_raw(
@@ -462,15 +210,7 @@ impl DatabaseService for D1DatabaseService {
         query: &str,
         args: &[serde_json::Value],
     ) -> Result<i64, DatabaseError> {
-        let params: Vec<JsValue> = args.iter().map(json_value_to_js).collect();
-        self.db
-            .prepare(query)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-        Ok(0)
+        DbExec::exec_raw(self, query, args).await
     }
 
     async fn delete_where(
@@ -478,63 +218,32 @@ impl DatabaseService for D1DatabaseService {
         collection: &str,
         filters: &[Filter],
     ) -> Result<(), DatabaseError> {
-        let table = sanitize_ident(collection);
-        let (where_sql, params) = build_where_clause(filters);
+        DbExec::delete_where(self, collection, filters).await
+    }
 
-        let sql = format!("DELETE FROM {} WHERE {}", table, where_sql);
-        self.db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-        Ok(())
+    async fn delete_where_count(
+        &self,
+        collection: &str,
+        filters: &[Filter],
+    ) -> Result<i64, DatabaseError> {
+        DbExec::delete_where_count(self, collection, filters).await
+    }
+
+    async fn take_where(
+        &self,
+        collection: &str,
+        filters: &[Filter],
+    ) -> Result<Vec<Record>, DatabaseError> {
+        DbExec::take_where(self, collection, filters).await
     }
 
     async fn update_where(
         &self,
         collection: &str,
         filters: &[Filter],
-        data: HashMap<String, serde_json::Value>,
+        data: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<(), DatabaseError> {
-        let table = sanitize_ident(collection);
-
-        let mut data = data;
-        let now = chrono::Utc::now().to_rfc3339();
-        if !data.contains_key("updated_at") {
-            data.insert("updated_at".to_string(), serde_json::Value::String(now));
-        }
-
-        let mut sets = Vec::new();
-        let mut params: Vec<JsValue> = Vec::new();
-
-        // Sorted-key iteration — see `update()` above for the rationale.
-        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        for (key, val) in &entries {
-            sets.push(format!("{} = ?", sanitize_ident(key)));
-            params.push(json_value_to_js(val));
-        }
-
-        let (where_sql, mut where_params) = build_where_clause(filters);
-        params.append(&mut where_params);
-
-        let sql = format!(
-            "UPDATE {} SET {} WHERE {}",
-            table,
-            sets.join(", "),
-            where_sql
-        );
-
-        self.db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-        Ok(())
+        DbExec::update_where(self, collection, filters, data).await
     }
 
     async fn increment_field_where(
@@ -544,51 +253,25 @@ impl DatabaseService for D1DatabaseService {
         delta: i64,
         filters: &[Filter],
     ) -> Result<i64, DatabaseError> {
-        let table = sanitize_ident(collection);
-        let safe_col = sanitize_ident(col);
-
-        let (where_sql, mut params) = build_where_clause(filters);
-        // SET clause binds delta first, then the filter params.
-        params.insert(0, JsValue::from_f64(delta as f64));
-
-        let sql = format!("UPDATE {table} SET {safe_col} = {safe_col} + ? WHERE {where_sql}");
-
-        let result = self
-            .db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?
-            .run()
-            .await
-            .map_err(db_err)?;
-
-        // worker-rs 0.7 exposes D1Result::meta().changes (Option<usize>) for
-        // mutations — use it so callers get a real rows_affected, unlike the
-        // older exec_raw path which always returned 0.
-        let changes = result
-            .meta()
-            .map_err(db_err)?
-            .and_then(|m| m.changes)
-            .unwrap_or(0);
-        Ok(changes as i64)
+        DbExec::increment_field_where(self, collection, col, delta, filters).await
     }
 
-    async fn ensure_schema_table(&self, table: &Table) -> Result<(), DatabaseError> {
-        // D1 schema is managed externally via Wrangler migrations
-        let _ = table;
+    // --- Schema management: D1 schema is owned by Wrangler migrations ---
+
+    async fn ensure_schema_table(&self, _table: &Table) -> Result<(), DatabaseError> {
         Ok(())
     }
 
-    async fn schema_table_exists(&self, _name: &str) -> Result<bool, DatabaseError> {
-        Ok(true) // Assume tables exist (managed by Wrangler)
+    async fn schema_table_exists(&self, name: &str) -> Result<bool, DatabaseError> {
+        DbExec::schema_table_exists(self, name).await
     }
 
     async fn schema_drop_table(&self, _name: &str) -> Result<(), DatabaseError> {
-        Ok(()) // No-op on D1
+        Ok(())
     }
 
     async fn schema_add_column(&self, _table: &str, _column: &Column) -> Result<(), DatabaseError> {
-        Ok(()) // No-op on D1
+        Ok(())
     }
 }
 
@@ -596,14 +279,9 @@ impl DatabaseService for D1DatabaseService {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Sanitize an identifier for safe SQL interpolation (table/column names).
-pub(crate) fn sanitize_ident(name: &str) -> String {
-    name.chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_')
-        .collect::<String>()
-}
-
-/// Convert a serde_json::Value to a JsValue for D1 binding.
+/// Convert a serde_json::Value param to a JsValue for D1 binding. Arrays and
+/// objects bind as JSON text (D1 stores JSON columns as TEXT), matching the
+/// `coerce_param` policy on the browser backend.
 fn json_value_to_js(val: &serde_json::Value) -> JsValue {
     match val {
         serde_json::Value::Null => JsValue::NULL,
@@ -622,44 +300,6 @@ fn json_value_to_js(val: &serde_json::Value) -> JsValue {
     }
 }
 
-/// Build a WHERE clause from filters. Returns the SQL string and bound params.
-fn build_where_clause(filters: &[Filter]) -> (String, Vec<JsValue>) {
-    let mut where_clauses: Vec<String> = Vec::new();
-    let mut params: Vec<JsValue> = Vec::new();
-
-    for f in filters {
-        let col = sanitize_ident(&f.field);
-        match f.operator {
-            FilterOp::IsNull => where_clauses.push(format!("{} IS NULL", col)),
-            FilterOp::IsNotNull => where_clauses.push(format!("{} IS NOT NULL", col)),
-            FilterOp::In => {
-                if let Some(arr) = f.value.as_array() {
-                    let placeholders: Vec<&str> = arr.iter().map(|_| "?").collect();
-                    where_clauses.push(format!("{} IN ({})", col, placeholders.join(", ")));
-                    for val in arr {
-                        params.push(json_value_to_js(val));
-                    }
-                } else {
-                    where_clauses.push(format!("{} IN (?)", col));
-                    params.push(json_value_to_js(&f.value));
-                }
-            }
-            _ => {
-                where_clauses.push(format!("{} {} ?", col, f.operator.as_sql()));
-                params.push(json_value_to_js(&f.value));
-            }
-        }
-    }
-
-    let where_sql = if where_clauses.is_empty() {
-        "1=1".to_string()
-    } else {
-        where_clauses.join(" AND ")
-    };
-
-    (where_sql, params)
-}
-
 /// Convert any Display error into a DatabaseError::Internal.
 fn db_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Internal(e.to_string())
@@ -669,18 +309,32 @@ fn db_err(e: impl std::fmt::Display) -> DatabaseError {
 /// D1 surfaces SQLite's `no such table: X` verbatim through the JsValue
 /// error; we string-match because the `worker::Error` type doesn't expose
 /// SQLite's structured error code.
-///
-/// Pure function so it can be unit-tested.
 pub(crate) fn is_no_such_table(msg: &str) -> bool {
     msg.contains("no such table")
 }
 
-/// Whether a D1 error message indicates an `ALTER TABLE ADD COLUMN` raced
-/// against a concurrent isolate that already added the same column. This is
-/// the only ALTER error we tolerate — every other failure means the schema
-/// change actually failed and must propagate.
-pub(crate) fn is_duplicate_column(msg: &str) -> bool {
-    msg.contains("duplicate column name")
+/// Extract the single scalar column of a `COUNT`/aggregate row as i64.
+/// The shared builders alias the scalar column (`build_count` → its own
+/// alias), so we take the first numeric value present rather than a fixed key.
+fn scalar_i64(row: Option<serde_json::Value>) -> i64 {
+    row.and_then(first_scalar)
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .unwrap_or(0)
+}
+
+/// Extract the single scalar column of a `SUM`/aggregate row as f64.
+fn scalar_f64(row: Option<serde_json::Value>) -> f64 {
+    row.and_then(first_scalar)
+        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+        .unwrap_or(0.0)
+}
+
+/// The first value of a single-column result object, regardless of its alias.
+fn first_scalar(row: serde_json::Value) -> Option<serde_json::Value> {
+    match row {
+        serde_json::Value::Object(map) => map.into_iter().next().map(|(_, v)| v),
+        other => Some(other),
+    }
 }
 
 /// Convert a D1 result row (as JSON) into a Record.
@@ -688,7 +342,11 @@ fn json_to_record(val: serde_json::Value) -> Record {
     if let serde_json::Value::Object(mut map) = val {
         let id = map
             .remove("id")
-            .and_then(|v| v.as_str().map(String::from))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            })
             .unwrap_or_default();
 
         Record {
@@ -698,13 +356,14 @@ fn json_to_record(val: serde_json::Value) -> Record {
     } else {
         Record {
             id: String::new(),
-            data: HashMap::new(),
+            data: std::collections::HashMap::new(),
         }
     }
 }
 
-// Note: unit tests for `is_no_such_table` and `is_duplicate_column` are
-// omitted because `solobase-cloudflare` only compiles on
-// `wasm32-unknown-unknown` (the R2/D1 services hold `!Send` JsFutures).
-// `cargo test -p solobase-cloudflare` errors before reaching the test
-// module. End-to-end validation comes from a real CF deploy.
+// Note: unit tests for the pure SQL-planning layer live in `wafer-sql-utils`
+// and `wafer-core::interfaces::database::exec` (shared across all SQL
+// backends). `solobase-cloudflare` only compiles on `wasm32-unknown-unknown`
+// (the R2/D1 services hold `!Send` JsFutures), so `cargo test
+// -p solobase-cloudflare` errors before reaching any test module. End-to-end
+// validation comes from a real CF deploy.

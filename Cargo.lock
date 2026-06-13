@@ -4653,6 +4653,7 @@ dependencies = [
  "wafer-block-crypto",
  "wafer-core",
  "wafer-run",
+ "wafer-sql-utils",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-streams 0.4.2",
@@ -4677,6 +4678,7 @@ dependencies = [
  "wafer-block-crypto",
  "wafer-core",
  "wafer-run",
+ "wafer-sql-utils",
  "wasm-bindgen",
  "worker",
 ]
