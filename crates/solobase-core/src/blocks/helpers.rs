@@ -98,6 +98,44 @@ pub fn is_admin(msg: &wafer_run::Message) -> bool {
         .any(|r| r.trim() == "admin")
 }
 
+/// Build a `Message` for an inter-block `ctx.call_block` dispatch, forwarding
+/// the caller's auth identity from the originating request.
+///
+/// Sets the routing metas the receiving block's dispatcher keys off
+/// (`req.action`, `req.resource`, `http.method`, `http.path`) and forwards
+/// `auth.user_id` / `auth.user_email` / `auth.user_roles` when present, so the
+/// callee sees the same caller identity it would on a direct HTTP request.
+/// Empty auth fields are skipped rather than forwarded as empty strings.
+///
+/// All three identity fields forward on every call; a previous hand-rolled
+/// copy dropped `auth.user_email` on read paths, an unexplained asymmetry that
+/// this single source removes.
+pub fn block_request(
+    action: &str,
+    method: &str,
+    resource: &str,
+    original: &wafer_run::Message,
+) -> wafer_run::Message {
+    let mut msg = wafer_run::Message::new(format!("{action}:{resource}"));
+    msg.set_meta("req.action", action);
+    msg.set_meta("req.resource", resource);
+    msg.set_meta("http.method", method);
+    msg.set_meta("http.path", resource);
+    forward_auth_meta(&mut msg, original);
+    msg
+}
+
+/// Forward the caller's auth identity (`auth.user_id` / `auth.user_email` /
+/// `auth.user_roles`) from `original` onto `msg`, skipping empty fields.
+pub fn forward_auth_meta(msg: &mut wafer_run::Message, original: &wafer_run::Message) {
+    for key in ["auth.user_id", "auth.user_email", "auth.user_roles"] {
+        let value = original.get_meta(key);
+        if !value.is_empty() {
+            msg.set_meta(key, value);
+        }
+    }
+}
+
 /// Compute SHA-256 and return as hex string. Used for deterministic hashing (API keys, etc.).
 pub fn sha256_hex(data: &[u8]) -> String {
     hex_encode(&sha256(data))
@@ -725,5 +763,44 @@ mod tests {
             !msg.contains("Thread setting"),
             "context label leaked into client message: {msg:?}"
         );
+    }
+
+    #[test]
+    fn block_request_sets_routing_metas_and_kind() {
+        let original = wafer_run::Message::new("retrieve:/x");
+        let msg = block_request("create", "POST", "/b/messages/api/x", &original);
+        assert_eq!(msg.get_meta("req.action"), "create");
+        assert_eq!(msg.get_meta("req.resource"), "/b/messages/api/x");
+        assert_eq!(msg.get_meta("http.method"), "POST");
+        assert_eq!(msg.get_meta("http.path"), "/b/messages/api/x");
+    }
+
+    #[test]
+    fn block_request_forwards_all_three_auth_fields() {
+        // Both read and write paths must forward the full caller identity —
+        // the previous hand-rolled list path dropped `auth.user_email`.
+        let mut original = wafer_run::Message::new("get:/x");
+        original.set_meta("auth.user_id", "u-1");
+        original.set_meta("auth.user_email", "u@example.com");
+        original.set_meta("auth.user_roles", "user,beta");
+
+        let msg = block_request("retrieve", "GET", "/b/messages/api/x", &original);
+        assert_eq!(msg.get_meta("auth.user_id"), "u-1");
+        assert_eq!(msg.get_meta("auth.user_email"), "u@example.com");
+        assert_eq!(msg.get_meta("auth.user_roles"), "user,beta");
+    }
+
+    #[test]
+    fn forward_auth_meta_skips_empty_fields() {
+        let mut original = wafer_run::Message::new("get:/x");
+        original.set_meta("auth.user_id", "u-1");
+        // email + roles unset on the original.
+
+        let mut msg = wafer_run::Message::new("get:/y");
+        forward_auth_meta(&mut msg, &original);
+        assert_eq!(msg.get_meta("auth.user_id"), "u-1");
+        // Absent fields are not materialized as empty strings.
+        assert_eq!(msg.get_meta("auth.user_email"), "");
+        assert_eq!(msg.get_meta("auth.user_roles"), "");
     }
 }

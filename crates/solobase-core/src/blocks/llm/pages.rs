@@ -10,7 +10,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, Message, OutputStream};
 
-use super::SETTINGS_TABLE;
+use super::{DEFAULT_MODEL_VAR, DEFAULT_PROVIDER, DEFAULT_PROVIDER_VAR, SETTINGS_TABLE};
 use crate::{
     blocks::helpers::RecordExt,
     // Read messages-owned rows by table name. Constants live in a sibling
@@ -24,10 +24,6 @@ use crate::{
         SiteConfig, UserInfo,
     },
 };
-
-const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
-const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
-const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
 // ---------------------------------------------------------------------------
 // Unified chat page (handles `/b/llm/` and `/b/llm/threads/{id}`)
@@ -161,7 +157,7 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .filter(|s| !s.is_empty());
     let display_title = thread_title.as_deref().unwrap_or("Chat");
 
-    let models = load_models(ctx, msg).await;
+    let models = load_models(ctx).await;
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
     let llm_chat_js_url = crate::ui::assets::llm_chat_js_url();
@@ -554,8 +550,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 ///
 /// Returns an empty vec on any failure — the picker falls back to the
 /// "Default (remote)" option and the user can still send a request.
-async fn load_models(ctx: &dyn Context, original_msg: &Message) -> Vec<serde_json::Value> {
-    let _ = original_msg;
+async fn load_models(ctx: &dyn Context) -> Vec<serde_json::Value> {
     // The picker keys off `model_id` / `display_name` / `backend_id`. A
     // dispatch failure is treated as "no models" so the picker still renders —
     // the user can fall back to the default remote option.

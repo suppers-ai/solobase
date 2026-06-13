@@ -194,13 +194,13 @@ impl ProviderLlmService {
         Ok(models)
     }
 
-    fn provider_snapshot(&self, backend_id: &str) -> Option<ProviderSnapshot> {
+    /// Clone of a single provider's config, keyed by backend_id. The
+    /// `api_key` it carries was resolved from `key_var` by the feature
+    /// block's reload (see `routes::reload_provider_service`) before
+    /// `configure()` — this service never touches the config store itself.
+    fn provider_config(&self, backend_id: &str) -> Option<ProviderConfig> {
         let inner = recover_lock!(self.inner.read(), "provider svc read");
-        let p = inner.providers.get(backend_id)?;
-        Some(ProviderSnapshot {
-            config: p.clone(),
-            resolved_key: resolve_key(p),
-        })
+        inner.providers.get(backend_id).cloned()
     }
 }
 
@@ -210,27 +210,6 @@ impl Default for ProviderLlmService {
     }
 }
 
-struct ProviderSnapshot {
-    config: ProviderConfig,
-    resolved_key: Option<String>,
-}
-
-/// Resolve the effective API key for a provider. `key_var` takes precedence
-/// when set — the runtime reads the referenced config var at request time.
-/// Falls back to `api_key`. Returns `None` if neither is present; callers
-/// decide whether that's an error per protocol.
-///
-/// NOTE: config-var resolution is currently a no-op placeholder. The feature
-/// block resolves `key_var` to a value before calling `configure()` and
-/// stashes the result into `api_key`. This function encodes that precedence
-/// rule so other call sites can share it.
-fn resolve_key(cfg: &ProviderConfig) -> Option<String> {
-    // The feature block is responsible for reading `key_var` out of the
-    // config client and writing the resolved value into `api_key`. Here we
-    // just read `api_key`. See `llm/mod.rs` (future) for the resolution.
-    cfg.api_key.clone()
-}
-
 #[async_trait]
 impl LlmService for ProviderLlmService {
     async fn chat_stream(
@@ -238,7 +217,7 @@ impl LlmService for ProviderLlmService {
         req: ChatRequest,
         cancel: CancellationToken,
     ) -> BoxStream<'static, Result<ChatChunk, LlmError>> {
-        let Some(snap) = self.provider_snapshot(&req.backend_id) else {
+        let Some(cfg) = self.provider_config(&req.backend_id) else {
             let id = req.backend_id;
             return Box::pin(futures::stream::once(async move {
                 Err(LlmError::InvalidRequest(format!("unknown backend: {id}")))
@@ -248,27 +227,23 @@ impl LlmService for ProviderLlmService {
 
         // Build the provider-specific request up front so any encode error is
         // surfaced synchronously before we start streaming.
-        let encoded = match snap.config.protocol {
+        let api_key = cfg.api_key.as_deref();
+        let encoded = match cfg.protocol {
             ProviderProtocol::OpenAi => {
-                openai::encode_chat_request(&req, &snap.config, snap.resolved_key.as_deref())
+                openai::encode_chat_request(&req, &cfg, api_key).map_err(map_openai_encode_error)
+            }
+            ProviderProtocol::Anthropic => anthropic::encode_chat_request(&req, &cfg, api_key)
+                .map_err(map_anthropic_encode_error),
+            ProviderProtocol::OpenAiCompatible => {
+                openai_compatible::encode_chat_request(&req, &cfg, api_key)
                     .map_err(map_openai_encode_error)
             }
-            ProviderProtocol::Anthropic => {
-                anthropic::encode_chat_request(&req, &snap.config, snap.resolved_key.as_deref())
-                    .map_err(map_anthropic_encode_error)
-            }
-            ProviderProtocol::OpenAiCompatible => openai_compatible::encode_chat_request(
-                &req,
-                &snap.config,
-                snap.resolved_key.as_deref(),
-            )
-            .map_err(map_openai_encode_error),
         };
         let (url, headers, body) = match encoded {
             Ok(v) => v,
             Err(e) => return Box::pin(futures::stream::once(async move { Err(e) })),
         };
-        let protocol = snap.config.protocol;
+        let protocol = cfg.protocol;
 
         let (tx, rx) = mpsc::channel::<Result<ChatChunk, LlmError>>(16);
         tokio::spawn(async move {
@@ -306,55 +281,26 @@ impl LlmService for ProviderLlmService {
             }
 
             let mut body_stream = resp.bytes_stream();
-            match protocol {
-                ProviderProtocol::OpenAi | ProviderProtocol::OpenAiCompatible => {
-                    let mut decoder = openai::OpenAiSseDecoder::new();
-                    loop {
-                        tokio::select! {
-                            _ = cancel.cancelled() => {
-                                let _ = tx_err.send(Err(LlmError::Cancelled)).await;
-                                return;
-                            }
-                            next = body_stream.next() => match next {
-                                Some(Ok(bytes)) => {
-                                    let batch = decoder.push(&bytes);
-                                    for chunk in batch.chunks {
-                                        if tx_err.send(Ok(chunk)).await.is_err() { return; }
-                                    }
-                                    if batch.done { return; }
-                                }
-                                Some(Err(e)) => {
-                                    let _ = tx_err.send(Err(LlmError::Network(e.to_string()))).await;
-                                    return;
-                                }
-                                None => return,
-                            }
-                        }
+            let mut decoder = Decoder::for_protocol(protocol);
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        let _ = tx_err.send(Err(LlmError::Cancelled)).await;
+                        return;
                     }
-                }
-                ProviderProtocol::Anthropic => {
-                    let mut decoder = anthropic::AnthropicSseDecoder::new();
-                    loop {
-                        tokio::select! {
-                            _ = cancel.cancelled() => {
-                                let _ = tx_err.send(Err(LlmError::Cancelled)).await;
-                                return;
+                    next = body_stream.next() => match next {
+                        Some(Ok(bytes)) => {
+                            let batch = decoder.push(&bytes);
+                            for chunk in batch.chunks {
+                                if tx_err.send(Ok(chunk)).await.is_err() { return; }
                             }
-                            next = body_stream.next() => match next {
-                                Some(Ok(bytes)) => {
-                                    let batch = decoder.push(&bytes);
-                                    for chunk in batch.chunks {
-                                        if tx_err.send(Ok(chunk)).await.is_err() { return; }
-                                    }
-                                    if batch.done { return; }
-                                }
-                                Some(Err(e)) => {
-                                    let _ = tx_err.send(Err(LlmError::Network(e.to_string()))).await;
-                                    return;
-                                }
-                                None => return,
-                            }
+                            if batch.done { return; }
                         }
+                        Some(Err(e)) => {
+                            let _ = tx_err.send(Err(LlmError::Network(e.to_string()))).await;
+                            return;
+                        }
+                        None => return,
                     }
                 }
             }
@@ -395,6 +341,34 @@ impl LlmService for ProviderLlmService {
     fn claims_backend(&self, backend_id: &str) -> bool {
         let inner = recover_lock!(self.inner.read(), "provider svc read");
         inner.providers.contains_key(backend_id)
+    }
+}
+
+/// Protocol-selected SSE chunk decoder. Both provider decoders share the
+/// same `push(&[u8]) -> DecodeBatch` interface; this enum picks the variant
+/// from the wire protocol once, so `chat_stream` keeps exactly one decode
+/// loop. Adding a fourth protocol is a one-arm change here instead of a
+/// copied ~25-line loop.
+enum Decoder {
+    OpenAi(openai::OpenAiSseDecoder),
+    Anthropic(anthropic::AnthropicSseDecoder),
+}
+
+impl Decoder {
+    fn for_protocol(protocol: ProviderProtocol) -> Self {
+        match protocol {
+            ProviderProtocol::OpenAi | ProviderProtocol::OpenAiCompatible => {
+                Self::OpenAi(openai::OpenAiSseDecoder::new())
+            }
+            ProviderProtocol::Anthropic => Self::Anthropic(anthropic::AnthropicSseDecoder::new()),
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> sse::DecodeBatch {
+        match self {
+            Self::OpenAi(d) => d.push(bytes),
+            Self::Anthropic(d) => d.push(bytes),
+        }
     }
 }
 

@@ -64,8 +64,11 @@ pub struct ProviderConfig {
     pub api_key: Option<String>,
 
     /// Optional config-var reference, e.g. `"SUPPERS_AI__LLM__OPENAI_KEY_PROD"`.
-    /// When set, the runtime resolves the value from configuration at request
-    /// time — takes precedence over `api_key` when both are set.
+    /// When set, the feature block resolves the value from the config client
+    /// into `api_key` whenever providers are (re)loaded into the in-memory
+    /// service — at `Init` and on every provider CRUD write (see
+    /// `routes::reload_provider_service`). Takes precedence over an inline
+    /// `api_key` when both are set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_var: Option<String>,
 

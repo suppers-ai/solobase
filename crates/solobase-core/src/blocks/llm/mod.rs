@@ -9,13 +9,13 @@ use std::sync::Arc;
 
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, InputStream,
-    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use self::providers::ProviderLlmService;
 use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_internal_no_cause, err_not_found, json_map, ok_json,
+    self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
 
 /// LLM feature block. Owns the provider admin UI + chat thread persistence.
@@ -39,8 +39,8 @@ impl LlmBlock {
 
 pub(crate) const SETTINGS_TABLE: &str = "suppers_ai__llm__settings";
 
-const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
-const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
+pub(super) const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
+pub(super) const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
 pub(super) const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
 // The previous in-process `default_target()` helper has moved to a
@@ -80,25 +80,8 @@ pub(super) async fn messages_create(
     };
 
     let resource = format!("/b/messages/api/contexts/{context_id}/entries");
-    let mut msg = Message::new(format!("create:{resource}"));
-    msg.set_meta("req.action", "create");
-    msg.set_meta("req.resource", &resource);
-    msg.set_meta("http.method", "POST");
-    msg.set_meta("http.path", &resource);
+    let mut msg = helpers::block_request("create", "POST", &resource, original_msg);
     msg.set_meta("req.content_type", "application/json");
-    // Forward auth from original request
-    let user_id = original_msg.user_id().to_string();
-    if !user_id.is_empty() {
-        msg.set_meta("auth.user_id", &user_id);
-    }
-    let user_email = original_msg.get_meta("auth.user_email").to_string();
-    if !user_email.is_empty() {
-        msg.set_meta("auth.user_email", &user_email);
-    }
-    let user_roles = original_msg.get_meta("auth.user_roles").to_string();
-    if !user_roles.is_empty() {
-        msg.set_meta("auth.user_roles", &user_roles);
-    }
 
     let out = ctx
         .call_block("suppers-ai/messages", msg, InputStream::from_bytes(body))
@@ -116,19 +99,7 @@ pub(super) async fn messages_list(
     context_id: &str,
 ) -> Vec<serde_json::Value> {
     let resource = format!("/b/messages/api/contexts/{context_id}/entries?kind=message");
-    let mut msg = Message::new(format!("retrieve:{resource}"));
-    msg.set_meta("req.action", "retrieve");
-    msg.set_meta("req.resource", &resource);
-    msg.set_meta("http.method", "GET");
-    msg.set_meta("http.path", &resource);
-    let user_id = original_msg.user_id().to_string();
-    if !user_id.is_empty() {
-        msg.set_meta("auth.user_id", &user_id);
-    }
-    let user_roles = original_msg.get_meta("auth.user_roles").to_string();
-    if !user_roles.is_empty() {
-        msg.set_meta("auth.user_roles", &user_roles);
-    }
+    let msg = helpers::block_request("retrieve", "GET", &resource, original_msg);
 
     let out = ctx
         .call_block("suppers-ai/messages", msg, InputStream::empty())
@@ -161,7 +132,7 @@ impl LlmBlock {
 
         let provider_block = thread_setting
             .as_ref()
-            .and_then(|s| s.get("provider_block").and_then(|v| v.as_str()))
+            .and_then(|s| s.data.get("provider_block").and_then(|v| v.as_str()))
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .or_else(|| req_provider.map(|s| s.to_string()))
@@ -172,7 +143,7 @@ impl LlmBlock {
 
         let model = thread_setting
             .as_ref()
-            .and_then(|s| s.get("model").and_then(|v| v.as_str()))
+            .and_then(|s| s.data.get("model").and_then(|v| v.as_str()))
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .or_else(|| req_model.map(|s| s.to_string()))
@@ -197,23 +168,19 @@ impl LlmBlock {
         (final_provider, final_model)
     }
 
-    /// Get per-thread settings record from DB, if any.
-    async fn get_thread_setting(
-        &self,
-        ctx: &dyn Context,
-        thread_id: &str,
-    ) -> Option<std::collections::HashMap<String, serde_json::Value>> {
-        match db::get_by_field(
+    /// Get the per-thread settings record from the DB, if any.
+    ///
+    /// Returns the whole [`db::Record`] (not just its `data`) so callers that
+    /// need the record id for a follow-up update don't have to re-query.
+    async fn get_thread_setting(&self, ctx: &dyn Context, thread_id: &str) -> Option<db::Record> {
+        db::get_by_field(
             ctx,
             SETTINGS_TABLE,
             "thread_id",
             serde_json::Value::String(thread_id.to_string()),
         )
         .await
-        {
-            Ok(record) => Some(record.data),
-            Err(_) => None,
-        }
+        .ok()
     }
 
     // --- Config ---
@@ -271,24 +238,10 @@ impl LlmBlock {
         if let Some(thread_id) = body.thread_id {
             let existing = self.get_thread_setting(ctx, &thread_id).await;
 
-            if let Some(mut data) = existing {
-                // Update existing record — find record ID
-                let record = match db::get_by_field(
-                    ctx,
-                    SETTINGS_TABLE,
-                    "thread_id",
-                    serde_json::Value::String(thread_id.clone()),
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(e) if e.code == ErrorCode::NotFound => {
-                        return err_internal_no_cause(
-                            "Thread setting vanished between read and update",
-                        )
-                    }
-                    Err(e) => return err_internal("Database error", e),
-                };
+            if let Some(record) = existing {
+                // Update the existing record in place — the single fetch above
+                // already gave us both the id and the current data.
+                let mut data = record.data;
                 if let Some(pb) = body.provider_block {
                     data.insert("provider_block".to_string(), serde_json::json!(pb));
                 }
@@ -556,7 +509,7 @@ impl Block for LlmBlock {
             // startup so chat dispatch finds them without waiting for an
             // admin CRUD write. Non-fatal if it fails — admins can trigger
             // a reload via any provider write.
-            if let Err(e) = routes::reload_provider_service(self, ctx).await {
+            if let Err(e) = routes::reload_provider_service(ctx, &self.provider_svc).await {
                 tracing::warn!("initial provider reload failed: {e}");
             }
         }
