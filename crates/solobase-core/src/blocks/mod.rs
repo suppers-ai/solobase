@@ -14,15 +14,17 @@ pub mod files;
 pub mod helpers;
 #[cfg(feature = "block-legalpages")]
 pub mod legalpages;
-// `feature = "llm"` is the existing flag that pulls in the `ProviderLlmService`
-// (reqwest/stream + tokio). It implies `block-llm` so turning `llm` on alone
-// still registers the block. Turning `block-llm` on without `llm` is allowed
-// for callers that supply their own LLM backend via `SolobaseBuilder::llm_service`
-// (e.g. `BrowserLlmService` in solobase-web) — but currently the block module
-// itself only compiles when `llm` is on because `LlmBlock::new` takes
-// `Arc<ProviderLlmService>`. Future work could split the provider service out
-// to let `block-llm` stand alone; for now they travel together.
-#[cfg(feature = "llm")]
+// The LLM feature block compiles on every target that enables `block-llm`,
+// including wasm32. `LlmBlock` holds `Arc<dyn ProviderAdmin>` (the
+// provider-management seam), not the concrete reqwest/tokio
+// `ProviderLlmService`, so the block module no longer drags the native HTTP
+// stack. The `llm` feature is now just "native provider backend": it gates
+// `providers::ProviderLlmService` (reqwest/stream + tokio) and is implied by
+// nothing the block module itself needs. Browser/CF builds enable `block-llm`
+// without `llm` and supply their own backend via
+// `SolobaseBuilder::llm_service` (e.g. `BrowserLlmService` in solobase-web);
+// the block holds a `NoopProviderAdmin` there.
+#[cfg(feature = "block-llm")]
 pub mod llm;
 #[cfg(feature = "block-messages")]
 pub mod messages;
@@ -88,13 +90,13 @@ pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
     infos.push(fastembed::FastembedBlock::new().info());
 
     // LlmBlock cannot self-register because its constructor takes
-    // Arc<ProviderLlmService>. A throwaway service is enough here since
-    // info() is declarative and doesn't invoke the real provider.
-    #[cfg(feature = "llm")]
+    // Arc<dyn ProviderAdmin>. A no-op provider-admin handle is enough here
+    // since info() is declarative and never drives the provider surface.
+    #[cfg(feature = "block-llm")]
     {
         use std::sync::Arc;
-        let throwaway = Arc::new(llm::providers::ProviderLlmService::new());
-        infos.push(llm::LlmBlock::new(throwaway).info());
+        let provider_admin = Arc::new(llm::provider_admin::NoopProviderAdmin);
+        infos.push(llm::LlmBlock::new(provider_admin).info());
     }
 
     infos
@@ -103,16 +105,21 @@ pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
 /// Register the LLM feature block with the WAFER runtime.
 ///
 /// LlmBlock cannot self-register via `register_static_block!` because its
-/// constructor takes `Arc<ProviderLlmService>`. Call this after the LLM
+/// constructor takes `Arc<dyn ProviderAdmin>`. Call this after the LLM
 /// service router is registered in `SolobaseBuilder::build()`.
-#[cfg(feature = "llm")]
+///
+/// `provider_admin` is the provider-management seam: the concrete
+/// `ProviderLlmService` on native (`feature = "llm"`) or a `NoopProviderAdmin`
+/// on wasm32 (where the browser configures providers inside its own
+/// `BrowserLlmService`).
+#[cfg(feature = "block-llm")]
 pub fn register_llm(
     w: &mut wafer_run::Wafer,
-    provider_llm_svc: std::sync::Arc<llm::providers::ProviderLlmService>,
+    provider_admin: std::sync::Arc<dyn llm::provider_admin::ProviderAdmin>,
 ) -> Result<(), wafer_run::RuntimeError> {
     w.register_block(
         "suppers-ai/llm".to_string(),
-        std::sync::Arc::new(llm::LlmBlock::new(provider_llm_svc)),
+        std::sync::Arc::new(llm::LlmBlock::new(provider_admin)),
     )
 }
 
@@ -149,9 +156,12 @@ pub fn register_auth(wafer: &mut wafer_run::Wafer) -> Result<(), wafer_run::Runt
 /// invocations across `crate::blocks::*` and with the `all_block_infos`
 /// wasm32 fallback above.
 ///
-/// Excludes `suppers-ai/llm` (constructed in `SolobaseBuilder::build` with
-/// `Arc<ProviderLlmService>`) and `suppers-ai/fastembed` (native-only,
-/// requires `feature = "native-embedding"`).
+/// Excludes `suppers-ai/fastembed` (native-only, requires
+/// `feature = "native-embedding"`). `suppers-ai/llm` IS registered here when
+/// `block-llm` is on: the block now holds `Arc<dyn ProviderAdmin>`, so the
+/// wasm32 build installs it with a `NoopProviderAdmin` (the browser's
+/// `BrowserLlmService` on the shared router serves chat; provider CRUD /
+/// discovery are admin-only and degrade to no-ops).
 #[cfg(target_arch = "wasm32")]
 pub fn register_all_static_blocks(
     wafer: &mut wafer_run::Wafer,
@@ -194,6 +204,13 @@ pub fn register_all_static_blocks(
     )?;
     #[cfg(feature = "block-vector")]
     wafer.register_block("suppers-ai/vector", Arc::new(vector::VectorBlock::new()))?;
+
+    // The LLM block runs on wasm32 against a browser-supplied `LlmService`
+    // (registered on the router via `SolobaseBuilder::llm_service`). Provider
+    // CRUD / discovery have no browser surface, so a `NoopProviderAdmin`
+    // stands in for the native HTTP `ProviderLlmService`.
+    #[cfg(feature = "block-llm")]
+    register_llm(wafer, Arc::new(llm::provider_admin::NoopProviderAdmin))?;
 
     Ok(())
 }

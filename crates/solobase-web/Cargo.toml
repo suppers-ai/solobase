@@ -49,6 +49,11 @@ wafer-block = { workspace = true }
 solobase-core = { path = "../solobase-core", default-features = false, features = [
     "block-files",
     "block-legalpages",
+    # `block-llm` (NOT `llm`): registers the `suppers-ai/llm` feature block —
+    # chat UI + thread persistence — on wasm32. It holds a `NoopProviderAdmin`
+    # (no native HTTP `ProviderLlmService`); chat routes through the
+    # browser-supplied `BrowserLlmService` on the shared `wafer-run/llm` router.
+    "block-llm",
     "block-messages",
     "block-products",
     "block-userportal",

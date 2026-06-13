@@ -7,7 +7,7 @@
 //! `suppers_ai__admin__variables` via [`ProviderConfig::key_var`]; the
 //! feature block resolves `key_var` → plaintext `api_key` in
 //! `routes::reload_provider_service` (the single point where stored rows
-//! become live configs) before calling `ProviderLlmService::configure`.
+//! become live configs) before calling `ProviderAdmin::configure`.
 //! This matches the project-wide convention for sensitive config (single
 //! storage location, admin-gated, masked in API responses) and avoids a
 //! `*_encrypted` column name that would not actually be encrypted.

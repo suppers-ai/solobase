@@ -1,5 +1,6 @@
 pub mod migrations;
 pub mod pages;
+pub mod provider_admin;
 pub mod providers;
 pub mod routes;
 pub mod schema;
@@ -13,7 +14,7 @@ use wafer_run::{
     LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
-use self::providers::ProviderLlmService;
+use self::provider_admin::ProviderAdmin;
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
@@ -22,18 +23,24 @@ use crate::blocks::helpers::{
 ///
 /// Chat requests go through `ctx.call_block("wafer-run/llm", ...)` — the
 /// service block registered at app startup with a `MultiBackendLlmService`
-/// router. Provider CRUD, discovery, and the `lifecycle(Init)` configure
-/// step use the held `provider_svc` handle directly.
+/// router. The block never holds a concrete `LlmService`; it only drives the
+/// [`ProviderAdmin`] seam (provider CRUD, discovery, and the
+/// `lifecycle(Init)` configure step) against that same router's in-memory
+/// provider set. Holding `Arc<dyn ProviderAdmin>` rather than the concrete,
+/// `reqwest`/`tokio`-backed `ProviderLlmService` keeps the block buildable on
+/// wasm32 (where a [`NoopProviderAdmin`](provider_admin::NoopProviderAdmin)
+/// stands in and the browser configures providers in `BrowserLlmService`).
 pub struct LlmBlock {
-    /// In-memory provider service the chat dispatcher routes to. The
-    /// providers CRUD endpoints reload it from the DB after each successful
-    /// write so the next chat call sees the updated configuration.
-    pub(crate) provider_svc: Arc<ProviderLlmService>,
+    /// Provider-admin handle for the in-memory router the chat dispatcher
+    /// routes to. The provider CRUD endpoints reload it from the DB after
+    /// each successful write so the next chat call sees the updated
+    /// configuration.
+    pub(crate) provider_admin: Arc<dyn ProviderAdmin>,
 }
 
 impl LlmBlock {
-    pub fn new(provider_svc: Arc<ProviderLlmService>) -> Self {
-        Self { provider_svc }
+    pub fn new(provider_admin: Arc<dyn ProviderAdmin>) -> Self {
+        Self { provider_admin }
     }
 }
 
@@ -499,9 +506,11 @@ impl Block for LlmBlock {
             // Idempotent: if the legacy table is gone, returns immediately.
             // Any per-row failure is logged, not fatal — admins can inspect
             // the log and fix individual rows.
-            if let Err(e) =
-                migrations::legacy_providers::migrate_legacy_providers(ctx, &self.provider_svc)
-                    .await
+            if let Err(e) = migrations::legacy_providers::migrate_legacy_providers(
+                ctx,
+                self.provider_admin.as_ref(),
+            )
+            .await
             {
                 tracing::warn!("legacy provider migration reported error: {e}");
             }
@@ -509,7 +518,8 @@ impl Block for LlmBlock {
             // startup so chat dispatch finds them without waiting for an
             // admin CRUD write. Non-fatal if it fails — admins can trigger
             // a reload via any provider write.
-            if let Err(e) = routes::reload_provider_service(ctx, &self.provider_svc).await {
+            if let Err(e) = routes::reload_provider_service(ctx, self.provider_admin.as_ref()).await
+            {
                 tracing::warn!("initial provider reload failed: {e}");
             }
         }

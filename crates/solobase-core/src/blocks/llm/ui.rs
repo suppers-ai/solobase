@@ -558,7 +558,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::blocks::llm::providers::{config::ProviderProtocol, ProviderLlmService};
+    use crate::blocks::llm::{
+        provider_admin::NoopProviderAdmin, providers::config::ProviderProtocol,
+    };
 
     /// Minimal Context that panics on `call_block` — UI handlers should
     /// never invoke block dispatch when the auth guard rejects first.
@@ -587,7 +589,10 @@ mod tests {
     }
 
     fn stub_block() -> LlmBlock {
-        LlmBlock::new(Arc::new(ProviderLlmService::new()))
+        // The forbidden-path tests never reach the provider-admin surface, so
+        // the no-op handle suffices and keeps the test independent of the
+        // native `llm` provider feature.
+        LlmBlock::new(Arc::new(NoopProviderAdmin))
     }
 
     fn user_msg(path: &str) -> Message {
