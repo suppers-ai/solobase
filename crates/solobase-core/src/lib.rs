@@ -22,7 +22,12 @@ pub mod pipeline;
 pub mod routing;
 pub mod ui;
 
-#[cfg(test)]
+// Exposed to the `tests/` integration-test crates (and any consumer that
+// wants the shared `TestContext` harness) behind the `test-support` feature,
+// in addition to the crate's own `#[cfg(test)]` unit tests. Gating it on a
+// feature — rather than `#[cfg(test)]` only — is what lets the integration
+// tests reuse `TestContext` instead of re-implementing it.
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
 pub use features::FeatureConfig;

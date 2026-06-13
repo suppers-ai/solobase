@@ -156,6 +156,7 @@ impl TestContext {
     }
 
     /// Build a `TestContext` with admin + auth + files migrations applied.
+    #[cfg(feature = "block-files")]
     pub async fn with_files() -> Self {
         let ctx = Self::with_auth().await;
         crate::blocks::files::migrations::apply(&ctx)
@@ -165,6 +166,7 @@ impl TestContext {
     }
 
     /// Build a `TestContext` with admin + auth + userportal migrations applied.
+    #[cfg(feature = "block-userportal")]
     pub async fn with_userportal() -> Self {
         let ctx = Self::with_auth().await;
         crate::blocks::userportal::migrations::apply(&ctx)
@@ -174,6 +176,7 @@ impl TestContext {
     }
 
     /// Build a `TestContext` with admin + auth + vector migrations applied.
+    #[cfg(feature = "block-vector")]
     pub async fn with_vector() -> Self {
         let ctx = Self::with_auth().await;
         crate::blocks::vector::migrations::apply(&ctx)
@@ -189,6 +192,7 @@ impl TestContext {
     /// `current_hash` row (the production ordering, enforced explicitly here).
     /// Products' schema does not depend on auth, so auth migrations are
     /// skipped.
+    #[cfg(feature = "block-products")]
     pub async fn with_products() -> Self {
         let ctx = Self::with_admin().await;
         crate::blocks::products::migrations::apply(&ctx)
