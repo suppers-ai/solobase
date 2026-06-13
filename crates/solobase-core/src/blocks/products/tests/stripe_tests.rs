@@ -238,10 +238,7 @@ async fn webhook_rejects_tampered_payload() {
         .as_secs();
 
     let signed = format!("{}.{}", timestamp, String::from_utf8_lossy(&original_bytes));
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
-    mac.update(signed.as_bytes());
-    let sig_bytes: [u8; 32] = mac.finalize().into_bytes().into();
+    let sig_bytes = primitives::hmac_sha256(WEBHOOK_SECRET.as_bytes(), signed.as_bytes());
     let sig_hex = hex_encode(&sig_bytes);
     let sig_header = format!("t={},v1={}", timestamp, sig_hex);
 
