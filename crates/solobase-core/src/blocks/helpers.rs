@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use wafer_core::clients::database::Record;
 use wafer_run::{
     ErrorCode, MetaEntry, OutputStream, WaferError, META_RESP_CONTENT_TYPE,
     META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
 };
+
+/// Hashing/hex helpers re-exported from `wafer_block` (the single canonical
+/// implementation). Re-exported here so the many `helpers::{hex_encode,
+/// sha256, sha256_hex}` call sites across the blocks keep one import path.
+pub use wafer_run::{hex_encode, sha256, sha256_hex};
 
 /// Current UTC time as RFC 3339 string.
 pub fn now_rfc3339() -> String {
@@ -114,19 +118,6 @@ pub fn stamp_updated(data: &mut std::collections::HashMap<String, serde_json::Va
     );
 }
 
-/// Encode bytes as lowercase hex string.
-pub fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        // SAFETY: writing to a String via fmt::Write never fails (the only
-        // error variant in fmt::Error is for formatter errors that String
-        // doesn't surface).
-        let _ = write!(s, "{:02x}", b);
-    }
-    s
-}
-
 /// Check if the current user has admin role from the message metadata.
 pub fn is_admin(msg: &wafer_run::Message) -> bool {
     msg.get_meta("auth.user_roles")
@@ -170,18 +161,6 @@ pub fn forward_auth_meta(msg: &mut wafer_run::Message, original: &wafer_run::Mes
             msg.set_meta(key, value);
         }
     }
-}
-
-/// Compute SHA-256 and return as hex string. Used for deterministic hashing (API keys, etc.).
-pub fn sha256_hex(data: &[u8]) -> String {
-    hex_encode(&sha256(data))
-}
-
-/// Compute SHA-256 hash.
-pub fn sha256(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hasher.finalize().into()
 }
 
 /// Percent-encode a string for use as a URL path segment. Encodes everything
