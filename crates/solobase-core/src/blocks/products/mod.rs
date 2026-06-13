@@ -1,6 +1,5 @@
 mod handlers;
 mod migrations;
-pub(crate) mod models;
 mod pages;
 mod pricing;
 mod purchase;
