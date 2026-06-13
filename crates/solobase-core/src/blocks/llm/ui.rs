@@ -25,48 +25,8 @@ use super::{
 };
 use crate::{
     blocks::helpers::{self, err_internal},
-    ui::{
-        self, components, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, components},
 };
-
-// ---------------------------------------------------------------------------
-// Navigation
-// ---------------------------------------------------------------------------
-
-/// Wrap content in the admin shell for LLM admin pages (providers, models).
-fn llm_page(
-    title: &'static str,
-    config: &SiteConfig,
-    path: &str,
-    user: Option<&UserInfo>,
-    crumb_label: &'static str,
-    content: Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config,
-        title,
-        nav: &groups,
-        user,
-        current_path: path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
-}
 
 // ---------------------------------------------------------------------------
 // Providers page
@@ -84,10 +44,6 @@ pub(super) async fn providers_page(
     if !helpers::is_admin(msg) {
         return ui::forbidden_response(msg);
     }
-
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
 
     // Load all provider rows (both enabled and disabled) — the admin UI
     // wants the full picture, not just the in-flight set.
@@ -121,15 +77,13 @@ pub(super) async fn providers_page(
         }
     };
 
-    llm_page(
-        "LLM Providers",
-        &site_config,
-        &path,
-        user.as_ref(),
-        "Providers",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("LLM Providers", ui::NavKind::Admin, "Providers"),
+        content,
     )
+    .await
 }
 
 /// Render the add-provider form. Separated out so the top-level page
@@ -362,10 +316,6 @@ pub(super) async fn models_page(
         return ui::forbidden_response(msg);
     }
 
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
     let models = match wafer_core::clients::llm::list_models(ctx).await {
         Ok(m) => m,
         Err(e) => return err_internal("llm list_models failed", e.message),
@@ -381,15 +331,13 @@ pub(super) async fn models_page(
         (render_models_table(&models))
     };
 
-    llm_page(
-        "LLM Models",
-        &site_config,
-        &path,
-        user.as_ref(),
-        "Models",
-        content,
+    ui::shell_page(
+        ctx,
         msg,
+        ui::Shell::simple("LLM Models", ui::NavKind::Admin, "Models"),
+        content,
     )
+    .await
 }
 
 /// Render the models table. Pure function of the typed `ModelInfo` slice so

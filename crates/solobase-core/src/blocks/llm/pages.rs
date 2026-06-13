@@ -18,11 +18,7 @@ use crate::{
     // without pulling in the messages block module — runtime WRAP grants
     // declared by `MessagesBlock` still authorize the cross-block read.
     messages_schema::{CONTEXTS_TABLE, ENTRIES_TABLE},
-    ui::{
-        components, icons, nav_groups,
-        shell::{Crumb, Topbar},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, components, icons, shell::Crumb},
 };
 
 // ---------------------------------------------------------------------------
@@ -107,8 +103,6 @@ fn render_page_body(
 /// composer / right rail). The optional thread id from the URL drives
 /// composer enablement and message preloading.
 pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
     let thread_id = parse_thread_id(&path);
 
@@ -190,24 +184,19 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
     };
-    let topbar = Topbar {
-        crumbs,
-        primary_action: None,
-        subtitle: Some("Chat with a configured provider or local model"),
-        show_palette: true,
-    };
-
-    let groups = nav_groups::admin();
-    crate::ui::Page {
-        config: &site_config,
-        title: display_title,
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: &path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: display_title,
+            nav: ui::NavKind::Admin,
+            crumbs,
+            subtitle: Some("Chat with a configured provider or local model"),
+            primary_action: None,
+        },
+        content,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -391,10 +380,6 @@ fn render_right_rail(models: &[ModelInfo], default_model: &str) -> Markup {
 // ---------------------------------------------------------------------------
 
 pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
     let default_provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
@@ -514,26 +499,22 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: "Settings",
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: Some("LLM defaults and provider routing"),
-        show_palette: true,
-    };
-    crate::ui::Page {
-        config: &config,
-        title: "LLM Settings",
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: &path,
-        topbar,
-        body: content,
-    }
-    .response(msg)
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: "LLM Settings",
+            nav: ui::NavKind::Admin,
+            crumbs: vec![Crumb {
+                label: "Settings",
+                href: None,
+            }],
+            subtitle: Some("LLM defaults and provider routing"),
+            primary_action: None,
+        },
+        content,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
