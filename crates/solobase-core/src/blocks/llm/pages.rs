@@ -7,7 +7,7 @@
 
 use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::{config, database as db};
+use wafer_core::clients::{config, database as db, llm::ModelInfo};
 use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{DEFAULT_MODEL_VAR, DEFAULT_PROVIDER, DEFAULT_PROVIDER_VAR, SETTINGS_TABLE};
@@ -52,7 +52,7 @@ fn parse_thread_id(path: &str) -> Option<&str> {
 fn render_page_body(
     threads: &[db::Record],
     entries: &[db::Record],
-    models: &[serde_json::Value],
+    models: &[ModelInfo],
     default_model: &str,
     thread_id: Option<&str>,
     llm_chat_js_url: &str,
@@ -343,7 +343,7 @@ fn render_composer(thread_id: Option<&str>) -> Markup {
 /// model loading progress container, and a link to the LLM settings
 /// page. Replaces the inline above-messages model strip from the old
 /// chat_page handler.
-fn render_right_rail(models: &[serde_json::Value], default_model: &str) -> Markup {
+fn render_right_rail(models: &[ModelInfo], default_model: &str) -> Markup {
     html! {
         div style="display:flex;flex-direction:column;gap:1rem;padding:0.5rem" {
             div {
@@ -543,24 +543,18 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 /// Load the aggregated list of available models from the `wafer-run/llm`
 /// service block.
 ///
-/// Mirrors the logic of [`super::routes::list_models`] so page rendering can
-/// inline the picker options without an extra HTTP roundtrip. The service
-/// block returns a bare `Vec<ModelInfo>` whose JSON fields are `backend_id`,
-/// `model_id`, `display_name`, `capabilities`.
+/// One typed call to `wafer_core::clients::llm::list_models(ctx)` — page
+/// rendering inlines the picker options from the returned `Vec<ModelInfo>`
+/// without an HTTP roundtrip or a JSON re-encode.
 ///
 /// Returns an empty vec on any failure — the picker falls back to the
 /// "Default (remote)" option and the user can still send a request.
-async fn load_models(ctx: &dyn Context) -> Vec<serde_json::Value> {
-    // The picker keys off `model_id` / `display_name` / `backend_id`. A
-    // dispatch failure is treated as "no models" so the picker still renders —
-    // the user can fall back to the default remote option.
-    let Ok(models) = wafer_core::clients::llm::list_models(ctx).await else {
-        return vec![];
-    };
-    models
-        .into_iter()
-        .map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null))
-        .collect()
+async fn load_models(ctx: &dyn Context) -> Vec<ModelInfo> {
+    // A dispatch failure is treated as "no models" so the picker still renders
+    // — the user can fall back to the default remote option.
+    wafer_core::clients::llm::list_models(ctx)
+        .await
+        .unwrap_or_default()
 }
 
 /// Render the `<option>` list for the remote-model picker.
@@ -571,33 +565,25 @@ async fn load_models(ctx: &dyn Context) -> Vec<serde_json::Value> {
 /// `backend_id` is appended in parens when non-empty so users can disambiguate
 /// the same model id hosted on different backends.
 ///
-/// Entries missing both `model_id` and `id` (legacy key) are skipped — the
-/// resulting `<option value="">` would collide with the "Default (remote)"
-/// entry and pick the wrong model on submit.
-fn render_model_picker(models: &[serde_json::Value], default_model: &str) -> Markup {
+/// Entries with an empty `model_id` are skipped — the resulting
+/// `<option value="">` would collide with the "Default (remote)" entry and
+/// pick the wrong model on submit.
+fn render_model_picker(models: &[ModelInfo], default_model: &str) -> Markup {
     html! {
         @for m in models {
-            @let backend_id = m
-                .get("backend_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            // Accept `model_id` (current `ModelInfo` shape) or `id` (legacy).
-            @let model_id = m
-                .get("model_id")
-                .or_else(|| m.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            @let backend_id = m.backend_id.as_str();
+            @let model_id = m.model_id.as_str();
             @if !model_id.is_empty() {
                 @let value = if backend_id.is_empty() {
                     model_id.to_string()
                 } else {
                     format!("{backend_id}:{model_id}")
                 };
-                @let display = m
-                    .get("display_name")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or(model_id);
+                @let display = if m.display_name.is_empty() {
+                    model_id
+                } else {
+                    m.display_name.as_str()
+                };
                 option
                     value=(value)
                     selected[value == default_model]
@@ -632,22 +618,20 @@ mod tests {
         );
     }
 
+    /// Build a `ModelInfo` for picker tests. Capabilities are irrelevant to
+    /// the picker, so they default.
+    fn mi(backend_id: &str, model_id: &str, display_name: &str) -> ModelInfo {
+        ModelInfo::new(backend_id, model_id, display_name)
+    }
+
     /// A typical aggregated `Vec<ModelInfo>` payload renders one option per
     /// entry with the `"{backend_id}:{model_id}"` value and `display_name`
     /// label.
     #[test]
     fn render_model_picker_typical_list_emits_one_option_per_model() {
         let models = vec![
-            serde_json::json!({
-                "backend_id": "openai",
-                "model_id": "gpt-4o",
-                "display_name": "GPT-4o",
-            }),
-            serde_json::json!({
-                "backend_id": "anthropic",
-                "model_id": "claude-3-5-sonnet",
-                "display_name": "Claude 3.5 Sonnet",
-            }),
+            mi("openai", "gpt-4o", "GPT-4o"),
+            mi("anthropic", "claude-3-5-sonnet", "Claude 3.5 Sonnet"),
         ];
         let markup = render_model_picker(&models, "anthropic:claude-3-5-sonnet");
         let html = markup.into_string();
@@ -682,41 +666,31 @@ mod tests {
         );
     }
 
-    /// Malformed entries — missing both `model_id` and `id`, or with a blank
-    /// `model_id` — must be skipped rather than rendered as a junk
-    /// `value=""` option (which would collide with the "Default (remote)"
-    /// entry rendered alongside). Missing `display_name` falls back to the
-    /// model id. Missing `backend_id` renders a value without the `:`
-    /// prefix and no parenthesized suffix.
+    /// Entries with a blank `model_id` must be skipped rather than rendered as
+    /// a junk `value=""` option (which would collide with the "Default
+    /// (remote)" entry rendered alongside). Empty `display_name` falls back to
+    /// the model id. Empty `backend_id` renders a value without the `:` prefix
+    /// and no parenthesized suffix.
     #[test]
     fn render_model_picker_skips_malformed_entries() {
         let models = vec![
-            // Missing model_id entirely — skip.
-            serde_json::json!({ "backend_id": "openai", "display_name": "Orphan" }),
             // Blank model_id — skip.
-            serde_json::json!({ "backend_id": "openai", "model_id": "" }),
-            // Legacy `id` field (pre-Task-16 shape) is accepted as a fallback.
-            serde_json::json!({ "backend_id": "legacy", "id": "legacy-model" }),
-            // Missing display_name — label falls back to model_id.
-            serde_json::json!({ "backend_id": "openai", "model_id": "gpt-4o-mini" }),
-            // Missing backend_id — value has no `:` prefix, no parens suffix.
-            serde_json::json!({ "model_id": "solo-model", "display_name": "Solo" }),
+            mi("openai", "", "Orphan"),
+            // Empty display_name — label falls back to model_id.
+            mi("openai", "gpt-4o-mini", ""),
+            // Empty backend_id — value has no `:` prefix, no parens suffix.
+            mi("", "solo-model", "Solo"),
         ];
         let markup = render_model_picker(&models, "");
         let html = markup.into_string();
 
-        // Three valid entries out of five.
+        // Two valid entries out of three (the blank-model_id one is skipped).
         assert_eq!(
             html.matches("<option").count(),
-            3,
-            "expected 3 <option> tags, got: {html}"
+            2,
+            "expected 2 <option> tags, got: {html}"
         );
-        // Legacy `id` fallback wired up correctly.
-        assert!(
-            html.contains(r#"value="legacy:legacy-model""#),
-            "expected legacy-id fallback to produce backend:id value: {html}"
-        );
-        // Missing display_name falls back to model id as the visible label.
+        // Empty display_name falls back to model id as the visible label.
         assert!(
             html.contains(r#"value="openai:gpt-4o-mini""#),
             "expected openai:gpt-4o-mini value: {html}"
@@ -817,7 +791,7 @@ mod tests {
 
     #[test]
     fn render_right_rail_contains_picker_progress_settings() {
-        let models: Vec<serde_json::Value> = vec![];
+        let models: Vec<ModelInfo> = vec![];
         let html = render_right_rail(&models, "").into_string();
         assert!(html.contains(r#"id="model-picker""#));
         assert!(html.contains(r#"id="model-progress-container""#));

@@ -22,10 +22,8 @@ use wafer_run::{
 
 use super::{
     messages_create, messages_list,
-    providers::{
-        config::{ProviderConfig, ProviderProtocol},
-        ProviderLlmService,
-    },
+    provider_admin::ProviderAdmin,
+    providers::config::{ProviderConfig, ProviderProtocol},
     schema::{config_to_row, row_to_config, TABLE as PROVIDERS_TABLE},
     LlmBlock, DEFAULT_PROVIDER,
 };
@@ -102,9 +100,9 @@ fn history_to_messages(history: &[serde_json::Value]) -> Vec<ChatMessage> {
 }
 
 /// Resolve a legacy `suppers-ai/provider-llm` default into a concrete
-/// backend_id by reading the in-memory `ProviderLlmService` cache (loaded
-/// at `Init` and refreshed on every provider CRUD write). Returns `Err` if
-/// no enabled provider is configured.
+/// backend_id by reading the in-memory provider cache (loaded at `Init` and
+/// refreshed on every provider CRUD write) via the [`ProviderAdmin`] handle.
+/// Returns `Err` if no enabled provider is configured.
 fn resolve_backend_id(block: &LlmBlock, provider_block: &str) -> Result<String, &'static str> {
     if provider_block != LEGACY_PROVIDER_BLOCK {
         // `provider_block` is the backend_id directly (non-legacy path).
@@ -112,7 +110,7 @@ fn resolve_backend_id(block: &LlmBlock, provider_block: &str) -> Result<String, 
     }
 
     block
-        .provider_svc
+        .provider_admin
         .providers_snapshot()
         .into_iter()
         .find(|cfg| cfg.enabled)
@@ -412,7 +410,7 @@ fn provider_to_json(id: &str, cfg: &ProviderConfig) -> serde_json::Value {
 }
 
 /// Reload all enabled providers from the DB and push the snapshot into the
-/// in-memory `ProviderLlmService`.
+/// in-memory provider router via [`ProviderAdmin::configure`].
 ///
 /// This is the single choke point where stored rows become live
 /// `ProviderConfig`s: rows are decoded via [`row_to_config`] (which never
@@ -423,14 +421,14 @@ fn provider_to_json(id: &str, cfg: &ProviderConfig) -> serde_json::Value {
 ///
 /// Shared by the provider CRUD handlers, `LlmBlock::lifecycle(Init)`, and
 /// the one-shot legacy-provider migration (which is why it takes the
-/// service handle rather than the whole block).
+/// provider-admin handle rather than the whole block).
 ///
 /// Errors are returned to the caller; callers translate to 500. We do not
 /// silently swallow — a failure here means the in-memory service is stale
 /// and the admin needs to know.
 pub(in crate::blocks::llm) async fn reload_provider_service(
     ctx: &dyn Context,
-    provider_svc: &ProviderLlmService,
+    provider_admin: &dyn ProviderAdmin,
 ) -> Result<(), String> {
     let records = db::list_all(ctx, PROVIDERS_TABLE, vec![])
         .await
@@ -450,7 +448,7 @@ pub(in crate::blocks::llm) async fn reload_provider_service(
             }
         }
     }
-    provider_svc.configure(configs);
+    provider_admin.configure(configs);
     Ok(())
 }
 
@@ -565,7 +563,7 @@ pub(super) async fn create_provider(
         Err(e) => return err_internal("Database error", e),
     };
 
-    if let Err(e) = reload_provider_service(ctx, &block.provider_svc).await {
+    if let Err(e) = reload_provider_service(ctx, block.provider_admin.as_ref()).await {
         return err_internal("reload_provider_service failed", e);
     }
 
@@ -643,7 +641,7 @@ pub(super) async fn update_provider(
         Err(e) => return err_internal("Database error", e),
     };
 
-    if let Err(e) = reload_provider_service(ctx, &block.provider_svc).await {
+    if let Err(e) = reload_provider_service(ctx, block.provider_admin.as_ref()).await {
         return err_internal("reload_provider_service failed", e);
     }
 
@@ -671,7 +669,7 @@ pub(super) async fn delete_provider(
         Err(e) => return err_internal("Database error", e),
     }
 
-    if let Err(e) = reload_provider_service(ctx, &block.provider_svc).await {
+    if let Err(e) = reload_provider_service(ctx, block.provider_admin.as_ref()).await {
         return err_internal("reload_provider_service failed", e);
     }
 
@@ -826,11 +824,11 @@ pub(super) async fn discover_models(
     // looks up by name, and the service may be empty if the process just
     // started or the row is disabled (and so was excluded from the last
     // configure call).
-    if let Err(e) = reload_provider_service(ctx, &block.provider_svc).await {
+    if let Err(e) = reload_provider_service(ctx, block.provider_admin.as_ref()).await {
         return err_internal("reload_provider_service failed", e);
     }
 
-    let models = match block.provider_svc.discover_models(&cfg.name).await {
+    let models = match block.provider_admin.discover_models(&cfg.name).await {
         Ok(m) => m,
         Err(e) => return err_internal("discover_models failed", format!("{e:?}")),
     };
@@ -842,7 +840,7 @@ pub(super) async fn discover_models(
         return err_internal("Database error", e);
     }
 
-    if let Err(e) = reload_provider_service(ctx, &block.provider_svc).await {
+    if let Err(e) = reload_provider_service(ctx, block.provider_admin.as_ref()).await {
         return err_internal("reload_provider_service failed", e);
     }
 
@@ -860,7 +858,7 @@ mod tests {
     use wafer_run::{context::Context, streams::output::TerminalNotResponse, ErrorCode};
 
     use super::*;
-    use crate::blocks::llm::providers::ProviderLlmService;
+    use crate::blocks::llm::{provider_admin::NoopProviderAdmin, providers::ProviderLlmService};
 
     /// Minimal Context that panics on `call_block` — the bad-request test
     /// must reject before any block dispatch.
@@ -889,7 +887,9 @@ mod tests {
     }
 
     fn stub_block() -> LlmBlock {
-        LlmBlock::new(Arc::new(ProviderLlmService::new()))
+        // The parse-error tests reject before reaching the provider-admin
+        // surface, so the no-op handle suffices.
+        LlmBlock::new(Arc::new(NoopProviderAdmin))
     }
 
     #[tokio::test]

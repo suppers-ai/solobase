@@ -26,10 +26,8 @@ use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, ErrorCode};
 
 use super::super::{
-    providers::{
-        config::{ProviderConfig, ProviderProtocol},
-        ProviderLlmService,
-    },
+    provider_admin::ProviderAdmin,
+    providers::config::{ProviderConfig, ProviderProtocol},
     schema::{config_to_row, parse_enabled_field, parse_models_field, TABLE as PROVIDERS_TABLE},
 };
 
@@ -102,11 +100,12 @@ pub(in crate::blocks::llm) fn map_legacy_row(
 ///
 /// Partial-failure safe: a single row that fails to insert is logged (not
 /// fatal). The legacy table is only dropped after every row was attempted.
-/// After a successful migration, the `ProviderLlmService` is refreshed from
-/// the new table so chat works immediately without a restart.
+/// After a successful migration, the in-memory provider router is refreshed
+/// from the new table (via [`ProviderAdmin`]) so chat works immediately
+/// without a restart.
 pub(in crate::blocks::llm) async fn migrate_legacy_providers(
     ctx: &dyn Context,
-    provider_svc: &ProviderLlmService,
+    provider_admin: &dyn ProviderAdmin,
 ) -> Result<(), String> {
     // Step 1: read the legacy table. NotFound (table doesn't exist) = already
     // migrated — return cleanly. All other errors bubble up to the caller.
@@ -155,13 +154,13 @@ pub(in crate::blocks::llm) async fn migrate_legacy_providers(
     // Step 3: drop the legacy table so subsequent boots skip migration.
     drop_legacy_table(ctx).await;
 
-    // Step 4: refresh the in-memory ProviderLlmService from the new table so
+    // Step 4: refresh the in-memory provider router from the new table so
     // chat routes pick up the migrated providers without a restart. Shares
     // the routes-module reload — the single place where rows become live
     // configs (including `key_var` → `api_key` resolution). Non-fatal: the
     // rows are migrated either way and the Init-time reload that follows
     // this migration retries.
-    if let Err(e) = super::super::routes::reload_provider_service(ctx, provider_svc).await {
+    if let Err(e) = super::super::routes::reload_provider_service(ctx, provider_admin).await {
         tracing::warn!("post-migration provider reload failed: {e}");
     }
 

@@ -15,12 +15,11 @@
 //! function directly (tests, future router changes).
 
 use maud::{html, Markup};
-use wafer_core::clients::database as db;
+use wafer_core::clients::{database as db, llm::ModelInfo};
 use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{
     providers::config::ProviderConfig,
-    routes,
     schema::{row_to_config, TABLE as PROVIDERS_TABLE},
     LlmBlock,
 };
@@ -348,13 +347,14 @@ fn provider_row(id: &str, cfg: &ProviderConfig) -> Markup {
 
 /// `GET /b/llm/models` — admin aggregated-models table.
 ///
-/// Calls the block's own `list_models` handler directly (Option A for the
-/// data load) then renders a row per `ModelInfo`. Each row's status cell
-/// fetches from `/b/llm/api/models/{backend}/{model}/status` via
-/// `hx-get` + `hx-trigger="load"` — Option B for per-row status so a slow
-/// backend never blocks the first paint.
+/// Loads the aggregated model list with one typed call to
+/// `wafer_core::clients::llm::list_models(ctx)` (the same path `pages.rs`
+/// uses) — no in-process self-HTTP hop through `routes::list_models` and no
+/// JSON-envelope reparse. Each row's status cell fetches from
+/// `/b/llm/api/models/{backend}/{model}/status` via `hx-get` +
+/// `hx-trigger="load"` so a slow backend never blocks the first paint.
 pub(super) async fn models_page(
-    block: &LlmBlock,
+    _block: &LlmBlock,
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
@@ -366,26 +366,10 @@ pub(super) async fn models_page(
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
-    // Fetch the aggregated model list via the block's own route handler.
-    // That handler wraps `wafer-run/llm`'s `list_models` + returns the
-    // `{ "models": [...] }` envelope we consume here.
-    let out = routes::list_models(block, ctx, msg).await;
-    let buffered = match out.collect_buffered().await {
-        Ok(b) => b,
-        Err(e) => {
-            return err_internal("list_models failed", format!("{e:?}"));
-        }
+    let models = match wafer_core::clients::llm::list_models(ctx).await {
+        Ok(m) => m,
+        Err(e) => return err_internal("llm list_models failed", e.message),
     };
-    let envelope: serde_json::Value = match serde_json::from_slice(&buffered.body) {
-        Ok(v) => v,
-        Err(e) => return err_internal("decode models envelope", e),
-    };
-    let empty_vec: Vec<serde_json::Value> = Vec::new();
-    let models: &[serde_json::Value] = envelope
-        .get("models")
-        .and_then(|v| v.as_array())
-        .map(|v| v.as_slice())
-        .unwrap_or(&empty_vec);
 
     let content = html! {
         (components::page_header(
@@ -394,7 +378,7 @@ pub(super) async fn models_page(
             None,
         ))
 
-        (render_models_table(models))
+        (render_models_table(&models))
     };
 
     llm_page(
@@ -408,10 +392,9 @@ pub(super) async fn models_page(
     )
 }
 
-/// Render the models table. Pure function of the `ModelInfo` JSON list
-/// so the shape can be tested against a mock payload without constructing
-/// a `Context`.
-fn render_models_table(models: &[serde_json::Value]) -> Markup {
+/// Render the models table. Pure function of the typed `ModelInfo` slice so
+/// the shape can be tested without constructing a `Context`.
+fn render_models_table(models: &[ModelInfo]) -> Markup {
     html! {
         @if models.is_empty() {
             div .card {
@@ -449,37 +432,20 @@ fn render_models_table(models: &[serde_json::Value]) -> Markup {
 /// them for every row and let the server-side handler 404 / no-op for
 /// backends that don't support it — this keeps the UI uniform without
 /// hardcoding a local-backend allowlist in the renderer.
-fn model_row(model: &serde_json::Value) -> Markup {
-    let backend_id = model
-        .get("backend_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let model_id = model.get("model_id").and_then(|v| v.as_str()).unwrap_or("");
-    let display_name = model
-        .get("display_name")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(model_id);
+fn model_row(model: &ModelInfo) -> Markup {
+    let backend_id = model.backend_id.as_str();
+    let model_id = model.model_id.as_str();
+    let display_name = if model.display_name.is_empty() {
+        model_id
+    } else {
+        model.display_name.as_str()
+    };
 
-    // Capability flags (all optional — the server returns whatever the
-    // backend exposes; we tolerate missing fields by rendering nothing).
-    let caps = model.get("capabilities");
-    let cap_streaming = caps
-        .and_then(|c| c.get("streaming"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cap_tools = caps
-        .and_then(|c| c.get("tools"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cap_vision = caps
-        .and_then(|c| c.get("vision"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cap_json = caps
-        .and_then(|c| c.get("json_mode"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let caps = &model.capabilities;
+    let cap_streaming = caps.streaming;
+    let cap_tools = caps.tools;
+    let cap_vision = caps.vision;
+    let cap_json = caps.json_mode;
 
     let status_url = format!("/b/llm/api/models/{backend_id}/{model_id}/status");
     let load_url = format!("/b/llm/api/models/{backend_id}/{model_id}/load");
@@ -558,7 +524,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::blocks::llm::providers::{config::ProviderProtocol, ProviderLlmService};
+    use crate::blocks::llm::{
+        provider_admin::NoopProviderAdmin, providers::config::ProviderProtocol,
+    };
 
     /// Minimal Context that panics on `call_block` — UI handlers should
     /// never invoke block dispatch when the auth guard rejects first.
@@ -587,7 +555,10 @@ mod tests {
     }
 
     fn stub_block() -> LlmBlock {
-        LlmBlock::new(Arc::new(ProviderLlmService::new()))
+        // The forbidden-path tests never reach the provider-admin surface, so
+        // the no-op handle suffices and keeps the test independent of the
+        // native `llm` provider feature.
+        LlmBlock::new(Arc::new(NoopProviderAdmin))
     }
 
     fn user_msg(path: &str) -> Message {
@@ -705,17 +676,19 @@ mod tests {
 
     #[test]
     fn render_models_table_wires_status_and_actions() {
-        let models = vec![serde_json::json!({
-            "backend_id": "openai-main",
-            "model_id": "gpt-4o",
-            "display_name": "GPT-4o",
-            "capabilities": {
-                "streaming": true,
-                "tools": true,
-                "vision": false,
-                "json_mode": true,
-            }
-        })];
+        use wafer_core::clients::llm::ModelCapabilities;
+        let models = vec![ModelInfo {
+            backend_id: "openai-main".into(),
+            model_id: "gpt-4o".into(),
+            display_name: "GPT-4o".into(),
+            capabilities: ModelCapabilities {
+                streaming: true,
+                tools: true,
+                vision: false,
+                json_mode: true,
+                ..ModelCapabilities::default()
+            },
+        }];
         let m = render_models_table(&models).into_string();
 
         // Display-name surfaced; model_id also rendered so admins can copy.

@@ -484,10 +484,27 @@ impl SolobaseBuilder {
         crate::blocks::register_auth(&mut wafer)?;
 
         // 6b. Register LlmBlock — it can't self-register via register_static_block!
-        //     because its constructor takes Arc<ProviderLlmService>. All other solobase
+        //     because its constructor takes Arc<dyn ProviderAdmin>. All other solobase
         //     blocks self-register via register_static_block! at link time.
-        #[cfg(feature = "llm")]
-        crate::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
+        //
+        //     On wasm32 the block is registered inside `register_all_static_blocks`
+        //     above (with a `NoopProviderAdmin`); here we cover the native path.
+        //     With `feature = "llm"` the concrete `ProviderLlmService` (already on
+        //     the router under `"provider"`) doubles as the provider-admin handle;
+        //     a native `block-llm`-without-`llm` build falls back to the no-op.
+        #[cfg(all(feature = "block-llm", not(target_arch = "wasm32")))]
+        {
+            use crate::blocks::llm::provider_admin::ProviderAdmin;
+            // `provider_llm_svc` is already registered on the router under
+            // `"provider"` (it was cloned there); this is its last use, so move
+            // rather than clone it into the provider-admin handle.
+            #[cfg(feature = "llm")]
+            let provider_admin: Arc<dyn ProviderAdmin> = provider_llm_svc;
+            #[cfg(not(feature = "llm"))]
+            let provider_admin: Arc<dyn ProviderAdmin> =
+                Arc::new(crate::blocks::llm::provider_admin::NoopProviderAdmin);
+            crate::blocks::register_llm(&mut wafer, provider_admin)?;
+        }
 
         // 7. Extra platform-specific blocks
         for (name, block) in self.extra_blocks {

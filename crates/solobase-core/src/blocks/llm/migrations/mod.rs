@@ -10,8 +10,8 @@
 //! The sibling [`legacy_providers`] module hosts the one-shot row-copy
 //! migration from the retired `suppers_ai__provider_llm__providers` table
 //! into the new `suppers_ai__llm__providers` table. It is invoked
-//! separately from `LlmBlock::lifecycle(Init)` because it needs a handle
-//! to the in-memory `ProviderLlmService` (to refresh it post-copy).
+//! separately from `LlmBlock::lifecycle(Init)` because it needs the block's
+//! `ProviderAdmin` handle (to refresh the in-memory provider set post-copy).
 
 pub(in crate::blocks::llm) mod legacy_providers;
 

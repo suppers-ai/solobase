@@ -24,7 +24,7 @@ fn all_zero_arg_blocks_auto_register() {
     // Zero-arg blocks. `vector` is unconditionally registered (its
     // `pub mod vector;` in blocks/mod.rs has no cfg gate). `fastembed` is
     // feature-gated under `native-embedding` and checked in the test below.
-    // `llm` requires `Arc<ProviderLlmService>` and `auth` (framework) wraps
+    // `llm` requires `Arc<dyn ProviderAdmin>` and `auth` (framework) wraps
     // `Arc<dyn AuthService>`; both are checked separately.
     let always_on = [
         "suppers-ai/admin",
@@ -46,11 +46,11 @@ fn all_zero_arg_blocks_auto_register() {
         );
     }
 
-    // LlmBlock requires Arc<ProviderLlmService>; can't auto-register.
+    // LlmBlock requires Arc<dyn ProviderAdmin>; can't auto-register.
     // It's only present once SolobaseBuilder::build() calls register_llm().
     assert!(
         !w.has_block("suppers-ai/llm"),
-        "LlmBlock should not be auto-registered (constructor needs ProviderLlmService)"
+        "LlmBlock should not be auto-registered (constructor needs ProviderAdmin)"
     );
 
     // The framework AuthBlock wraps `Arc<dyn AuthService>`; can't
