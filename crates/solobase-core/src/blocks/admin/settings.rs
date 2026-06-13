@@ -94,17 +94,11 @@ pub mod block_settings {
     }
 }
 
-/// Per-block enable/config settings (one row per block).
-///
-/// `pub` (not `pub(crate)`) because consumers outside `solobase-core`
-/// reference this table by name.
-pub const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
-
-/// Admin-managed configuration variables (key/value/scope/sensitive).
-///
-/// `pub` (not `pub(crate)`) because consumers outside `solobase-core`
-/// reference this table by name.
-pub const VARIABLES_TABLE: &str = "suppers_ai__admin__variables";
+// Table-name constants live in the leaf `crate::admin_schema` module (the
+// single source of truth, mirroring `messages_schema`); re-exported here so
+// existing `settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE}` and the nested
+// `super::BLOCK_SETTINGS_TABLE` references keep resolving.
+pub use crate::admin_schema::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();

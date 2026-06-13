@@ -7,8 +7,11 @@ use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
 /// Audit log entries (admin-initiated mutations).
 pub(crate) const AUDIT_LOGS_TABLE: &str = "suppers_ai__admin__audit_logs";
 
-/// HTTP request log entries (one row per inbound request).
-pub(crate) const REQUEST_LOGS_TABLE: &str = "suppers_ai__admin__request_logs";
+// `REQUEST_LOGS_TABLE` lives in the leaf `crate::admin_schema` module (read by
+// the request pipeline without depending on the admin block); re-exported here
+// so existing `logs::REQUEST_LOGS_TABLE` / `admin::REQUEST_LOGS_TABLE`
+// references keep resolving.
+pub(crate) use crate::admin_schema::REQUEST_LOGS_TABLE;
 
 /// Storage access log entries (one row per object read/write).
 pub(crate) const STORAGE_ACCESS_LOGS_TABLE: &str = "suppers_ai__admin__storage_access_logs";
