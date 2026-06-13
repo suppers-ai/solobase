@@ -10,7 +10,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, Message, OutputStream};
 
-use super::SETTINGS_TABLE;
+use super::{DEFAULT_MODEL_VAR, DEFAULT_PROVIDER, DEFAULT_PROVIDER_VAR, SETTINGS_TABLE};
 use crate::{
     blocks::helpers::RecordExt,
     // Read messages-owned rows by table name. Constants live in a sibling
@@ -24,10 +24,6 @@ use crate::{
         SiteConfig, UserInfo,
     },
 };
-
-const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
-const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
-const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
 // ---------------------------------------------------------------------------
 // Unified chat page (handles `/b/llm/` and `/b/llm/threads/{id}`)
