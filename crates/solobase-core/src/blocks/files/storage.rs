@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
@@ -76,19 +74,19 @@ fn extract_object_key(path: &str) -> &str {
     }
 }
 
-/// Check if the current user owns the given bucket (or is admin).
-/// Returns true if access is denied.
-pub(super) async fn is_bucket_access_denied(
-    ctx: &dyn Context,
-    msg: &Message,
-    bucket: &str,
-) -> bool {
-    let is_admin = helpers::is_admin(msg);
-    if is_admin {
-        return false;
-    }
-
-    let user_id = msg.user_id();
+/// True when `user_id` owns a bucket named `bucket` (i.e. a matching row
+/// exists in [`BUCKETS_TABLE`]). DB errors are logged and treated as "not
+/// owned" (fail closed).
+///
+/// This is the single ownership predicate for the files block. Callers
+/// decide the admin policy on top of it:
+/// - JSON API handlers go through [`is_bucket_access_denied`], which grants
+///   admins access to every bucket.
+/// - The SSR user portal (`pages_user::object_list_page`) deliberately does
+///   NOT bypass for admins — the portal is strictly owner-scoped so an
+///   admin browsing `/b/storage/` sees only their own buckets; cross-user
+///   inspection happens via the admin pages instead.
+pub(super) async fn bucket_owned_by(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
     let filters = vec![
         Filter {
             field: "name".to_string(),
@@ -102,9 +100,26 @@ pub(super) async fn is_bucket_access_denied(
         },
     ];
     match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-        Ok(records) if !records.is_empty() => false,
-        _ => true, // denied
+        Ok(records) => !records.is_empty(),
+        Err(e) => {
+            tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
+            false
+        }
     }
+}
+
+/// Check if the current user owns the given bucket (or is admin).
+/// Returns true if access is denied. See [`bucket_owned_by`] for the
+/// admin-bypass policy split between the JSON API and the SSR portal.
+pub(super) async fn is_bucket_access_denied(
+    ctx: &dyn Context,
+    msg: &Message,
+    bucket: &str,
+) -> bool {
+    if helpers::is_admin(msg) {
+        return false;
+    }
+    !bucket_owned_by(ctx, msg.user_id(), bucket).await
 }
 
 /// Validate a storage key for path traversal attacks.
@@ -114,7 +129,11 @@ pub(super) async fn is_bucket_access_denied(
 /// paths (or any backend that ever normalises `\` to `/`) would otherwise
 /// allow `..\..\etc\passwd`-style traversal that the `..` check alone would
 /// not catch when the segment separator is `\` instead of `/`.
-fn is_valid_storage_key(key: &str) -> bool {
+///
+/// `pub(super)` so the share-creation path (`cloud.rs::handle_create_share`)
+/// enforces exactly the same rule rather than re-inlining a copy that drifts
+/// (the SEC-064 backslash check was the missing piece there).
+pub(super) fn is_valid_storage_key(key: &str) -> bool {
     !key.is_empty()
         && !key.contains("..")
         && !key.starts_with('/')
@@ -122,9 +141,38 @@ fn is_valid_storage_key(key: &str) -> bool {
         && !key.contains('\\')
 }
 
-/// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
-fn is_valid_bucket_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains("..") && !name.contains('/') && !name.contains('\0')
+/// Minimum / maximum bucket-name length (S3-compatible).
+pub(super) const BUCKET_NAME_MIN_LEN: usize = 3;
+pub(super) const BUCKET_NAME_MAX_LEN: usize = 63;
+
+/// HTML5 `pattern=` attribute source for the bucket-name input — the single
+/// source of truth shared with the server-side [`is_valid_bucket_name`] check
+/// so the client modal and the API enforce identically. S3-compatible:
+/// lowercase letters, digits, and hyphens; must start and end with a letter
+/// or digit. (Length is enforced separately via `minlength`/`maxlength` on the
+/// input and the length check in [`is_valid_bucket_name`].)
+pub(super) const BUCKET_NAME_PATTERN: &str = "[a-z0-9]([a-z0-9-]*[a-z0-9])?";
+
+/// Validate a bucket name against the S3-compatible rule the client modal
+/// advertises ([`BUCKET_NAME_PATTERN`] + length bounds): 3–63 chars,
+/// lowercase letters / digits / hyphens, must start and end with a letter or
+/// digit. This rejects path traversal (`..`, `/`, `\`), NUL, uppercase, and
+/// leading/trailing hyphens by construction.
+///
+/// `pub(super)` so the share path uses the identical rule.
+pub(super) fn is_valid_bucket_name(name: &str) -> bool {
+    let len = name.len();
+    if !(BUCKET_NAME_MIN_LEN..=BUCKET_NAME_MAX_LEN).contains(&len) {
+        return false;
+    }
+    let bytes = name.as_bytes();
+    let is_alnum = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    // First and last char must be a lowercase letter or digit.
+    if !is_alnum(bytes[0]) || !is_alnum(bytes[len - 1]) {
+        return false;
+    }
+    // Interior chars: lowercase letter, digit, or hyphen.
+    bytes.iter().all(|&b| is_alnum(b) || b == b'-')
 }
 
 /// Collect an `InputStream` into `Vec<u8>` with a hard size cap. Errors out
@@ -170,30 +218,30 @@ fn escape_like(input: &str) -> String {
 }
 
 async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    // Only show buckets owned by the current user (or all for admin)
+    // [`BUCKETS_TABLE`] is the single source of truth for bucket existence /
+    // ownership / visibility. Both the admin and user branches read it (the
+    // admin sees every bucket, the user only their own) — storage folders are
+    // a blob namespace, not a directory we enumerate here, so the admin list
+    // no longer diverges from `store::list_folders`.
     let user_id = msg.user_id();
-    let is_admin = helpers::is_admin(msg);
-    if is_admin {
-        match store::list_folders(ctx).await {
-            Ok(folders) => ok_json(&serde_json::json!({"buckets": folders})),
-            Err(e) => err_internal("Storage error", e),
-        }
+    let filters = if helpers::is_admin(msg) {
+        Vec::new()
     } else {
-        let filters = vec![Filter {
+        vec![Filter {
             field: "created_by".to_string(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
-        }];
-        match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-            Ok(records) => {
-                let names: Vec<&str> = records
-                    .iter()
-                    .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
-                    .collect();
-                ok_json(&serde_json::json!({"buckets": names}))
-            }
-            Err(e) => err_internal("Database error", e),
+        }]
+    };
+    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
+        Ok(records) => {
+            let names: Vec<&str> = records
+                .iter()
+                .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
+                .collect();
+            ok_json(&serde_json::json!({"buckets": names}))
         }
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -221,30 +269,33 @@ async fn handle_create_bucket(
         return err_bad_request("Invalid bucket name");
     }
 
-    match store::create_folder(ctx, &body.name, body.public).await {
-        Ok(()) => {
-            // Track in DB
-            let mut data = HashMap::new();
-            data.insert(
-                "name".to_string(),
-                serde_json::Value::String(body.name.clone()),
-            );
-            data.insert("public".to_string(), serde_json::Value::Bool(body.public));
-            data.insert(
-                "created_by".to_string(),
-                serde_json::Value::String(msg.user_id().to_string()),
-            );
-            data.insert(
-                "created_at".to_string(),
-                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-            );
-            if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
-                tracing::warn!("Failed to track bucket creation in database: {e}");
-            }
-            ok_json(&serde_json::json!({"name": body.name, "created": true}))
-        }
-        Err(e) => err_internal("Failed to create bucket", e),
+    // Create the blob-namespace folder first, then record the metadata row.
+    if let Err(e) = store::create_folder(ctx, &body.name, body.public).await {
+        return err_internal("Failed to create bucket", e);
     }
+
+    // [`BUCKETS_TABLE`] is the source of truth for bucket existence, so the
+    // metadata insert must succeed for the bucket to count as created. If it
+    // fails, compensate by deleting the just-created folder rather than
+    // warn-and-continue (which would leave an orphan folder invisible to every
+    // listing path, which now all read the table).
+    let data = helpers::json_map(serde_json::json!({
+        "name": body.name,
+        "public": body.public,
+        "created_by": msg.user_id(),
+        "created_at": helpers::now_rfc3339(),
+    }));
+    if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
+        if let Err(cleanup) = store::delete_folder(ctx, &body.name).await {
+            tracing::error!(
+                bucket = %body.name,
+                error = %cleanup,
+                "failed to roll back orphan storage folder after bucket metadata insert failed",
+            );
+        }
+        return err_internal("Failed to create bucket", e);
+    }
+    ok_json(&serde_json::json!({"name": body.name, "created": true}))
 }
 
 async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -328,23 +379,12 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Track view in DB
-    let mut data = HashMap::new();
-    data.insert(
-        "bucket".to_string(),
-        serde_json::Value::String(bucket.to_string()),
-    );
-    data.insert(
-        "key".to_string(),
-        serde_json::Value::String(key.to_string()),
-    );
-    data.insert(
-        "user_id".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    data.insert(
-        "viewed_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
+    let data = helpers::json_map(serde_json::json!({
+        "bucket": bucket,
+        "key": key,
+        "user_id": msg.user_id(),
+        "viewed_at": helpers::now_rfc3339(),
+    }));
     if let Err(e) = db::create(ctx, super::VIEWS_TABLE, data).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
@@ -418,29 +458,15 @@ async fn handle_upload_object(
 
     // Insert a pending record BEFORE uploading so concurrent quota checks see it.
     // This closes the TOCTOU race between check_quota and the actual upload.
-    let mut pending_data = HashMap::new();
-    pending_data.insert(
-        "bucket".to_string(),
-        serde_json::Value::String(bucket.to_string()),
-    );
-    pending_data.insert("key".to_string(), serde_json::Value::String(key.clone()));
-    pending_data.insert("size".to_string(), serde_json::json!(body_bytes.len()));
-    pending_data.insert(
-        "content_type".to_string(),
-        serde_json::Value::String(content_type.clone()),
-    );
-    pending_data.insert(
-        "status".to_string(),
-        serde_json::Value::String("pending".to_string()),
-    );
-    pending_data.insert(
-        "uploaded_by".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    pending_data.insert(
-        "uploaded_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
+    let pending_data = helpers::json_map(serde_json::json!({
+        "bucket": bucket,
+        "key": key,
+        "size": body_bytes.len(),
+        "content_type": content_type,
+        "status": "pending",
+        "uploaded_by": msg.user_id(),
+        "uploaded_at": helpers::now_rfc3339(),
+    }));
 
     let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
         Ok(record) => record,
@@ -450,11 +476,7 @@ async fn handle_upload_object(
     match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
-            let mut update_data = HashMap::new();
-            update_data.insert(
-                "status".to_string(),
-                serde_json::Value::String("complete".to_string()),
-            );
+            let update_data = helpers::json_map(serde_json::json!({ "status": "complete" }));
             if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
@@ -635,10 +657,12 @@ mod tests {
 
     #[test]
     fn test_is_valid_bucket_name() {
-        // Valid bucket names
+        // Valid bucket names (S3-compatible: 3-63 chars, lowercase/digits/
+        // hyphens, start+end alnum).
         assert!(is_valid_bucket_name("my-bucket"));
         assert!(is_valid_bucket_name("bucket123"));
         assert!(is_valid_bucket_name("uploads"));
+        assert!(is_valid_bucket_name("a1b"));
 
         // Invalid bucket names
         assert!(!is_valid_bucket_name(""));
@@ -646,6 +670,111 @@ mod tests {
         assert!(!is_valid_bucket_name("bucket/subdir"));
         assert!(!is_valid_bucket_name("bucket\0name"));
         assert!(!is_valid_bucket_name(".."));
+        // Too short / too long.
+        assert!(!is_valid_bucket_name("ab"));
+        assert!(!is_valid_bucket_name(&"a".repeat(64)));
+        // Uppercase rejected (S3 rule + matches the modal pattern).
+        assert!(!is_valid_bucket_name("MyBucket"));
+        // Leading / trailing hyphen rejected (start+end must be alnum).
+        assert!(!is_valid_bucket_name("-bucket"));
+        assert!(!is_valid_bucket_name("bucket-"));
+        // Backslash rejected (SEC-064; not in the allowed alphabet).
+        assert!(!is_valid_bucket_name("bucket\\name"));
+    }
+
+    /// The server-side validator enforces the same alphabet the HTML
+    /// `pattern=` attribute ([`BUCKET_NAME_PATTERN`]) advertises, so the client
+    /// modal and the API agree on what a valid bucket name is (modulo length,
+    /// which the input enforces separately via minlength/maxlength). This pins
+    /// the cases the pattern accepts/rejects against the validator.
+    #[test]
+    fn bucket_name_validator_matches_advertised_pattern() {
+        // Sanity-check the constant is the S3 alphabet we documented.
+        assert_eq!(BUCKET_NAME_PATTERN, "[a-z0-9]([a-z0-9-]*[a-z0-9])?");
+        // Pattern-accepted names (length-valid) the validator must accept.
+        for name in ["my-bucket", "bucket123", "a1b", "abc"] {
+            assert!(is_valid_bucket_name(name), "validator should accept {name}");
+        }
+        // Pattern-rejected names the validator must reject.
+        for name in ["MyBucket", "-bucket", "bucket-", "bucket/sub", "bucket\\x"] {
+            assert!(
+                !is_valid_bucket_name(name),
+                "validator should reject {name}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_support::{admin_msg, auth_msg, output_json, TestContext};
+
+    async fn seed_bucket(ctx: &TestContext, name: &str, owner: &str) {
+        let data = helpers::json_map(json!({
+            "name": name,
+            "public": false,
+            "created_by": owner,
+            "created_at": helpers::now_rfc3339(),
+        }));
+        db::create(ctx, BUCKETS_TABLE, data)
+            .await
+            .expect("seed bucket");
+    }
+
+    fn bucket_names(v: &serde_json::Value) -> Vec<String> {
+        v.get("buckets")
+            .and_then(|b| b.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Single source of truth: the admin bucket listing now reads
+    /// [`BUCKETS_TABLE`] (every bucket) instead of `store::list_folders`, so it
+    /// can no longer diverge from the per-user listing that already read the
+    /// table. An admin sees all buckets regardless of owner.
+    #[tokio::test]
+    async fn admin_list_buckets_reads_metadata_table_for_all_owners() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "alice-bucket", "alice").await;
+        seed_bucket(&ctx, "bob-bucket", "bob").await;
+
+        let out = handle_list_buckets(&ctx, &admin_msg("retrieve", "/storage/buckets")).await;
+        let mut names = bucket_names(&output_json(out).await);
+        names.sort();
+        assert_eq!(names, vec!["alice-bucket", "bob-bucket"]);
+    }
+
+    /// A non-admin user sees only the buckets they own (same table, filtered).
+    #[tokio::test]
+    async fn user_list_buckets_is_owner_scoped() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "alice-bucket", "alice").await;
+        seed_bucket(&ctx, "bob-bucket", "bob").await;
+
+        let out =
+            handle_list_buckets(&ctx, &auth_msg("retrieve", "/storage/buckets", "alice")).await;
+        let names = bucket_names(&output_json(out).await);
+        assert_eq!(names, vec!["alice-bucket"]);
+    }
+
+    /// `handle_stats` counts buckets from [`BUCKETS_TABLE`] (the same source the
+    /// admin SSR overview uses), not by enumerating storage folders.
+    #[tokio::test]
+    async fn stats_counts_buckets_from_metadata_table() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "one", "alice").await;
+        seed_bucket(&ctx, "two", "bob").await;
+
+        let out = handle_stats(&ctx, &admin_msg("retrieve", "/admin/storage/stats")).await;
+        let body = output_json(out).await;
+        assert_eq!(body.get("bucket_count").and_then(|v| v.as_i64()), Some(2));
     }
 }
 
@@ -661,7 +790,9 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let total_size = db::sum(ctx, OBJECTS_TABLE, "size", complete_filter)
         .await
         .unwrap_or(0.0);
-    let bucket_count = store::list_folders(ctx).await.map(|f| f.len()).unwrap_or(0);
+    // Count buckets from the metadata table (single source of truth), the same
+    // way the admin SSR overview does, rather than enumerating storage folders.
+    let bucket_count = db::count(ctx, BUCKETS_TABLE, &[]).await.unwrap_or(0);
 
     ok_json(&serde_json::json!({
         "total_objects": total_objects,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use wafer_core::clients::{crypto, database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
@@ -6,7 +6,7 @@ use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 use crate::blocks::{
     helpers::{
         err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
-        ResponseBuilder,
+        json_map, now_rfc3339, RecordExt, ResponseBuilder,
     },
     rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
 };
@@ -22,19 +22,11 @@ pub async fn generate_share_token(
     bucket: &str,
     key: &str,
 ) -> Result<String, OutputStream> {
-    let mut claims = HashMap::new();
-    claims.insert(
-        "bucket".to_string(),
-        serde_json::Value::String(bucket.to_string()),
-    );
-    claims.insert(
-        "key".to_string(),
-        serde_json::Value::String(key.to_string()),
-    );
-    claims.insert(
-        "type".to_string(),
-        serde_json::Value::String("share".to_string()),
-    );
+    let claims = json_map(serde_json::json!({
+        "bucket": bucket,
+        "key": key,
+        "type": "share",
+    }));
 
     // SEC-055: share JWT lifetime — 30 days. The previous 1-year default
     // gave any leaked share URL effectively unbounded validity. Users who
@@ -116,11 +108,7 @@ pub async fn handle_direct_access(
     // accesses with `max_access_count = 1` both pass the check and double-
     // serve the file. With the cap inside the WHERE clause, at most one
     // updater wins per row and rowcount 0 ⇒ cap reached.
-    let max = share
-        .data
-        .get("max_access_count")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let max = share.i64_field("max_access_count");
     match increment_access_count_atomic(ctx, &share.id, max).await {
         Ok(true) => {}
         Ok(false) => return err_forbidden("Share link access limit reached"),
@@ -145,23 +133,12 @@ pub async fn handle_direct_access(
     }
 
     // Log access
-    let mut log_data = HashMap::new();
-    log_data.insert(
-        "share_id".to_string(),
-        serde_json::Value::String(share.id.clone()),
-    );
-    log_data.insert(
-        "accessed_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-    log_data.insert(
-        "ip_address".to_string(),
-        serde_json::Value::String(msg.remote_addr().to_string()),
-    );
-    log_data.insert(
-        "user_agent".to_string(),
-        serde_json::Value::String(msg.header("User-Agent").to_string()),
-    );
+    let log_data = json_map(serde_json::json!({
+        "share_id": share.id,
+        "accessed_at": now_rfc3339(),
+        "ip_address": msg.remote_addr(),
+        "user_agent": msg.header("User-Agent"),
+    }));
     if let Err(e) = db::create(ctx, ACCESS_LOGS_TABLE, log_data).await {
         tracing::warn!("Failed to log share access: {e}");
     }

@@ -26,10 +26,38 @@ pub fn json_map(val: serde_json::Value) -> HashMap<String, serde_json::Value> {
     }
 }
 
+/// Coerce a JSON value to `i64`, accepting both numbers and numeric strings.
+///
+/// The SQLite service stores auto-created (lazily added) columns as TEXT, so
+/// integer values can round-trip as JSON strings (e.g. `"384"`). Try the
+/// number first for backends/columns that round-trip faithfully, then fall
+/// back to parsing the string.
+pub fn json_as_i64(v: &serde_json::Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+/// Coerce a JSON value to `u64`, accepting both numbers and numeric strings.
+/// Same TEXT-column rationale as [`json_as_i64`].
+pub fn json_as_u64(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
 /// Extension trait for convenient field access on database Records.
+///
+/// The numeric accessors accept both JSON numbers and numeric strings
+/// (see [`json_as_i64`]) so TEXT-stored values never silently collapse
+/// to the zero default.
 pub trait RecordExt {
     fn str_field(&self, key: &str) -> &str;
+    /// Field as `i64`, defaulting to `0` when missing/non-numeric.
     fn i64_field(&self, key: &str) -> i64;
+    /// Field as `Option<i64>` — use when the caller needs a non-zero
+    /// default or must distinguish "absent" from "0".
+    fn opt_i64_field(&self, key: &str) -> Option<i64>;
+    /// Field as `u64`, defaulting to `0` when missing/non-numeric/negative.
+    fn u64_field(&self, key: &str) -> u64;
     fn bool_field(&self, key: &str) -> bool;
 }
 
@@ -39,7 +67,15 @@ impl RecordExt for Record {
     }
 
     fn i64_field(&self, key: &str) -> i64 {
-        self.data.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
+        self.opt_i64_field(key).unwrap_or(0)
+    }
+
+    fn opt_i64_field(&self, key: &str) -> Option<i64> {
+        self.data.get(key).and_then(json_as_i64)
+    }
+
+    fn u64_field(&self, key: &str) -> u64 {
+        self.data.get(key).and_then(json_as_u64).unwrap_or(0)
     }
 
     fn bool_field(&self, key: &str) -> bool {
@@ -585,6 +621,83 @@ mod tests {
         assert_eq!(record.i64_field("count"), 42);
         assert_eq!(record.i64_field("missing"), 0);
         assert_eq!(record.i64_field("name"), 0);
+    }
+
+    /// Regression: SQLite stores auto-created columns as TEXT, so integer
+    /// values round-trip as JSON strings. `i64_field` used to silently
+    /// return 0 for them (the silent-zero bug class — e.g. quota
+    /// enforcement ignoring TEXT-stored per-user overrides).
+    #[test]
+    fn test_record_ext_i64_field_parses_text_stored_numbers() {
+        let mut data = HashMap::new();
+        data.insert("count".to_string(), serde_json::json!("42"));
+        data.insert("negative".to_string(), serde_json::json!("-7"));
+        data.insert("not_a_number".to_string(), serde_json::json!("abc"));
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
+
+        assert_eq!(
+            record.i64_field("count"),
+            42,
+            "TEXT-stored \"42\" must parse, not silently default to 0"
+        );
+        assert_eq!(record.i64_field("negative"), -7);
+        assert_eq!(record.i64_field("not_a_number"), 0);
+    }
+
+    #[test]
+    fn test_record_ext_opt_i64_field() {
+        let mut data = HashMap::new();
+        data.insert("num".to_string(), serde_json::json!(7));
+        data.insert("text_num".to_string(), serde_json::json!("9"));
+        data.insert("junk".to_string(), serde_json::json!("x"));
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
+
+        assert_eq!(record.opt_i64_field("num"), Some(7));
+        assert_eq!(record.opt_i64_field("text_num"), Some(9));
+        assert_eq!(record.opt_i64_field("junk"), None);
+        assert_eq!(
+            record.opt_i64_field("missing"),
+            None,
+            "absent field must be distinguishable from 0"
+        );
+    }
+
+    #[test]
+    fn test_record_ext_u64_field() {
+        let mut data = HashMap::new();
+        data.insert("dims".to_string(), serde_json::json!(384));
+        data.insert("text_dims".to_string(), serde_json::json!("384"));
+        data.insert("negative".to_string(), serde_json::json!(-2));
+        data.insert("text_negative".to_string(), serde_json::json!("-2"));
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
+
+        assert_eq!(record.u64_field("dims"), 384);
+        assert_eq!(record.u64_field("text_dims"), 384);
+        assert_eq!(record.u64_field("negative"), 0);
+        assert_eq!(record.u64_field("text_negative"), 0);
+        assert_eq!(record.u64_field("missing"), 0);
+    }
+
+    #[test]
+    fn test_json_as_i64_and_u64() {
+        assert_eq!(json_as_i64(&serde_json::json!(5)), Some(5));
+        assert_eq!(json_as_i64(&serde_json::json!("5")), Some(5));
+        assert_eq!(json_as_i64(&serde_json::json!("-5")), Some(-5));
+        assert_eq!(json_as_i64(&serde_json::json!("nope")), None);
+        assert_eq!(json_as_i64(&serde_json::json!(null)), None);
+        assert_eq!(json_as_u64(&serde_json::json!(5)), Some(5));
+        assert_eq!(json_as_u64(&serde_json::json!("5")), Some(5));
+        assert_eq!(json_as_u64(&serde_json::json!("-5")), None);
+        assert_eq!(json_as_u64(&serde_json::json!(-5)), None);
     }
 
     #[test]

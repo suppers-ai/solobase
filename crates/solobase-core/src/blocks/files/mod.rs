@@ -90,10 +90,10 @@ impl Block for FilesBlock {
                     .index(&["share_id"]),
                 CollectionSchema::new(QUOTAS_TABLE)
                     .field_unique("user_id", "string")
-                    .field_default("max_storage_bytes", "int64", "1073741824")
-                    .field_default("max_file_size_bytes", "int64", "104857600")
-                    .field_default("max_files_per_bucket", "int", "10000")
-                    .field_default("reset_period_days", "int", "0"),
+                    .field_default("max_storage_bytes", "int64", &models::QuotaConfig::DEFAULT_MAX_STORAGE_BYTES.to_string())
+                    .field_default("max_file_size_bytes", "int64", &models::QuotaConfig::DEFAULT_MAX_FILE_SIZE_BYTES.to_string())
+                    .field_default("max_files_per_bucket", "int", &models::QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET.to_string())
+                    .field_default("reset_period_days", "int", &models::QuotaConfig::DEFAULT_RESET_PERIOD_DAYS.to_string()),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
@@ -262,6 +262,55 @@ impl Block for FilesBlock {
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_block::register_static_block!("suppers-ai/files", FilesBlock);
+
+#[cfg(test)]
+mod schema_tests {
+    use wafer_run::Block;
+
+    use super::{models::QuotaConfig, FilesBlock, QUOTAS_TABLE};
+
+    /// The quota defaults advertised through the collection schema must
+    /// match the `QuotaConfig` consts (single in-code source). The
+    /// migration SQL files carry the same values DB-side; if you change
+    /// the consts, change `migrations/001_initial_schema.*.sql` too (and
+    /// remember `SOLOBASE_RUN_MIGRATIONS=1`).
+    #[test]
+    fn quota_schema_defaults_match_quota_config_consts() {
+        let info = FilesBlock::new().info();
+        let quotas = info
+            .collections
+            .iter()
+            .find(|c| c.name == QUOTAS_TABLE)
+            .expect("quotas collection declared");
+
+        let default_of = |field: &str| -> String {
+            quotas
+                .fields
+                .iter()
+                .find(|f| f.name == field)
+                .unwrap_or_else(|| panic!("field {field} declared"))
+                .default_value
+                .clone()
+        };
+
+        assert_eq!(
+            default_of("max_storage_bytes"),
+            QuotaConfig::DEFAULT_MAX_STORAGE_BYTES.to_string()
+        );
+        assert_eq!(
+            default_of("max_file_size_bytes"),
+            QuotaConfig::DEFAULT_MAX_FILE_SIZE_BYTES.to_string()
+        );
+        assert_eq!(
+            default_of("max_files_per_bucket"),
+            QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET.to_string()
+        );
+        assert_eq!(
+            default_of("reset_period_days"),
+            QuotaConfig::DEFAULT_RESET_PERIOD_DAYS.to_string()
+        );
+    }
+}
 
 #[cfg(test)]
 mod grant_tests {

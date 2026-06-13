@@ -69,14 +69,17 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Validate bucket/key
+    // Validate bucket/key through the shared storage validators so the share
+    // path enforces exactly the same rules as upload/download (SEC-064: the
+    // old inline copy here omitted the backslash check, letting a share be
+    // created for a key the storage path would reject).
     if body.bucket.is_empty() || body.key.is_empty() {
         return err_bad_request("Bucket and key are required");
     }
-    if body.bucket.contains("..") || body.bucket.contains('/') || body.bucket.contains('\0') {
+    if !super::storage::is_valid_bucket_name(&body.bucket) {
         return err_bad_request("Invalid bucket name");
     }
-    if body.key.contains("..") || body.key.starts_with('/') || body.key.contains('\0') {
+    if !super::storage::is_valid_storage_key(&body.key) {
         return err_bad_request("Invalid object key");
     }
 
@@ -108,22 +111,14 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         .expires_in_hours
         .map(|h| (now + chrono::Duration::hours(h)).to_rfc3339());
 
-    let mut data = HashMap::new();
-    data.insert(
-        "token".to_string(),
-        serde_json::Value::String(token.clone()),
-    );
-    data.insert("bucket".to_string(), serde_json::Value::String(body.bucket));
-    data.insert("key".to_string(), serde_json::Value::String(body.key));
-    data.insert(
-        "created_by".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    data.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(now.to_rfc3339()),
-    );
-    data.insert("access_count".to_string(), serde_json::json!(0));
+    let mut data = helpers::json_map(serde_json::json!({
+        "token": token,
+        "bucket": body.bucket,
+        "key": body.key,
+        "created_by": msg.user_id(),
+        "created_at": now.to_rfc3339(),
+        "access_count": 0,
+    }));
     if let Some(exp) = &expires_at {
         data.insert(
             "expires_at".to_string(),
@@ -288,5 +283,84 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
     {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal("Database error", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wafer_run::InputStream;
+
+    use super::*;
+    use crate::test_support::{auth_msg, output_is_error, TestContext};
+
+    fn share_body(bucket: &str, key: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({ "bucket": bucket, "key": key })).unwrap()
+    }
+
+    /// Regression (SEC-064): the share path used to inline its own bucket/key
+    /// validation that OMITTED the backslash rejection, so a share could be
+    /// created for a key the upload/download path (`is_valid_storage_key`)
+    /// rejects. Now it routes through the shared validator and rejects the
+    /// key before any ownership/existence lookup.
+    ///
+    /// The key here is a *backslash-only* key with NO `..` segment. This
+    /// pins the actual SEC-064 drift: the old inline check rejected `..` but
+    /// accepted a bare backslash, so a `..`-containing key (e.g. `a\..\secret`)
+    /// would have been rejected by the old code too and would not prove the
+    /// backslash branch. `a\secret` was *accepted* by the old inline check and
+    /// is *rejected* only by the shared validator's `!key.contains('\\')` arm.
+    #[tokio::test]
+    async fn create_share_rejects_backslash_key() {
+        let ctx = TestContext::with_files().await;
+        let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+        let out = handle_create_share(
+            &ctx,
+            &msg,
+            InputStream::from_bytes(share_body("photos", "a\\secret")),
+        )
+        .await;
+        assert!(
+            output_is_error(out, "InvalidArgument").await,
+            "backslash key must be rejected (SEC-064)"
+        );
+    }
+
+    /// The share path now enforces the same S3-compatible bucket-name rule as
+    /// the rest of the block (and the client modal), so an uppercase /
+    /// invalid bucket name is rejected up front.
+    #[tokio::test]
+    async fn create_share_rejects_invalid_bucket_name() {
+        let ctx = TestContext::with_files().await;
+        let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+        let out = handle_create_share(
+            &ctx,
+            &msg,
+            InputStream::from_bytes(share_body("Bad/Bucket", "file.txt")),
+        )
+        .await;
+        assert!(
+            output_is_error(out, "InvalidArgument").await,
+            "invalid bucket name must be rejected"
+        );
+    }
+
+    /// A valid key/bucket gets past validation and is denied only by the
+    /// ownership check (the user owns no such bucket) — confirming the
+    /// validator change didn't accidentally reject legitimate input.
+    #[tokio::test]
+    async fn create_share_valid_input_reaches_ownership_check() {
+        let ctx = TestContext::with_files().await;
+        let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+        let out = handle_create_share(
+            &ctx,
+            &msg,
+            InputStream::from_bytes(share_body("my-bucket", "dir/file.txt")),
+        )
+        .await;
+        // No bucket owned by u1 → PermissionDenied, NOT InvalidArgument.
+        assert!(
+            output_is_error(out, "PermissionDenied").await,
+            "valid input should pass validation and hit the ownership check"
+        );
     }
 }

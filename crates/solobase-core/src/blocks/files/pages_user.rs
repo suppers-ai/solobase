@@ -5,7 +5,7 @@
 
 use maud::{html, Markup, PreEscaped};
 
-use super::super::helpers::url_path_encode;
+use super::super::helpers::{url_path_encode, RecordExt};
 
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.
@@ -72,10 +72,12 @@ pub fn render_new_bucket_modal() -> Markup {
                         type="text"
                         name="name"
                         required
-                        minlength="3"
-                        maxlength="63"
-                        // S3-compatible: lowercase letters, digits, hyphens; start/end alnum.
-                        pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                        minlength=(super::storage::BUCKET_NAME_MIN_LEN)
+                        maxlength=(super::storage::BUCKET_NAME_MAX_LEN)
+                        // S3-compatible: lowercase letters, digits, hyphens;
+                        // start/end alnum. Single source of truth shared with
+                        // the server-side `is_valid_bucket_name` check.
+                        pattern=(super::storage::BUCKET_NAME_PATTERN)
                         autocomplete="off"
                         spellcheck="false"
                         placeholder="my-bucket";
@@ -181,7 +183,7 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
             .into_iter()
             .filter_map(|r| {
                 let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
-                let cnt = r.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                let cnt = r.i64_field("cnt");
                 Some((bucket, cnt))
             })
             .collect(),
@@ -462,32 +464,6 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
     }
 }
 
-async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    use wafer_block::db::{Filter, FilterOp};
-
-    use super::BUCKETS_TABLE;
-
-    let filters = vec![
-        Filter {
-            field: "name".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(bucket.into()),
-        },
-        Filter {
-            field: "created_by".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.into()),
-        },
-    ];
-    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-        Ok(records) => !records.is_empty(),
-        Err(e) => {
-            tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
-            false
-        }
-    }
-}
-
 async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
     use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 
@@ -518,14 +494,7 @@ async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRo
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
-                size: r
-                    .data
-                    .get("size")
-                    .and_then(|v| {
-                        v.as_i64()
-                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                    })
-                    .unwrap_or(0),
+                size: r.i64_field("size"),
                 modified: r
                     .data
                     .get("uploaded_at")
@@ -575,7 +544,9 @@ pub async fn object_list_page(
     if user_id.is_empty() {
         return crate::ui::not_found_response(msg);
     }
-    if !user_owns_bucket(ctx, &user_id, bucket).await {
+    // SSR portal is strictly owner-scoped (no admin bypass) — see the
+    // `bucket_owned_by` doc comment for the admin-policy split vs the JSON API.
+    if !super::storage::bucket_owned_by(ctx, &user_id, bucket).await {
         return crate::ui::not_found_response(msg);
     }
 
@@ -776,77 +747,13 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
                     .get("expires_at")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-                access_count: r
-                    .data
-                    .get("access_count")
-                    .and_then(|v| {
-                        v.as_i64()
-                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                    })
-                    .unwrap_or(0),
+                access_count: r.i64_field("access_count"),
             })
             .collect(),
         Err(e) => {
             tracing::warn!(error = %e, "shares list failed");
             Vec::new()
         }
-    }
-}
-
-async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
-    use wafer_block::db::{Filter, FilterOp};
-    use wafer_run::ErrorCode;
-
-    use super::{OBJECTS_TABLE, QUOTAS_TABLE};
-
-    let limit = match db::get_by_field(
-        ctx,
-        QUOTAS_TABLE,
-        "user_id",
-        serde_json::Value::String(user_id.into()),
-    )
-    .await
-    {
-        Ok(r) => r
-            .data
-            .get("max_storage_bytes")
-            .and_then(|v| {
-                v.as_i64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-            })
-            .unwrap_or(1_073_741_824),
-        Err(e) if e.code == ErrorCode::NotFound => 1_073_741_824,
-        Err(e) => {
-            tracing::warn!(error = %e, "quota lookup failed");
-            1_073_741_824
-        }
-    };
-
-    // used_bytes = SUM(size) over the user's objects. v1 in-process sum.
-    let used_filters = vec![Filter {
-        field: "uploaded_by".into(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(user_id.into()),
-    }];
-    let used = match db::list_all(ctx, OBJECTS_TABLE, used_filters).await {
-        Ok(recs) => recs
-            .iter()
-            .filter_map(|r| {
-                r.data.get("size").and_then(|v| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-            })
-            .sum(),
-        Err(e) => {
-            tracing::warn!(error = %e, "used-bytes lookup failed");
-            0
-        }
-    };
-
-    QuotaInfo {
-        used_bytes: used,
-        limit_bytes: limit,
     }
 }
 
@@ -858,7 +765,14 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
     }
 
     let shares = list_shares_for_user(ctx, &user_id).await;
-    let quota = load_quota_info(ctx, &user_id).await;
+    // Same quota source as upload enforcement (`quota::check_quota`), so
+    // the card can never disagree with what the API enforces.
+    let quota = QuotaInfo {
+        used_bytes: super::quota::get_used_bytes(ctx, &user_id).await,
+        limit_bytes: super::quota::get_user_quota(ctx, &user_id)
+            .await
+            .max_storage_bytes,
+    };
 
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -1458,7 +1372,11 @@ mod integration_tests {
     #[tokio::test]
     async fn object_list_page_404_for_other_users_bucket() {
         // Cross-user isolation: a bucket owned by another user must 404,
-        // not render its contents.
+        // not render its contents. The request is made as an ADMIN, which
+        // pins the documented policy split: the SSR portal routes through the
+        // shared `storage::bucket_owned_by` predicate and deliberately does
+        // NOT grant the admin bypass that the JSON API's
+        // `is_bucket_access_denied` does — so even an admin sees a 404 here.
         let ctx = TestContext::with_files().await;
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
@@ -1471,7 +1389,7 @@ mod integration_tests {
         let body = output_html(resp).await;
         assert!(
             body.contains("Not found") || body.contains("404"),
-            "expected 404 for cross-user bucket: {body}"
+            "expected 404 for cross-user bucket (admin, no SSR bypass): {body}"
         );
     }
 
@@ -1522,6 +1440,38 @@ mod integration_tests {
         assert!(body.contains("photos"));
         assert!(body.contains("a.png"));
         assert!(body.contains(">2<"), "access count cell: {body}");
+    }
+
+    /// Regression: the quota card used to be fed by a page-local
+    /// `load_quota_info` copy of the quota logic. It now reads the same
+    /// `quota::get_user_quota` + `quota::get_used_bytes` the upload
+    /// enforcement uses, so an override row must show up on the page.
+    #[tokio::test]
+    async fn cloudstorage_page_quota_card_reflects_override_and_usage() {
+        let ctx = TestContext::with_files().await;
+
+        let mut quota: HashMap<String, serde_json::Value> = HashMap::new();
+        quota.insert("user_id".into(), json!("admin_1"));
+        quota.insert("max_storage_bytes".into(), json!(2048));
+        db::create(&ctx, QUOTAS_TABLE, quota)
+            .await
+            .expect("seed quota");
+
+        let mut obj: HashMap<String, serde_json::Value> = HashMap::new();
+        obj.insert("bucket".into(), json!("photos"));
+        obj.insert("key".into(), json!("a.png"));
+        obj.insert("size".into(), json!(1024));
+        obj.insert("uploaded_by".into(), json!("admin_1"));
+        db::create(&ctx, OBJECTS_TABLE, obj)
+            .await
+            .expect("seed obj");
+
+        let msg = admin_msg("retrieve", "/b/cloudstorage/");
+        let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
+        assert!(
+            body.contains("1024 / 2048 bytes"),
+            "quota card must show summed usage against the override limit: {body}"
+        );
     }
 
     #[tokio::test]
