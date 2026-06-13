@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_run::ErrorCode;
 
-use super::mock_context::*;
+use super::harness::*;
 use crate::blocks::products::{handlers, purchase};
 
 // ============================================================
@@ -11,7 +11,7 @@ use crate::blocks::products::{handlers, purchase};
 
 #[tokio::test]
 async fn create_purchase_single_item() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Seed a product with base_price
     let mut product = HashMap::new();
@@ -19,7 +19,7 @@ async fn create_purchase_single_item() {
     product.insert("base_price".to_string(), serde_json::json!(19.99));
     product.insert("currency".to_string(), serde_json::json!("USD"));
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "prod_1", product);
+    seed(&ctx, "suppers_ai__products__products", "prod_1", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -40,19 +40,19 @@ async fn create_purchase_single_item() {
 
 #[tokio::test]
 async fn create_purchase_multiple_items() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut p1 = HashMap::new();
     p1.insert("name".to_string(), serde_json::json!("Item A"));
     p1.insert("base_price".to_string(), serde_json::json!(10.0));
     p1.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "pa", p1);
+    seed(&ctx, "suppers_ai__products__products", "pa", p1).await;
 
     let mut p2 = HashMap::new();
     p2.insert("name".to_string(), serde_json::json!("Item B"));
     p2.insert("base_price".to_string(), serde_json::json!(25.50));
     p2.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "pb", p2);
+    seed(&ctx, "suppers_ai__products__products", "pb", p2).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -74,7 +74,7 @@ async fn create_purchase_multiple_items() {
 
 #[tokio::test]
 async fn create_purchase_with_pricing_template() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Pricing template with formula
     let mut tmpl = HashMap::new();
@@ -83,7 +83,13 @@ async fn create_purchase_with_pricing_template() {
         "price_formula".to_string(),
         serde_json::json!("base * rate"),
     );
-    ctx.seed("suppers_ai__products__pricing_templates", "tmpl_1", tmpl);
+    seed(
+        &ctx,
+        "suppers_ai__products__pricing_templates",
+        "tmpl_1",
+        tmpl,
+    )
+    .await;
 
     // Product referencing the template
     let mut product = HashMap::new();
@@ -93,7 +99,7 @@ async fn create_purchase_with_pricing_template() {
         serde_json::json!("tmpl_1"),
     );
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "prod_svc", product);
+    seed(&ctx, "suppers_ai__products__products", "prod_svc", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -115,13 +121,13 @@ async fn create_purchase_with_pricing_template() {
 
 #[tokio::test]
 async fn create_purchase_defaults_to_usd() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Widget"));
     product.insert("base_price".to_string(), serde_json::json!(5.0));
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p1", product);
+    seed(&ctx, "suppers_ai__products__products", "p1", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -143,7 +149,7 @@ async fn create_purchase_defaults_to_usd() {
 
 #[tokio::test]
 async fn create_purchase_empty_items() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -159,12 +165,12 @@ async fn create_purchase_empty_items() {
 
 #[tokio::test]
 async fn create_purchase_zero_quantity() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Widget"));
     product.insert("base_price".to_string(), serde_json::json!(10.0));
-    ctx.seed("suppers_ai__products__products", "p1", product);
+    seed(&ctx, "suppers_ai__products__products", "p1", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -180,12 +186,12 @@ async fn create_purchase_zero_quantity() {
 
 #[tokio::test]
 async fn create_purchase_negative_quantity() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Widget"));
     product.insert("base_price".to_string(), serde_json::json!(10.0));
-    ctx.seed("suppers_ai__products__products", "p1", product);
+    seed(&ctx, "suppers_ai__products__products", "p1", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -201,7 +207,7 @@ async fn create_purchase_negative_quantity() {
 
 #[tokio::test]
 async fn create_purchase_product_not_found() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -217,7 +223,7 @@ async fn create_purchase_product_not_found() {
 
 #[tokio::test]
 async fn create_purchase_fallback_when_template_missing() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Product references a template that doesn't exist — should fall back to base_price
     let mut product = HashMap::new();
@@ -228,7 +234,7 @@ async fn create_purchase_fallback_when_template_missing() {
         serde_json::json!("nonexistent_tmpl"),
     );
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p_fb", product);
+    seed(&ctx, "suppers_ai__products__products", "p_fb", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -246,13 +252,13 @@ async fn create_purchase_fallback_when_template_missing() {
 
 #[tokio::test]
 async fn create_purchase_no_base_price_rejected() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Product with no base_price and no template — zero-price purchases are rejected
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Free"));
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p_free", product);
+    seed(&ctx, "suppers_ai__products__products", "p_free", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -275,20 +281,20 @@ async fn create_purchase_no_base_price_rejected() {
 
 #[tokio::test]
 async fn list_user_purchases_only_own() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Seed purchases for two different users
     let mut p1 = HashMap::new();
     p1.insert("user_id".to_string(), serde_json::json!("user_1"));
     p1.insert("status".to_string(), serde_json::json!("pending"));
     p1.insert("total_cents".to_string(), serde_json::json!(1000));
-    ctx.seed("suppers_ai__products__purchases", "pur_1", p1);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_1", p1).await;
 
     let mut p2 = HashMap::new();
     p2.insert("user_id".to_string(), serde_json::json!("user_2"));
     p2.insert("status".to_string(), serde_json::json!("completed"));
     p2.insert("total_cents".to_string(), serde_json::json!(2000));
-    ctx.seed("suppers_ai__products__purchases", "pur_2", p2);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_2", p2).await;
 
     let (msg, _input) = get_msg("/b/products/purchases", "user_1");
     let out = purchase::handle_list_user(&ctx, &msg).await;
@@ -304,13 +310,13 @@ async fn list_user_purchases_only_own() {
 
 #[tokio::test]
 async fn get_purchase_own() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("pending"));
     pd.insert("total_cents".to_string(), serde_json::json!(5000));
-    ctx.seed("suppers_ai__products__purchases", "pur_own", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_own", pd).await;
 
     let (msg, _input) = get_msg("/b/products/purchases/pur_own", "user_1");
     let out = purchase::handle_get(&ctx, &msg).await;
@@ -320,12 +326,12 @@ async fn get_purchase_own() {
 
 #[tokio::test]
 async fn get_purchase_denied_for_other_user() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("pending"));
-    ctx.seed("suppers_ai__products__purchases", "pur_priv", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_priv", pd).await;
 
     // user_2 tries to access user_1's purchase
     let (msg, _input) = get_msg("/b/products/purchases/pur_priv", "user_2");
@@ -335,7 +341,7 @@ async fn get_purchase_denied_for_other_user() {
 
 #[tokio::test]
 async fn get_purchase_not_found() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (msg, _input) = get_msg("/b/products/purchases/nonexistent", "user_1");
     let out = purchase::handle_get(&ctx, &msg).await;
@@ -344,12 +350,12 @@ async fn get_purchase_not_found() {
 
 #[tokio::test]
 async fn get_purchase_admin_can_view_any() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("completed"));
-    ctx.seed("suppers_ai__products__purchases", "pur_any", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_any", pd).await;
 
     let (mut msg, _input) = get_msg("/b/products/purchases/pur_any", "admin_1");
     msg.set_meta("auth.user_roles", "admin");
@@ -364,13 +370,13 @@ async fn get_purchase_admin_can_view_any() {
 
 #[tokio::test]
 async fn refund_completed_purchase() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("completed"));
     pd.insert("total_cents".to_string(), serde_json::json!(5000));
-    ctx.seed("suppers_ai__products__purchases", "pur_refund", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_refund", pd).await;
 
     let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_refund/refund",
@@ -388,12 +394,12 @@ async fn refund_completed_purchase() {
 
 #[tokio::test]
 async fn refund_non_completed_fails() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("pending"));
-    ctx.seed("suppers_ai__products__purchases", "pur_pending", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_pending", pd).await;
 
     let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_pending/refund",
@@ -408,12 +414,12 @@ async fn refund_non_completed_fails() {
 
 #[tokio::test]
 async fn refund_already_refunded_fails() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("refunded"));
-    ctx.seed("suppers_ai__products__purchases", "pur_already", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_already", pd).await;
 
     let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_already/refund",
@@ -428,7 +434,7 @@ async fn refund_already_refunded_fails() {
 
 #[tokio::test]
 async fn refund_purchase_not_found() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/nonexistent/refund",
@@ -443,12 +449,12 @@ async fn refund_purchase_not_found() {
 
 #[tokio::test]
 async fn refund_without_reason() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("completed"));
-    ctx.seed("suppers_ai__products__purchases", "pur_noreason", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_noreason", pd).await;
 
     let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_noreason/refund",
@@ -468,13 +474,13 @@ async fn refund_without_reason() {
 
 #[tokio::test]
 async fn purchase_create_via_user_handler() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Routed Product"));
     product.insert("base_price".to_string(), serde_json::json!(10.0));
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p_route", product);
+    seed(&ctx, "suppers_ai__products__products", "p_route", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",
@@ -491,12 +497,12 @@ async fn purchase_create_via_user_handler() {
 
 #[tokio::test]
 async fn purchase_list_via_user_handler() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("pending"));
-    ctx.seed("suppers_ai__products__purchases", "pur_route", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_route", pd).await;
 
     let (msg, input) = get_msg("/b/products/purchases", "user_1");
     let out = handlers::handle_user(&ctx, &msg, input).await;
@@ -510,14 +516,14 @@ async fn purchase_list_via_user_handler() {
 
 #[tokio::test]
 async fn purchase_rounding_precision() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // 19.99 * 3 = 59.97 → should be 5997 cents, not 5996
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Precise"));
     product.insert("base_price".to_string(), serde_json::json!(19.99));
     product.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p_round", product);
+    seed(&ctx, "suppers_ai__products__products", "p_round", product).await;
 
     let (msg, input) = create_msg(
         "/b/products/purchases",

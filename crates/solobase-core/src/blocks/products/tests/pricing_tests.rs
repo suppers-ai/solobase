@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_run::ErrorCode;
 
-use super::mock_context::*;
+use super::harness::*;
 use crate::blocks::products::pricing::{evaluate_formula, validate_price, MIN_PRICE};
 
 // ============================================================
@@ -300,14 +300,20 @@ fn formula_percentage_discount() {
 async fn calculate_price_direct_base_price() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create a product with base_price, no pricing template
     let mut product_data = HashMap::new();
     product_data.insert("name".to_string(), serde_json::json!("Widget"));
     product_data.insert("base_price".to_string(), serde_json::json!(29.99));
     product_data.insert("currency".to_string(), serde_json::json!("USD"));
-    ctx.seed("suppers_ai__products__products", "prod_1", product_data);
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_1",
+        product_data,
+    )
+    .await;
 
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
@@ -330,7 +336,7 @@ async fn calculate_price_direct_base_price() {
 async fn calculate_price_with_formula() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create a pricing template
     let mut template_data = HashMap::new();
@@ -339,11 +345,13 @@ async fn calculate_price_with_formula() {
         "price_formula".to_string(),
         serde_json::json!("base * rate"),
     );
-    ctx.seed(
+    seed(
+        &ctx,
         "suppers_ai__products__pricing_templates",
         "tmpl_1",
         template_data,
-    );
+    )
+    .await;
 
     // Create a product referencing the template
     let mut product_data = HashMap::new();
@@ -353,7 +361,13 @@ async fn calculate_price_with_formula() {
         serde_json::json!("tmpl_1"),
     );
     product_data.insert("currency".to_string(), serde_json::json!("EUR"));
-    ctx.seed("suppers_ai__products__products", "prod_2", product_data);
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_2",
+        product_data,
+    )
+    .await;
 
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
@@ -376,7 +390,7 @@ async fn calculate_price_with_formula() {
 async fn calculate_price_product_not_found() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",

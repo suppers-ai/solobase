@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use super::{PRODUCTS_TABLE, PRICING_TABLE};
+use super::{PRICING_TABLE, PRODUCTS_TABLE};
 use crate::blocks::helpers::{
     err_bad_request, err_internal_no_cause, err_not_found, ok_json, RecordExt,
 };

@@ -4,8 +4,10 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::crud;
-use crate::blocks::helpers::{err_internal, ok_json};
+use crate::blocks::{
+    crud,
+    helpers::{err_internal, ok_json},
+};
 
 /// Pricing-variable definitions (e.g. user-defined inputs available to
 /// pricing-template formulas).

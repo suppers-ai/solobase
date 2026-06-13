@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_run::ErrorCode;
 
-use super::mock_context::*;
+use super::harness::*;
 use crate::blocks::products::handlers;
 
 // ============================================================
@@ -11,7 +11,7 @@ use crate::blocks::products::handlers;
 
 #[tokio::test]
 async fn admin_create_product() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     let (msg, input) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
@@ -32,7 +32,7 @@ async fn admin_create_product() {
 
 #[tokio::test]
 async fn admin_list_products() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create two products
     let (msg1, input1) = admin_create_msg(
@@ -58,7 +58,7 @@ async fn admin_list_products() {
 
 #[tokio::test]
 async fn admin_get_product() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (create_msg_data, create_input) = admin_create_msg(
         "/admin/b/products/products",
@@ -80,7 +80,7 @@ async fn admin_get_product() {
 
 #[tokio::test]
 async fn admin_update_product() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (create, create_input) = admin_create_msg(
         "/admin/b/products/products",
@@ -110,7 +110,7 @@ async fn admin_update_product() {
 
 #[tokio::test]
 async fn admin_delete_product() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (create, create_input) = admin_create_msg(
         "/admin/b/products/products",
@@ -142,7 +142,7 @@ async fn admin_delete_product() {
 
 #[tokio::test]
 async fn admin_create_and_list_groups() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (create, create_input) = admin_create_msg(
         "/admin/b/products/groups",
@@ -167,7 +167,7 @@ async fn admin_create_and_list_groups() {
 
 #[tokio::test]
 async fn admin_create_and_list_types() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let (create, create_input) = admin_create_msg(
         "/admin/b/products/types",
@@ -189,7 +189,7 @@ async fn admin_create_and_list_types() {
 
 #[tokio::test]
 async fn admin_pricing_template_crud() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create
     let (create, create_input) = admin_create_msg(
@@ -235,24 +235,31 @@ async fn admin_pricing_template_crud() {
 
 #[tokio::test]
 async fn admin_stats() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Seed some products
     let mut data = HashMap::new();
     data.insert("name".to_string(), serde_json::json!("Active Product"));
     data.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p1", data);
+    seed(&ctx, "suppers_ai__products__products", "p1", data).await;
 
     let mut data2 = HashMap::new();
     data2.insert("name".to_string(), serde_json::json!("Draft Product"));
     data2.insert("status".to_string(), serde_json::json!("draft"));
-    ctx.seed("suppers_ai__products__products", "p2", data2);
+    seed(&ctx, "suppers_ai__products__products", "p2", data2).await;
 
-    // Seed a completed purchase
+    // Seed a completed purchase (user_id is NOT NULL in the real schema)
     let mut purchase_data = HashMap::new();
+    purchase_data.insert("user_id".to_string(), serde_json::json!("user_1"));
     purchase_data.insert("status".to_string(), serde_json::json!("completed"));
     purchase_data.insert("total_cents".to_string(), serde_json::json!(2999));
-    ctx.seed("suppers_ai__products__purchases", "pur1", purchase_data);
+    seed(
+        &ctx,
+        "suppers_ai__products__purchases",
+        "pur1",
+        purchase_data,
+    )
+    .await;
 
     let (msg, input) = admin_get_msg("/admin/b/products/stats");
     let out = handlers::handle_admin(&ctx, &msg, input).await;
@@ -267,13 +274,13 @@ async fn admin_stats() {
 // User Product CRUD — ownership isolation
 // ============================================================
 
-fn user_products_ctx() -> MockContext {
-    MockContext::new().with_config("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "true")
+async fn user_products_ctx() -> crate::test_support::TestContext {
+    ctx_with(&[("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "true")]).await
 }
 
 #[tokio::test]
 async fn user_create_product_in_own_group() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     // Create a group for user_1
     let (create_group, cg_input) = create_msg(
@@ -307,7 +314,7 @@ async fn user_create_product_in_own_group() {
 
 #[tokio::test]
 async fn user_cannot_create_product_in_other_users_group() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     // Create a group for user_1
     let (create_group, cg_input) = create_msg(
@@ -338,7 +345,7 @@ async fn user_cannot_create_product_in_other_users_group() {
 
 #[tokio::test]
 async fn user_cannot_see_other_users_products() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     // user_1 creates a product
     let (create, create_input) = create_msg(
@@ -362,7 +369,7 @@ async fn user_cannot_see_other_users_products() {
 
 #[tokio::test]
 async fn user_cannot_update_other_users_products() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (create, create_input) = create_msg(
         "/b/products/products",
@@ -390,7 +397,7 @@ async fn user_cannot_update_other_users_products() {
 
 #[tokio::test]
 async fn user_cannot_delete_other_users_products() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (create, create_input) = create_msg(
         "/b/products/products",
@@ -412,7 +419,7 @@ async fn user_cannot_delete_other_users_products() {
 
 #[tokio::test]
 async fn user_list_only_own_products() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     // user_1 creates a product
     let (c1, c1_input) = create_msg(
@@ -441,7 +448,7 @@ async fn user_list_only_own_products() {
 
 #[tokio::test]
 async fn user_update_prevents_ownership_change() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (create, create_input) = create_msg(
         "/b/products/products",
@@ -474,7 +481,7 @@ async fn user_update_prevents_ownership_change() {
 
 #[tokio::test]
 async fn user_list_only_own_groups() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (g1, g1_input) = create_msg(
         "/b/products/groups",
@@ -500,7 +507,7 @@ async fn user_list_only_own_groups() {
 
 #[tokio::test]
 async fn user_cannot_update_other_users_group() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (create, create_input) = create_msg(
         "/b/products/groups",
@@ -526,7 +533,7 @@ async fn user_cannot_update_other_users_group() {
 
 #[tokio::test]
 async fn user_group_update_prevents_ownership_change() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (create, create_input) = create_msg(
         "/b/products/groups",
@@ -558,17 +565,17 @@ async fn user_group_update_prevents_ownership_change() {
 
 #[tokio::test]
 async fn catalog_only_shows_active_products() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut d1 = HashMap::new();
     d1.insert("name".to_string(), serde_json::json!("Active"));
     d1.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p_active", d1);
+    seed(&ctx, "suppers_ai__products__products", "p_active", d1).await;
 
     let mut d2 = HashMap::new();
     d2.insert("name".to_string(), serde_json::json!("Draft"));
     d2.insert("status".to_string(), serde_json::json!("draft"));
-    ctx.seed("suppers_ai__products__products", "p_draft", d2);
+    seed(&ctx, "suppers_ai__products__products", "p_draft", d2).await;
 
     let (msg, input) = get_msg("/b/products/catalog", "");
     let out = handlers::handle_user(&ctx, &msg, input).await;
@@ -580,12 +587,12 @@ async fn catalog_only_shows_active_products() {
 
 #[tokio::test]
 async fn catalog_get_hides_non_active() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let mut d = HashMap::new();
     d.insert("name".to_string(), serde_json::json!("Hidden"));
     d.insert("status".to_string(), serde_json::json!("draft"));
-    ctx.seed("suppers_ai__products__products", "p_hidden", d);
+    seed(&ctx, "suppers_ai__products__products", "p_hidden", d).await;
 
     let (msg, input) = get_msg("/b/products/catalog/p_hidden", "");
     let out = handlers::handle_user(&ctx, &msg, input).await;
@@ -598,7 +605,7 @@ async fn catalog_get_hides_non_active() {
 
 #[tokio::test]
 async fn user_group_products_list() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     // Create group
     let (cg, cg_input) = create_msg(
@@ -629,7 +636,7 @@ async fn user_group_products_list() {
 
 #[tokio::test]
 async fn user_cannot_list_other_users_group_products() {
-    let ctx = user_products_ctx();
+    let ctx = user_products_ctx().await;
 
     let (cg, cg_input) = create_msg(
         "/b/products/groups",
@@ -651,7 +658,7 @@ async fn user_cannot_list_other_users_group_products() {
 
 #[tokio::test]
 async fn user_products_rejected_when_disabled() {
-    let ctx = MockContext::new(); // no ALLOW_USER_PRODUCTS config → defaults to false
+    let ctx = ctx().await; // no ALLOW_USER_PRODUCTS config → defaults to false
 
     let (create, create_input) = create_msg(
         "/b/products/products",
@@ -676,12 +683,12 @@ async fn user_products_rejected_when_disabled() {
 
 #[tokio::test]
 async fn catalog_still_works_when_user_products_disabled() {
-    let ctx = MockContext::new(); // user products disabled
+    let ctx = ctx().await; // user products disabled
 
     let mut d = std::collections::HashMap::new();
     d.insert("name".to_string(), serde_json::json!("Plan"));
     d.insert("status".to_string(), serde_json::json!("active"));
-    ctx.seed("suppers_ai__products__products", "p1", d);
+    seed(&ctx, "suppers_ai__products__products", "p1", d).await;
 
     let (msg, input) = get_msg("/b/products/catalog", "");
     let out = handlers::handle_user(&ctx, &msg, input).await;
@@ -695,7 +702,7 @@ async fn catalog_still_works_when_user_products_disabled() {
 
 #[tokio::test]
 async fn unknown_admin_route() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     let (msg, input) = admin_get_msg("/admin/b/products/nonexistent");
     let out = handlers::handle_admin(&ctx, &msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
@@ -703,7 +710,7 @@ async fn unknown_admin_route() {
 
 #[tokio::test]
 async fn unknown_user_route() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     let (msg, input) = get_msg("/b/products/nonexistent", "user_1");
     let out = handlers::handle_user(&ctx, &msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
