@@ -111,27 +111,16 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         .expires_in_hours
         .map(|h| (now + chrono::Duration::hours(h)).to_rfc3339());
 
-    let mut data = HashMap::new();
-    data.insert(
-        "token".to_string(),
-        serde_json::Value::String(token.clone()),
-    );
-    data.insert("bucket".to_string(), serde_json::Value::String(body.bucket));
-    data.insert("key".to_string(), serde_json::Value::String(body.key));
-    data.insert(
-        "created_by".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    data.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(now.to_rfc3339()),
-    );
-    data.insert("access_count".to_string(), serde_json::json!(0));
+    let mut data = helpers::json_map(serde_json::json!({
+        "token": token,
+        "bucket": body.bucket,
+        "key": body.key,
+        "created_by": msg.user_id(),
+        "created_at": now.to_rfc3339(),
+        "access_count": 0,
+    }));
     if let Some(exp) = &expires_at {
-        data.insert(
-            "expires_at".to_string(),
-            serde_json::Value::String(exp.clone()),
-        );
+        data.insert("expires_at".to_string(), serde_json::Value::String(exp.clone()));
     }
     if let Some(max) = body.max_access_count {
         data.insert("max_access_count".to_string(), serde_json::json!(max));

@@ -381,23 +381,12 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Track view in DB
-    let mut data = HashMap::new();
-    data.insert(
-        "bucket".to_string(),
-        serde_json::Value::String(bucket.to_string()),
-    );
-    data.insert(
-        "key".to_string(),
-        serde_json::Value::String(key.to_string()),
-    );
-    data.insert(
-        "user_id".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    data.insert(
-        "viewed_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
+    let data = helpers::json_map(serde_json::json!({
+        "bucket": bucket,
+        "key": key,
+        "user_id": msg.user_id(),
+        "viewed_at": helpers::now_rfc3339(),
+    }));
     if let Err(e) = db::create(ctx, super::VIEWS_TABLE, data).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
@@ -471,29 +460,15 @@ async fn handle_upload_object(
 
     // Insert a pending record BEFORE uploading so concurrent quota checks see it.
     // This closes the TOCTOU race between check_quota and the actual upload.
-    let mut pending_data = HashMap::new();
-    pending_data.insert(
-        "bucket".to_string(),
-        serde_json::Value::String(bucket.to_string()),
-    );
-    pending_data.insert("key".to_string(), serde_json::Value::String(key.clone()));
-    pending_data.insert("size".to_string(), serde_json::json!(body_bytes.len()));
-    pending_data.insert(
-        "content_type".to_string(),
-        serde_json::Value::String(content_type.clone()),
-    );
-    pending_data.insert(
-        "status".to_string(),
-        serde_json::Value::String("pending".to_string()),
-    );
-    pending_data.insert(
-        "uploaded_by".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-    pending_data.insert(
-        "uploaded_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
+    let pending_data = helpers::json_map(serde_json::json!({
+        "bucket": bucket,
+        "key": key,
+        "size": body_bytes.len(),
+        "content_type": content_type,
+        "status": "pending",
+        "uploaded_by": msg.user_id(),
+        "uploaded_at": helpers::now_rfc3339(),
+    }));
 
     let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
         Ok(record) => record,
@@ -503,11 +478,7 @@ async fn handle_upload_object(
     match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
-            let mut update_data = HashMap::new();
-            update_data.insert(
-                "status".to_string(),
-                serde_json::Value::String("complete".to_string()),
-            );
+            let update_data = helpers::json_map(serde_json::json!({ "status": "complete" }));
             if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
