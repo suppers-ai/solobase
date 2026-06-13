@@ -104,10 +104,8 @@ use wafer_run::{context::Context, Message, OutputStream};
 use crate::ui::{
     self,
     components::{button, BtnVariant, CtrlSize},
-    nav_groups,
-    shell::{Crumb, Topbar},
+    shell::Crumb,
     templates::{list_page, PageHeader},
-    Page, SiteConfig, UserInfo,
 };
 
 /// Load the calling user's buckets, decorated with live object counts.
@@ -235,8 +233,6 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
     }
 
     let rows = list_buckets_for_user(ctx, &user_id).await;
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
 
     let new_bucket_btn = button(
         BtnVariant::Primary,
@@ -265,26 +261,22 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
         None,
     );
 
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: "Files",
-            href: None,
-        }],
-        primary_action: Some(new_bucket_btn),
-        subtitle: Some("Your buckets and their object counts."),
-        show_palette: true,
-    };
-    Page {
-        config: &config,
-        title: "Files",
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: msg.path(),
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: "Files",
+            nav: ui::NavKind::Portal,
+            crumbs: vec![Crumb {
+                label: "Files",
+                href: None,
+            }],
+            subtitle: Some("Your buckets and their object counts."),
+            primary_action: Some(new_bucket_btn),
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 /// Object as the user sees it (key, size, modified timestamp).
@@ -555,9 +547,6 @@ pub async fn object_list_page(
     let all_objects = list_objects_in_bucket(ctx, bucket).await;
     let listing = group_objects_by_prefix(&all_objects, current_prefix);
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let title = if current_prefix.is_empty() {
         bucket.to_string()
     } else {
@@ -585,38 +574,34 @@ pub async fn object_list_page(
         None,
     );
 
-    let groups = nav_groups::portal();
     let upload_btn = crate::ui::components::button(
         crate::ui::components::BtnVariant::Primary,
         crate::ui::components::CtrlSize::Sm,
         "+ Upload",
         maud::PreEscaped(r#"type="button" data-action="open-upload""#.to_string()),
     );
-    let topbar = Topbar {
-        crumbs: vec![
-            Crumb {
-                label: "Files",
-                href: Some("/b/storage/"),
-            },
-            Crumb {
-                label: bucket,
-                href: None,
-            },
-        ],
-        primary_action: Some(upload_btn),
-        subtitle: Some("Drag files here to upload, or use the Upload button."),
-        show_palette: true,
-    };
-    Page {
-        config: &config,
-        title: &title,
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: msg.path(),
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: &title,
+            nav: ui::NavKind::Portal,
+            crumbs: vec![
+                Crumb {
+                    label: "Files",
+                    href: Some("/b/storage/"),
+                },
+                Crumb {
+                    label: bucket,
+                    href: None,
+                },
+            ],
+            subtitle: Some("Drag files here to upload, or use the Upload button."),
+            primary_action: Some(upload_btn),
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 #[derive(Clone, Debug)]
@@ -776,9 +761,6 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
             .max_storage_bytes,
     };
 
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
     let shares_with_js = html! {
         (render_shares_table(&shares))
         (render_bootstrap_script("", ""))
@@ -795,26 +777,22 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         None,
     );
 
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: "Shares",
-            href: None,
-        }],
-        primary_action: None,
-        subtitle: Some("Public links you've created and your storage quota."),
-        show_palette: true,
-    };
-    Page {
-        config: &config,
-        title: "Shares",
-        nav: &groups,
-        user: user.as_ref(),
-        current_path: msg.path(),
-        topbar,
+    ui::shell_page(
+        ctx,
+        msg,
+        ui::Shell {
+            title: "Shares",
+            nav: ui::NavKind::Portal,
+            crumbs: vec![Crumb {
+                label: "Shares",
+                href: None,
+            }],
+            subtitle: Some("Public links you've created and your storage quota."),
+            primary_action: None,
+        },
         body,
-    }
-    .response(msg)
+    )
+    .await
 }
 
 #[cfg(test)]
