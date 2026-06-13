@@ -108,8 +108,10 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
         // `build_select_with_condition` rather than the flat-filters
         // `db::paginated_list` typed client.
         use sea_query::{Cond, Expr};
-        use wafer_sql_utils::{ident::DynCol, query, Backend};
+        use wafer_sql_utils::{ident::DynCol, query};
 
+        // Resolve the dialect before building the `!Send` `Cond`.
+        let backend = crate::db_backend(ctx).await;
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
         let or_group = Cond::any()
@@ -133,7 +135,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
                 ..Default::default()
             },
             Some(or_group),
-            Backend::Sqlite,
+            backend,
         );
         let records = db::query(ctx, &stmt).await;
         // Wrap in RecordList format. total_count is the in-page count here;

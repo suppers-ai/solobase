@@ -51,10 +51,14 @@ impl Tab {
     }
 }
 
-fn backend_badge(table_count: usize) -> Markup {
+fn backend_badge(backend: wafer_sql_utils::Backend, table_count: usize) -> Markup {
+    let label = match backend {
+        wafer_sql_utils::Backend::Sqlite => "SQLite",
+        wafer_sql_utils::Backend::Postgres => "PostgreSQL",
+    };
     html! {
         span .badge .badge-info .text-xs title="Database backend" {
-            "SQLite · " (table_count) " tables"
+            (label) " · " (table_count) " tables"
         }
     }
 }
@@ -366,6 +370,7 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user = UserInfo::from_message(msg);
 
     let tables = introspect_table_summaries(ctx).await;
+    let backend = crate::db_backend(ctx).await;
     let selected = msg.query("table");
     let tab = Tab::from_query(msg.query("tab"));
 
@@ -392,7 +397,7 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Database"),
-            primary_action: Some(backend_badge(tables.len())),
+            primary_action: Some(backend_badge(backend, tables.len())),
             subtitle: Some("Browse tables, view schema, run read-only SQL"),
             show_palette: true,
         },

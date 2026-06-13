@@ -17,7 +17,7 @@ pub mod block_settings {
     use wafer_block::db::{Filter, FilterOp, ListOptions};
     use wafer_core::clients::database as db;
     use wafer_run::context::Context;
-    use wafer_sql_utils::{query, Backend};
+    use wafer_sql_utils::query;
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 
@@ -26,6 +26,7 @@ pub mod block_settings {
     /// Reads the `enabled` column from [`BLOCK_SETTINGS_TABLE`]. Defaults to
     /// `true` when no row exists (all blocks are enabled by default).
     pub async fn is_enabled(ctx: &dyn Context, block_name: &str) -> bool {
+        let backend = crate::db_backend(ctx).await;
         let stmt = query::build_select_columns(
             TABLE,
             &["enabled"],
@@ -38,7 +39,7 @@ pub mod block_settings {
                 ..Default::default()
             },
             None,
-            Backend::Sqlite,
+            backend,
         );
         db::query(ctx, &stmt)
             .await

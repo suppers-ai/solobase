@@ -2,7 +2,7 @@ use maud::{html, Markup};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::{query, Backend};
+use wafer_sql_utils::query;
 
 use crate::{
     blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, helpers::RecordExt},
@@ -43,6 +43,8 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     };
 
     let search = msg.query("search").to_string();
+    // Resolve the dialect before building the `!Send` `GroupedQueryConfig`.
+    let backend = crate::db_backend(ctx).await;
 
     let filters = if search.is_empty() {
         vec![]
@@ -94,7 +96,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
             }],
             limit: Some(50),
         },
-        Backend::Sqlite,
+        backend,
     );
     let summary = db::query(ctx, &stmt).await.unwrap_or_default();
 
@@ -184,6 +186,7 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
     let path = msg.query("path").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
+    let backend = crate::db_backend(ctx).await;
 
     let stmt = query::build_select_columns(
         REQUEST_LOGS,
@@ -216,7 +219,7 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
             ..Default::default()
         },
         None,
-        Backend::Sqlite,
+        backend,
     );
     let rows = db::query(ctx, &stmt).await.unwrap_or_default();
 

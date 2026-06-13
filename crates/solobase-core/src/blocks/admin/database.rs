@@ -32,7 +32,7 @@ pub(in crate::blocks::admin) struct ColumnInfo {
 /// The name always originates from the backend's own table listing, so a
 /// build error here means an identifier the backend can't quote.
 async fn table_row_count(ctx: &dyn Context, name: &str) -> i64 {
-    match introspect::build_table_row_count(name, Backend::Sqlite) {
+    match introspect::build_table_row_count(name, crate::db_backend(ctx).await) {
         Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
             .await
             .ok()
@@ -55,7 +55,7 @@ async fn table_row_count(ctx: &dyn Context, name: &str) -> i64 {
 pub(in crate::blocks::admin) async fn introspect_table_summaries(
     ctx: &dyn Context,
 ) -> Vec<TableSummary> {
-    let sql = introspect::build_list_tables(Backend::Sqlite);
+    let sql = introspect::build_list_tables(crate::db_backend(ctx).await);
     let records = db::query_raw(ctx, &sql, &[]).await.unwrap_or_default();
     let mut out = Vec::with_capacity(records.len());
     for r in &records {
@@ -83,7 +83,7 @@ pub(in crate::blocks::admin) async fn introspect_columns(
     ctx: &dyn Context,
     table: &str,
 ) -> (Vec<ColumnInfo>, i64) {
-    let columns = match introspect::build_table_info(table, Backend::Sqlite) {
+    let columns = match introspect::build_table_info(table, crate::db_backend(ctx).await) {
         Ok((info_sql, info_args)) => db::query_raw(ctx, &info_sql, &info_args)
             .await
             .unwrap_or_default(),
@@ -135,7 +135,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
 }
 
 async fn handle_info(ctx: &dyn Context) -> OutputStream {
-    let sql = introspect::build_list_tables(Backend::Sqlite);
+    let backend = crate::db_backend(ctx).await;
+    let sql = introspect::build_list_tables(backend);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
         Err(e) => return err_internal("Database error", e),
@@ -147,10 +148,19 @@ async fn handle_info(ctx: &dyn Context) -> OutputStream {
         .collect();
 
     ok_json(&serde_json::json!({
-        "type": "sqlite",
+        "type": backend_name(backend),
         "tables": table_names,
         "table_count": table_names.len()
     }))
+}
+
+/// Lowercase dialect name for the JSON `type` field, matching the
+/// `SOLOBASE_SHARED__DATABASE__BACKEND` config var values.
+fn backend_name(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Sqlite => "sqlite",
+        Backend::Postgres => "postgres",
+    }
 }
 
 async fn handle_tables(ctx: &dyn Context) -> OutputStream {
@@ -181,7 +191,7 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     // The table name is user input from the URL path; an invalid identifier
     // is a bad request, not a server error.
-    if introspect::build_table_info(table_name, Backend::Sqlite).is_err() {
+    if introspect::build_table_info(table_name, crate::db_backend(ctx).await).is_err() {
         return err_bad_request("Invalid table name");
     }
 
