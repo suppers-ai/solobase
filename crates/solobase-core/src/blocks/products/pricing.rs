@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use wafer_core::clients::database as db;
+use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use super::PRODUCTS_TABLE;
+use super::{PRODUCTS_TABLE, PRICING_TABLE};
 use crate::blocks::helpers::{
     err_bad_request, err_internal_no_cause, err_not_found, ok_json, RecordExt,
 };
@@ -11,6 +11,84 @@ use crate::blocks::helpers::{
 /// Pricing template table — reusable pricing rule definitions (formulas,
 /// tiers, etc.) referenced by products at calc time.
 pub(crate) const TABLE: &str = "suppers_ai__products__pricing_templates";
+
+/// What to do when a product references a `pricing_template_id` whose row is
+/// absent from the pricing-templates table.
+///
+/// The price-preview endpoint (`handle_calculate`) treats this as a data
+/// integrity error (`MissingTemplate::Error`) so the broken reference is
+/// surfaced; the purchase path (`handle_create`) intentionally falls back to
+/// the product's `base_price` (`MissingTemplate::FallBackToBase`) so a stale
+/// template reference can't block a sale — both behaviors are pinned by tests.
+#[derive(Clone, Copy)]
+pub enum MissingTemplate {
+    /// Return `Err` describing the missing template.
+    Error,
+    /// Use the product's `base_price` instead.
+    FallBackToBase,
+}
+
+/// A resolved unit price plus the pricing formula that produced it (if any).
+pub struct ResolvedPrice {
+    /// The unit price, guaranteed to have passed [`validate_price`].
+    pub unit_price: f64,
+    /// The template's `price_formula` when a pricing template was applied;
+    /// `None` when the product's `base_price` was used.
+    pub formula: Option<String>,
+}
+
+/// Read a product's `base_price`, defaulting to `0.0` when absent/non-numeric.
+/// `validate_price` downstream rejects the `0.0` placeholder.
+fn base_price(product: &Record) -> f64 {
+    product
+        .data
+        .get("base_price")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
+/// Resolve the unit price for `product`, applying its pricing template (if it
+/// references one) against `variables`, else its `base_price`.
+///
+/// Single source of truth for unit-price resolution shared by the
+/// price-preview endpoint and the purchase path. The returned price is
+/// guaranteed to have passed [`validate_price`]. `on_missing_template` picks
+/// the behavior when a referenced template row is absent (see
+/// [`MissingTemplate`]).
+pub async fn resolve_unit_price(
+    ctx: &dyn Context,
+    product: &Record,
+    variables: &HashMap<String, f64>,
+    on_missing_template: MissingTemplate,
+) -> Result<ResolvedPrice, String> {
+    let template_id = product.str_field("pricing_template_id");
+
+    let (price, formula) = if template_id.is_empty() {
+        (base_price(product), None)
+    } else {
+        match db::get(ctx, PRICING_TABLE, template_id).await {
+            Ok(template) => {
+                let formula = template.str_field("price_formula").to_string();
+                if formula.is_empty() {
+                    return Err("Empty pricing formula".to_string());
+                }
+                let price = evaluate_formula(&formula, variables)
+                    .map_err(|e| format!("Formula evaluation error: {e}"))?;
+                (price, Some(formula))
+            }
+            Err(_) => match on_missing_template {
+                MissingTemplate::Error => return Err("Pricing template not found".to_string()),
+                MissingTemplate::FallBackToBase => (base_price(product), None),
+            },
+        }
+    };
+
+    validate_price(price)?;
+    Ok(ResolvedPrice {
+        unit_price: price,
+        formula,
+    })
+}
 
 pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
@@ -37,56 +115,41 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
         Err(_) => return err_not_found("Product not found"),
     };
 
-    // Get pricing template
-    let template_id = product.str_field("pricing_template_id");
-    if template_id.is_empty() {
-        // Direct price from product
-        let base_price = product
-            .data
-            .get("base_price")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        if let Err(e) = validate_price(base_price) {
-            return err_bad_request(&e);
-        }
-        let total = base_price * body.quantity as f64;
-        return ok_json(&serde_json::json!({
-            "unit_price": base_price,
+    let resolved =
+        match resolve_unit_price(ctx, &product, &body.variables, MissingTemplate::Error).await {
+            Ok(r) => r,
+            // A missing template row / empty formula is a server-side data
+            // integrity problem; a bad formula or sub-minimum price is a
+            // client-correctable bad request.
+            Err(e) if e == "Pricing template not found" || e == "Empty pricing formula" => {
+                return err_internal_no_cause(&e)
+            }
+            Err(e) => return err_bad_request(&e),
+        };
+
+    let total = resolved.unit_price * body.quantity as f64;
+    let currency = product
+        .data
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USD");
+
+    match resolved.formula {
+        Some(formula) => ok_json(&serde_json::json!({
+            "unit_price": resolved.unit_price,
             "quantity": body.quantity,
             "total": total,
-            "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD")
-        }));
+            "currency": currency,
+            "formula": formula,
+            "variables_used": body.variables
+        })),
+        None => ok_json(&serde_json::json!({
+            "unit_price": resolved.unit_price,
+            "quantity": body.quantity,
+            "total": total,
+            "currency": currency
+        })),
     }
-
-    let template = match db::get(ctx, TABLE, template_id).await {
-        Ok(t) => t,
-        Err(_) => return err_internal_no_cause("Pricing template not found"),
-    };
-
-    let formula = template.str_field("price_formula");
-    if formula.is_empty() {
-        return err_internal_no_cause("Empty pricing formula");
-    }
-
-    // Evaluate formula
-    let unit_price = match evaluate_formula(formula, &body.variables) {
-        Ok(p) => p,
-        Err(e) => return err_bad_request(&format!("Formula evaluation error: {e}")),
-    };
-    if let Err(e) = validate_price(unit_price) {
-        return err_bad_request(&e);
-    }
-
-    let total = unit_price * body.quantity as f64;
-
-    ok_json(&serde_json::json!({
-        "unit_price": unit_price,
-        "quantity": body.quantity,
-        "total": total,
-        "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
-        "formula": formula,
-        "variables_used": body.variables
-    }))
 }
 
 /// Minimum acceptable price for a product (in display currency units).
