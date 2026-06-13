@@ -197,6 +197,13 @@ pub(crate) mod helpers {
     /// refresh tokens so it survives refresh, letting downstream gates (like
     /// the wafer registry's publish endpoint) require a stronger method.
     ///
+    /// `family` selects the refresh-token rotation family for the SEC-039
+    /// reuse-detection ladder: pass `None` to mint a brand-new family (initial
+    /// login / signup / OAuth / bootstrap), or `Some(existing)` to re-issue
+    /// within an established family on refresh rotation so the new refresh
+    /// JWT's `family` claim agrees with the DB row that anchors reuse
+    /// detection.
+    ///
     /// Access tokens carry a random `jti` so logout can blocklist the
     /// in-flight JWT (SEC-042) without affecting other live sessions for
     /// the same user.
@@ -206,10 +213,14 @@ pub(crate) mod helpers {
         email: &str,
         roles: &[String],
         auth_method: &str,
+        family: Option<&str>,
     ) -> std::result::Result<(String, String, String), wafer_run::OutputStream> {
-        let family = match crypto::random_bytes(ctx, 16).await {
-            Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return Err(wafer_run::OutputStream::error(e)),
+        let family = match family {
+            Some(f) => f.to_string(),
+            None => match crypto::random_bytes(ctx, 16).await {
+                Ok(bytes) => hex_encode(&bytes),
+                Err(e) => return Err(wafer_run::OutputStream::error(e)),
+            },
         };
         // SEC-042: per-token random id so logout can revoke a single JWT
         // without touching other live sessions for the same user.
@@ -346,6 +357,90 @@ pub(crate) mod helpers {
             max_age,
             if secure { "; Secure" } else { "" }
         )
+    }
+
+    /// Resolve the configured session-row lifetime in days
+    /// (`SOLOBASE_SHARED__AUTH__SESSION_LIFETIME_DAYS`). Falls back to the
+    /// declared default if unset or unparseable. The session row is the
+    /// userportal device-list signal; its expiry is independent of the JWT
+    /// access-token lifetime (which is gated by [`access_token_lifetime_secs`]).
+    pub(crate) async fn session_lifetime_days(ctx: &dyn wafer_run::context::Context) -> u32 {
+        use super::config::{SESSION_LIFETIME_DAYS_DEFAULT, SESSION_LIFETIME_DAYS_KEY};
+        let raw = config_client::get_default(ctx, SESSION_LIFETIME_DAYS_KEY, "").await;
+        raw.parse::<u32>()
+            .ok()
+            .filter(|n| *n > 0)
+            .unwrap_or(SESSION_LIFETIME_DAYS_DEFAULT)
+    }
+
+    /// Outcome of [`issue_tokens_and_cookie`]: the freshly minted token pair,
+    /// its rotation family, the access-token lifetime (seconds) and the
+    /// ready-to-set `auth_token` cookie. Callers add only their response shape
+    /// (JSON body vs. 302 redirect).
+    pub(crate) struct IssuedLogin {
+        pub access_token: String,
+        pub refresh_token: String,
+        pub family: String,
+        pub access_lifetime: u64,
+        pub cookie: String,
+    }
+
+    /// Shared token-issuance tail for every login flow (password login, signup,
+    /// bootstrap redemption, OAuth callback, and refresh rotation).
+    ///
+    /// Mints the access + refresh JWTs, persists the refresh-token row, writes
+    /// the userportal session row, and builds the `auth_token` cookie — the
+    /// exact sequence that was previously copy-pasted across all five handlers
+    /// (and which the OAuth copy had drifted from, silently omitting the
+    /// session row). Centralising it guarantees every authentication path is
+    /// visible on the userportal device list.
+    ///
+    /// `family` follows [`generate_tokens`]: `None` mints a brand-new rotation
+    /// family (initial authentication), `Some(existing)` re-issues within an
+    /// established family (refresh rotation). `generation` is the refresh-row
+    /// generation to persist (`0` for a new family, `prev + 1` on rotation).
+    ///
+    /// The session-row write failing does not abort issuance — it is a UX
+    /// signal, not a security gate (auth is entirely JWT-based today) — but it
+    /// is logged.
+    pub(crate) async fn issue_tokens_and_cookie(
+        ctx: &dyn wafer_run::context::Context,
+        user_id: &str,
+        email: &str,
+        roles: &[String],
+        auth_method: &str,
+        family: Option<&str>,
+        generation: i64,
+    ) -> std::result::Result<IssuedLogin, wafer_run::OutputStream> {
+        use super::repo::sessions;
+        use super::service::hash_token;
+
+        let (access_token, refresh_token, family) =
+            generate_tokens(ctx, user_id, email, roles, auth_method, family).await?;
+
+        store_refresh_token(ctx, user_id, &refresh_token, &family, generation).await;
+
+        let lifetime_days = session_lifetime_days(ctx).await;
+        if let Err(e) =
+            sessions::create_for_user(ctx, user_id, hash_token(&access_token), lifetime_days).await
+        {
+            tracing::warn!(
+                user_id = %user_id,
+                auth_method = %auth_method,
+                "failed to persist session row for login: {e}"
+            );
+        }
+
+        let access_lifetime = access_token_lifetime_secs(ctx).await;
+        let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
+
+        Ok(IssuedLogin {
+            access_token,
+            refresh_token,
+            family,
+            access_lifetime,
+            cookie,
+        })
     }
 }
 

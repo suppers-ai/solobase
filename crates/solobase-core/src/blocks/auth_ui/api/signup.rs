@@ -5,9 +5,8 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
-        repo::{local_credentials, sessions, users},
-        service::hash_token,
+        helpers::issue_tokens_and_cookie,
+        repo::{local_credentials, users},
         USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
