@@ -222,12 +222,9 @@ fn replay_buffered(body: Vec<u8>, meta: Vec<MetaEntry>) -> OutputStream {
 
 /// Pull `Meta` events off the front of an `OutputStream`, stopping at the
 /// first non-`Meta` event. Returns the accumulated meta and the next event
-/// (if any). Lets an HTTP boundary peek the response's headers before
-/// deciding whether to stream the body or buffer it (the browser adapter
-/// reuses this for its streaming-vs-buffered split).
-pub async fn drain_leading_meta(
-    stream: &mut OutputStream,
-) -> (Vec<MetaEntry>, Option<StreamEvent>) {
+/// (if any). Lets the pipeline peek the response's headers before deciding
+/// whether to stream the body or buffer it.
+async fn drain_leading_meta(stream: &mut OutputStream) -> (Vec<MetaEntry>, Option<StreamEvent>) {
     let mut meta = Vec::new();
     while let Some(ev) = stream.next().await {
         match ev {
@@ -241,7 +238,7 @@ pub async fn drain_leading_meta(
 /// The canonical `resp.content_type` among the leading meta entries, if any.
 /// Legacy aliases (a literal `Content-Type` meta key) are not honored — the
 /// canonical-keys-only policy is pinned by `wafer_block::http_codec`.
-pub fn leading_content_type(meta: &[MetaEntry]) -> Option<&str> {
+fn leading_content_type(meta: &[MetaEntry]) -> Option<&str> {
     http_codec::response_meta_parts(meta).find_map(|part| match part {
         ResponseMetaPart::ContentType(ct) => Some(ct),
         _ => None,
@@ -251,7 +248,7 @@ pub fn leading_content_type(meta: &[MetaEntry]) -> Option<&str> {
 /// True for content-types that should stream body chunks to the client as
 /// they're produced rather than buffer the entire response. Today: SSE and
 /// generic byte streams (which feature blocks use for downloads / archives).
-pub fn is_streaming_content_type(ct: &str) -> bool {
+fn is_streaming_content_type(ct: &str) -> bool {
     let lower = ct.to_ascii_lowercase();
     lower.starts_with("text/event-stream") || lower.starts_with("application/octet-stream")
 }
@@ -329,7 +326,7 @@ fn rebuild_streaming(
 ///
 /// `next_event` must come from [`drain_leading_meta`] (i.e. it is never
 /// `StreamEvent::Meta`).
-pub async fn collect_buffered_with_prelude(
+async fn collect_buffered_with_prelude(
     rest: OutputStream,
     leading_meta: Vec<MetaEntry>,
     next_event: Option<StreamEvent>,
