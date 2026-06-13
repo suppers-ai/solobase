@@ -31,10 +31,6 @@ pub(super) enum AdminRoute<'a> {
     SettingsApi,
     /// `/b/admin/api/extensions*`
     ExtensionsApi,
-    /// `/b/admin/api/wafer*` (sync handler)
-    WaferApi,
-    /// `/b/admin/api/custom-tables*`
-    CustomTablesApi,
     /// `/b/admin/api/storage*` — delegated to `suppers-ai/files`
     StorageDelegate,
     /// `/b/admin/api/cloudstorage<rest>` — delegated to `suppers-ai/files`.
@@ -103,14 +99,6 @@ pub(super) enum AdminRoute<'a> {
     SaveEmailSettings,
     /// action=create, sub=`/database/query`
     DatabaseQuery,
-    /// action=create, sub=`/custom-blocks/install`
-    CustomBlockInstall,
-    /// action=create, sub=`/custom-blocks/upload`
-    CustomBlockUpload,
-    /// action=delete, sub=`/custom-blocks/{encoded}`
-    CustomBlockDelete {
-        block_name: String,
-    },
 
     // --- SSR fallthrough (GET) ---
     Dashboard,
@@ -144,8 +132,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             "logs" => AdminRoute::LogsApi,
             "settings" => AdminRoute::SettingsApi,
             "extensions" => AdminRoute::ExtensionsApi,
-            "wafer" => AdminRoute::WaferApi,
-            "custom-tables" => AdminRoute::CustomTablesApi,
             "storage" => AdminRoute::StorageDelegate,
             "cloudstorage" => AdminRoute::CloudStorageDelegate {
                 rest: api_rest.strip_prefix("/cloudstorage").unwrap_or(""),
@@ -211,12 +197,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             if sub == "/database/query" {
                 return AdminRoute::DatabaseQuery;
             }
-            if sub == "/custom-blocks/install" {
-                return AdminRoute::CustomBlockInstall;
-            }
-            if sub == "/custom-blocks/upload" {
-                return AdminRoute::CustomBlockUpload;
-            }
         }
         if action == "delete" {
             if let Some(id) = sub.strip_prefix("/users/") {
@@ -232,13 +212,6 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
             if let Some(id) = sub.strip_prefix("/grants/rules/") {
                 if !id.is_empty() {
                     return AdminRoute::DeleteWrapGrant { rule_id: id };
-                }
-            }
-            if let Some(encoded) = sub.strip_prefix("/custom-blocks/") {
-                if !encoded.is_empty() {
-                    return AdminRoute::CustomBlockDelete {
-                        block_name: encoded.replace("--", "/"),
-                    };
                 }
             }
         }
@@ -356,16 +329,16 @@ mod tests {
                 AdminRoute::ExtensionsApi,
             ),
             (
-                "wafer api",
+                "wafer api removed",
                 "/b/admin/api/wafer",
                 "retrieve",
-                AdminRoute::WaferApi,
+                AdminRoute::ApiNotFound,
             ),
             (
-                "custom-tables api",
+                "custom-tables api removed",
                 "/b/admin/api/custom-tables",
                 "retrieve",
-                AdminRoute::CustomTablesApi,
+                AdminRoute::ApiNotFound,
             ),
             (
                 "storage delegate",
@@ -534,24 +507,16 @@ mod tests {
                 AdminRoute::DatabaseQuery,
             ),
             (
-                "custom block install",
+                "custom block install removed",
                 "/b/admin/custom-blocks/install",
                 "create",
-                AdminRoute::CustomBlockInstall,
+                AdminRoute::NotFound,
             ),
             (
-                "custom block upload",
-                "/b/admin/custom-blocks/upload",
-                "create",
-                AdminRoute::CustomBlockUpload,
-            ),
-            (
-                "custom block delete",
+                "custom block delete removed",
                 "/b/admin/custom-blocks/suppers-ai--foo",
                 "delete",
-                AdminRoute::CustomBlockDelete {
-                    block_name: "suppers-ai/foo".to_string(),
-                },
+                AdminRoute::NotFound,
             ),
             // /b/admin/... SSR pages (GET)
             (

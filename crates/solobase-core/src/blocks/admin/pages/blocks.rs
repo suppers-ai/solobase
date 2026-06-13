@@ -1,6 +1,6 @@
 use maud::html;
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -458,221 +458,31 @@ pub async fn handle_block_detail(
 }
 
 // ---------------------------------------------------------------------------
-// Custom tab helpers
+// Custom tab
 // ---------------------------------------------------------------------------
 
+/// Informational notice for the Custom tab. Local deployments discover
+/// custom blocks from the `blocks/` directory at startup — there is no
+/// runtime install/upload surface.
 fn custom_tab_content() -> maud::Markup {
     html! {
         div .custom-tab {
-            // Install from Registry
             section .card {
                 header .card__head {
-                    h3 .card__title { (icons::arrow_up_right()) " Install from Registry" }
+                    h3 .card__title { (icons::package()) " Custom Blocks" }
                 }
                 div .card__body {
                     p .custom-tab__hint {
-                        "Enter a manifest URL from the "
+                        "Custom blocks are auto-discovered from the "
+                        code { "blocks/" }
+                        " directory. Use "
+                        code { "wafer build" }
+                        " to compile blocks locally, then restart the server. Browse the "
                         a href="https://wafer.run/registry" target="_blank" { "WAFER registry" }
-                        " to install a custom WASM block."
-                    }
-                    form .custom-tab__form
-                        hx-post="/b/admin/custom-blocks/install"
-                        hx-target="#custom-blocks-list"
-                        hx-swap="outerHTML"
-                    {
-                        div .custom-tab__field {
-                            label { "Manifest URL" }
-                            input .form-input type="text" name="manifest_url"
-                                placeholder="https://wafer.run/registry/org/block/manifest.json";
-                        }
-                        button .btn .btn-primary type="submit" {
-                            (icons::arrow_up_right()) " Install"
-                        }
-                    }
-                }
-            }
-
-            // Upload .wasm
-            section .card {
-                header .card__head {
-                    h3 .card__title { (icons::hard_drive()) " Upload .wasm" }
-                }
-                div .card__body {
-                    p .custom-tab__hint {
-                        "Upload a compiled .wasm block directly. The block name will be derived from the filename."
-                    }
-                    form .custom-tab__form
-                        hx-post="/b/admin/custom-blocks/upload"
-                        hx-target="#custom-blocks-list"
-                        hx-swap="outerHTML"
-                        hx-encoding="multipart/form-data"
-                    {
-                        div .custom-tab__field {
-                            label { "WASM file" }
-                            input .form-input type="file" name="wasm_file" accept=".wasm";
-                        }
-                        button .btn .btn-primary type="submit" {
-                            (icons::arrow_up_right()) " Upload"
-                        }
-                    }
-                }
-            }
-
-            // Installed custom blocks list (initially empty placeholder)
-            div #custom-blocks-list {
-                (custom_blocks_list(&[]))
-            }
-        }
-    }
-}
-
-/// Render the installed custom blocks table. `blocks` is a slice of
-/// `(name, version, uploaded_at)` tuples coming from the backend.
-pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
-    html! {
-        div #custom-blocks-list {
-            section .card {
-                header .card__head {
-                    h3 .card__title { (icons::package()) " Installed Custom Blocks" }
-                }
-                div .card__body {
-                    @if blocks.is_empty() {
-                        div .custom-tab__empty {
-                            p { "No custom blocks installed yet." }
-                            p .custom-tab__empty-hint {
-                                "Use the forms above to install from the registry or upload a .wasm file."
-                            }
-                        }
-                    } @else {
-                div .table-container {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Name" }
-                                th { "Version" }
-                                th { "Uploaded" }
-                                th style="width:120px" { "Status" }
-                                th style="width:80px" { "" }
-                            }
-                        }
-                        tbody {
-                            @for (name, version, uploaded_at) in blocks {
-                                @let encoded = encode_block_name(name);
-                                tr {
-                                    td .text-sm { code style="font-size:12px" { (name) } }
-                                    td .text-sm .text-muted { "v" (version) }
-                                    td .text-sm .text-muted { (uploaded_at) }
-                                    td {
-                                        label .toggle {
-                                            input type="checkbox"
-                                                checked
-                                                hx-post={"/b/admin/blocks/" (encoded) "/toggle"}
-                                                hx-target="#content";
-                                            span .toggle-slider {}
-                                        }
-                                    }
-                                    td {
-                                        button .btn .btn-sm
-                                            style="background:#fce4ec;color:#c62828;border:none"
-                                            hx-delete={"/b/admin/custom-blocks/" (encoded)}
-                                            hx-target="#custom-blocks-list"
-                                            hx-swap="outerHTML"
-                                            hx-confirm={"Delete custom block " (name) "?"}
-                                        {
-                                            (icons::trash())
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        " for available WASM blocks."
                     }
                 }
             }
         }
     }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Custom block endpoint handlers
-// ---------------------------------------------------------------------------
-
-/// POST /b/admin/custom-blocks/install — install a block from a manifest URL
-pub async fn handle_custom_block_install(
-    _ctx: &dyn Context,
-    _msg: &Message,
-    input: InputStream,
-) -> OutputStream {
-    use crate::blocks::helpers::parse_form_body;
-    let body = input.collect_to_bytes().await;
-    let form = parse_form_body(&body);
-    let manifest_url = form.get("manifest_url").cloned().unwrap_or_default();
-
-    if manifest_url.is_empty() {
-        let markup = html! {
-            div #custom-blocks-list {
-                div .card style="color:#c62828;padding:16px" {
-                    "Error: manifest URL is required."
-                }
-            }
-        };
-        return ui::html_response(markup);
-    }
-
-    // TODO(cloud): delegate to /_internal/blocks/install when running in cloud mode.
-    // For local deployment, custom blocks are auto-discovered from the blocks/ directory.
-    let markup = html! {
-        div #custom-blocks-list {
-            div .card style="padding:16px;background:#fef3c7;color:#92400e;border-left:3px solid #f59e0b" {
-                p style="margin:0 0 8px;font-weight:600" { "Local deployment" }
-                p style="margin:0;font-size:13px" {
-                    "Custom blocks are auto-discovered from the "
-                    code { "blocks/" }
-                    " directory. Use "
-                    code { "wafer build" }
-                    " to compile blocks locally, then restart the server."
-                }
-            }
-        }
-    };
-    ui::html_response(markup)
-}
-
-/// POST /b/admin/custom-blocks/upload — upload a .wasm file
-pub async fn handle_custom_block_upload(
-    _ctx: &dyn Context,
-    _msg: &Message,
-    _input: InputStream,
-) -> OutputStream {
-    // TODO(cloud): parse multipart body and store to R2/D1 when running in cloud mode.
-    // For local deployment, point users to the blocks/ directory workflow.
-    let markup = html! {
-        div #custom-blocks-list {
-            div .card style="padding:16px;background:#fef3c7;color:#92400e;border-left:3px solid #f59e0b" {
-                p style="margin:0 0 8px;font-weight:600" { "Local deployment" }
-                p style="margin:0;font-size:13px" {
-                    "Custom blocks are auto-discovered from the "
-                    code { "blocks/" }
-                    " directory. Place your compiled "
-                    code { ".wasm" }
-                    " file there and restart the server. Use "
-                    code { "wafer build" }
-                    " to compile blocks locally."
-                }
-            }
-        }
-    };
-    ui::html_response(markup)
-}
-
-/// DELETE /b/admin/custom-blocks/{name} — delete a custom block
-pub async fn handle_custom_block_delete(
-    _ctx: &dyn Context,
-    _msg: &Message,
-    _block_name: &str,
-) -> OutputStream {
-    // TODO(cloud): delete from R2/D1 when running in cloud mode.
-    let markup = custom_blocks_list(&[]);
-    ui::html_response(markup)
 }

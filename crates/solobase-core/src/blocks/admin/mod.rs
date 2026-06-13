@@ -1,4 +1,3 @@
-mod custom_tables;
 mod database;
 mod iam;
 mod logs;
@@ -7,7 +6,6 @@ mod pages;
 mod route;
 mod settings;
 mod users;
-mod wafer_info;
 
 pub(crate) use iam::{PERMISSIONS_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
 pub(crate) use logs::{AUDIT_LOGS_TABLE, REQUEST_LOGS_TABLE, STORAGE_ACCESS_LOGS_TABLE};
@@ -21,10 +19,6 @@ pub use settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 /// have run before the runner seeds `auto_generate` secrets).
 pub const ADMIN_BLOCK_ID: &str = "suppers-ai/admin";
 
-/// Storage-permission rule rows (bucket/key pattern → ACL).
-pub(crate) const STORAGE_RULES_TABLE: &str = "suppers_ai__admin__storage_rules";
-/// Network-permission rule rows (egress allow/deny by URL pattern).
-pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
 /// WRAP grant rows (block-to-resource access tokens).
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
@@ -32,7 +26,6 @@ use wafer_run::{
     context::Context, Block, BlockEndpoint, BlockInfo, ErrorCode, InputStream, InstanceMode,
     LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
-pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 use crate::blocks::helpers::{err_not_found, ok_json};
 
@@ -56,7 +49,7 @@ impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::{AuthLevel, CollectionSchema};
 
-        BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
+        BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec![
                 "wafer-run/database".into(),
@@ -159,8 +152,8 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/users").summary("User management").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/variables").summary("Config management").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/blocks").summary("Block management").auth(AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/network").summary("Network monitoring and rules").auth(AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/storage").summary("Storage isolation and rules").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/network").summary("Network monitoring").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/storage").summary("Storage isolation and access logs").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/logs").summary("System and audit logs").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/email").summary("Email settings").auth(AuthLevel::Admin),
                 BlockEndpoint::post("/b/admin/email").summary("Save email settings").auth(AuthLevel::Admin),
@@ -172,9 +165,6 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/api/iam/roles").summary("List roles API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/logs").summary("Audit logs API").auth(AuthLevel::Admin),
-                BlockEndpoint::post("/b/admin/custom-blocks/install").summary("Install custom block from registry").auth(AuthLevel::Admin),
-                BlockEndpoint::post("/b/admin/custom-blocks/upload").summary("Upload custom .wasm block").auth(AuthLevel::Admin),
-                BlockEndpoint::delete("/b/admin/custom-blocks/{name}").summary("Delete custom block").auth(AuthLevel::Admin),
             ])
     }
 
@@ -223,8 +213,6 @@ impl Block for AdminBlock {
                     .collect();
                 ok_json(&blocks)
             }
-            AdminRoute::WaferApi => wafer_info::handle(ctx, &msg),
-            AdminRoute::CustomTablesApi => custom_tables::handle(ctx, &msg, input).await,
             AdminRoute::StorageDelegate => {
                 // The original handler re-set req.resource INSIDE the if branch
                 // (to /admin/<api_rest>). The top-of-function normalization already
@@ -280,15 +268,6 @@ impl Block for AdminBlock {
                 pages::handle_save_email_settings(ctx, &msg, input).await
             }
             AdminRoute::DatabaseQuery => pages::handle_database_query(ctx, &msg, input).await,
-            AdminRoute::CustomBlockInstall => {
-                pages::handle_custom_block_install(ctx, &msg, input).await
-            }
-            AdminRoute::CustomBlockUpload => {
-                pages::handle_custom_block_upload(ctx, &msg, input).await
-            }
-            AdminRoute::CustomBlockDelete { block_name } => {
-                pages::handle_custom_block_delete(ctx, &msg, &block_name).await
-            }
 
             // --- /b/admin/... SSR pages ---
             AdminRoute::Dashboard => pages::dashboard(ctx, &msg).await,
