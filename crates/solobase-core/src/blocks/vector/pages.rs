@@ -46,7 +46,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
-use wafer_sql_utils::{introspect, query, upsert, Backend};
+use wafer_sql_utils::{introspect, query, upsert};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -188,6 +188,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     // The registry table itself is owned by the block's
     // `migrations/001_vector_schema.*.sql` script (run at block Init via
     // `apply_if_blessed`), so no inline CREATE TABLE is required here.
+    let backend = crate::db_backend(ctx).await;
     let stmt = upsert::build_upsert(
         REGISTRY_TABLE,
         &[
@@ -201,7 +202,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
         ],
         &["prefixed_name"],
         &["model", "dimensions", "keyword_search"],
-        Backend::Sqlite,
+        backend,
     );
     if let Err(e) = db::execute(ctx, &stmt).await {
         return err_internal("registry write failed", e);
@@ -255,7 +256,8 @@ async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> 
     // The builder pattern is `prefix%`; we want `prefix%_meta`. Filter the
     // suffix in Rust after the prefix scan rather than adding a new builder
     // overload — cheap because the table count is tiny (one row per index).
-    let (sql, args) = introspect::build_list_tables_like(TABLE_PREFIX, Backend::Sqlite);
+    let (sql, args) =
+        introspect::build_list_tables_like(TABLE_PREFIX, crate::db_backend(ctx).await);
     let rows = db::query_raw(ctx, &sql, &args).await?;
 
     let mut indexes: Vec<String> = Vec::with_capacity(rows.len());
@@ -292,6 +294,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
             // (pre-registry deployment) is not a failure, so we only surface
             // errors that aren't about the table itself. The row-level
             // `OR REPLACE` in create_index makes this robustly idempotent.
+            let backend = crate::db_backend(ctx).await;
             let stmt = query::build_delete_where(
                 REGISTRY_TABLE,
                 &[Filter {
@@ -299,7 +302,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     operator: FilterOp::Equal,
                     value: serde_json::json!(prefixed),
                 }],
-                Backend::Sqlite,
+                backend,
             );
             let _ = db::execute(ctx, &stmt).await;
             ok_json(&serde_json::json!({ "ok": true }))
@@ -555,6 +558,7 @@ async fn load_index_metadata(
 ) -> Result<(String, bool), WaferError> {
     // First try the registry. An error here (e.g. the table doesn't exist)
     // is treated as "no row", not fatal — we fall through to the scan.
+    let backend = crate::db_backend(ctx).await;
     let stmt = query::build_select_columns(
         REGISTRY_TABLE,
         &["model", "keyword_search"],
@@ -568,7 +572,7 @@ async fn load_index_metadata(
             ..Default::default()
         },
         None,
-        Backend::Sqlite,
+        backend,
     );
     let rows = db::query(ctx, &stmt).await;
 
