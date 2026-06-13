@@ -159,7 +159,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
         return err_internal("Failed to update token", e);
     }
 
-    send_verification_email(ctx, &email_lower, &new_token).await;
+    super::send_template_email(ctx, "verification", &email_lower, &new_token).await;
 
     ok_json(&serde_json::json!({"message": safe_msg}))
 }
@@ -203,26 +203,3 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
     ui::html_response(markup)
 }
 
-/// Send verification email via the suppers-ai/email block.
-async fn send_verification_email(ctx: &dyn Context, email: &str, token: &str) {
-    let req = serde_json::json!({
-        "template": "verification",
-        "to": email,
-        "token": token,
-    });
-    let email_msg = Message {
-        kind: "email.send_template".to_string(),
-        meta: Vec::new(),
-    };
-    let body_bytes = serde_json::to_vec(&req).unwrap_or_default();
-    let out = ctx
-        .call_block(
-            "suppers-ai/email",
-            email_msg,
-            InputStream::from_bytes(body_bytes),
-        )
-        .await;
-    if let Err(e) = out.collect_buffered().await {
-        tracing::warn!("Failed to send verification email to {}: {:?}", email, e);
-    }
-}

@@ -1,7 +1,7 @@
 //! POST /b/auth/api/signup — relocated from auth/login.rs in Task 5.
 
 use wafer_core::clients::{config, crypto, database as db};
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
@@ -201,7 +201,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Send verification email if required
     if require_verification {
-        send_verification_email(ctx, &email_lower, &verification_token).await;
+        super::send_template_email(ctx, "verification", &email_lower, &verification_token).await;
         // Do NOT issue tokens before email is verified
         return ResponseBuilder::new().status(201).json(&serde_json::json!({
             "email_verified": false,
@@ -280,28 +280,4 @@ const COMMON_PASSWORDS: &[&str] = &[
 
 fn is_common_password(pw: &str) -> bool {
     COMMON_PASSWORDS.iter().any(|p| p.eq_ignore_ascii_case(pw))
-}
-
-/// Send verification email via the suppers-ai/email block.
-async fn send_verification_email(ctx: &dyn Context, email: &str, token: &str) {
-    let req = serde_json::json!({
-        "template": "verification",
-        "to": email,
-        "token": token,
-    });
-    let email_msg = Message {
-        kind: "email.send_template".to_string(),
-        meta: Vec::new(),
-    };
-    let body_bytes = serde_json::to_vec(&req).unwrap_or_default();
-    let out = ctx
-        .call_block(
-            "suppers-ai/email",
-            email_msg,
-            InputStream::from_bytes(body_bytes),
-        )
-        .await;
-    if let Err(e) = out.collect_buffered().await {
-        tracing::warn!("Failed to send verification email to {}: {:?}", email, e);
-    }
 }
