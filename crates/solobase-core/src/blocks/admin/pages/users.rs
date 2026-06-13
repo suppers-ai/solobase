@@ -6,12 +6,9 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 use super::{admin_page, crumb};
 use crate::{
     blocks::{
-        admin::{ROLES_TABLE, USER_ROLES_TABLE},
+        admin::{ops, ROLES_TABLE},
         auth::{API_KEYS_TABLE as API_KEYS, USERS_TABLE as USERS},
-        helpers::{
-            self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt,
-            ResponseBuilder,
-        },
+        helpers::{parse_form_body, RecordExt, ResponseBuilder},
     },
     ui::{
         self,
@@ -184,30 +181,9 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
 /// Render the users table body. Async because it enriches each user with roles.
 async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id: &str) -> Markup {
     // Bulk-fetch all roles for the visible users in a single query (was N+1:
-    // one `list_all` per row). The `InOp` filter takes a JSON array of
-    // user_ids; we bucket the rows by user_id back into a map.
-    let user_ids: Vec<serde_json::Value> = records
-        .iter()
-        .map(|r| serde_json::Value::String(r.id.clone()))
-        .collect();
-    let mut user_roles: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
-    if !user_ids.is_empty() {
-        let role_filters = vec![Filter {
-            field: "user_id".into(),
-            operator: FilterOp::In,
-            value: serde_json::Value::Array(user_ids),
-        }];
-        if let Ok(rows) = db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
-            for rec in rows {
-                let uid = rec.str_field("user_id").to_string();
-                let role = rec.str_field("role").to_string();
-                if !uid.is_empty() && !role.is_empty() {
-                    user_roles.entry(uid).or_default().push(role);
-                }
-            }
-        }
-    }
+    // one `list_all` per row), via the shared `ops::fetch_roles` helper.
+    let user_ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+    let user_roles = ops::fetch_roles(ctx, &user_ids).await;
 
     html! {
         div .table-container {
@@ -309,88 +285,42 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
         Err(_) => return html! {},
     };
 
-    let role_filters = vec![Filter {
-        field: "user_id".into(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(user_id.to_string()),
-    }];
-    let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
-        Ok(records) => records
-            .iter()
-            .map(|rec| rec.str_field("role").to_string())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        Err(_) => Vec::new(),
-    };
+    // Single-user lookup via the shared roles helper (the `[one]` case).
+    let roles = ops::fetch_roles(ctx, &[user_id])
+        .await
+        .remove(user_id)
+        .unwrap_or_default();
 
     single_user_row(&record, &roles, "")
 }
 
 /// POST /b/admin/users/{id}/disable
 pub async fn handle_user_disable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    if admin_id == user_id {
-        return err_bad_request("Cannot disable your own account");
+    // Self-disable guard, update, and audit-log write live in the shared ops
+    // layer (single source of truth shared with the JSON surface).
+    if let Err(out) = ops::set_user_disabled(ctx, msg, user_id, true).await {
+        return out;
     }
-    let ip = msg.remote_addr().to_string();
-    let mut data = std::collections::HashMap::new();
-    data.insert("disabled".to_string(), serde_json::json!(true));
-    helpers::stamp_updated(&mut data);
-    if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "user.disable",
-        &format!("users/{user_id}"),
-        &ip,
-    )
-    .await;
     let row = user_row_fragment(ctx, user_id).await;
     ui::html_response_with_toast(row, "User disabled", "success")
 }
 
 /// POST /b/admin/users/{id}/enable
 pub async fn handle_user_enable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
-    let mut data = std::collections::HashMap::new();
-    data.insert("disabled".to_string(), serde_json::json!(false));
-    helpers::stamp_updated(&mut data);
-    if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return err_internal("Failed", e.message);
+    if let Err(out) = ops::set_user_disabled(ctx, msg, user_id, false).await {
+        return out;
     }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "user.enable",
-        &format!("users/{user_id}"),
-        &ip,
-    )
-    .await;
     let row = user_row_fragment(ctx, user_id).await;
     ui::html_response_with_toast(row, "User enabled", "success")
 }
 
 /// DELETE /b/admin/users/{id}
 pub async fn handle_user_delete(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    if admin_id == user_id {
-        return err_bad_request("Cannot delete your own account");
+    // Self-delete guard, soft-delete, and audit-log write live in the shared
+    // ops layer.
+    if let Err(out) = ops::delete_user(ctx, msg, user_id).await {
+        return out;
     }
-    let ip = msg.remote_addr().to_string();
-    if let Err(e) = db::soft_delete(ctx, USERS, user_id).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "user.delete",
-        &format!("users/{user_id}"),
-        &ip,
-    )
-    .await;
     ui::html_response_with_toast(html! {}, "User deleted", "success")
 }
 
@@ -400,32 +330,17 @@ pub async fn handle_create_role(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
     let bytes = input.collect_to_bytes().await;
     let body = parse_form_body(&bytes);
 
-    let name = body
-        .get("name")
-        .map(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
-    if name.is_empty() {
-        return err_bad_request("Role name is required");
-    }
+    let name = body.get("name").map(|s| s.as_str()).unwrap_or("");
+    let description = body.get("description").map(|s| s.as_str());
 
-    let mut data = std::collections::HashMap::new();
-    data.insert("name".to_string(), serde_json::json!(name));
-    if let Some(desc) = body.get("description") {
-        data.insert("description".to_string(), serde_json::json!(desc));
+    // Name-required guard, create, and audit-log write live in the shared ops
+    // layer (single source of truth shared with the JSON surface).
+    if let Err(out) = ops::create_role(ctx, msg, name, description, None).await {
+        return out;
     }
-    helpers::stamp_created(&mut data);
-
-    if let Err(e) = db::create(ctx, ROLES_TABLE, data).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip)
-        .await;
 
     // Return the updated roles tab + close modal + toast
     let content = roles_tab(ctx).await;
@@ -439,27 +354,11 @@ pub async fn handle_create_role(
 }
 
 pub async fn handle_delete_role(ctx: &dyn Context, msg: &Message, role_id: &str) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
-    // Check if system role
-    if let Ok(record) = db::get(ctx, ROLES_TABLE, role_id).await {
-        if record.bool_field("is_system") {
-            return err_forbidden("Cannot delete system role");
-        }
+    // System-role guard, delete, and audit-log write live in the shared ops
+    // layer.
+    if let Err(out) = ops::delete_role(ctx, msg, role_id).await {
+        return out;
     }
-
-    if let Err(e) = db::delete(ctx, ROLES_TABLE, role_id).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "role.delete",
-        &format!("roles/{role_id}"),
-        &ip,
-    )
-    .await;
-
     let content = roles_tab(ctx).await;
     ui::html_response_with_toast(content, "Role deleted", "success")
 }

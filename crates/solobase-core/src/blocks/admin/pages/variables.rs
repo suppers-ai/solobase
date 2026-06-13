@@ -4,8 +4,8 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::{
-        admin::VARIABLES_TABLE as VARIABLES,
-        helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
+        admin::{ops, VARIABLES_TABLE as VARIABLES},
+        helpers::{err_not_found, parse_form_body, RecordExt},
     },
     ui::{self, components, icons},
 };
@@ -450,46 +450,20 @@ pub async fn handle_create_variable(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
     let bytes = input.collect_to_bytes().await;
     let body = parse_form_body(&bytes);
 
-    let key = body
-        .get("key")
-        .map(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
-    if key.is_empty() {
-        return err_bad_request("Key is required");
-    }
+    let key = body.get("key").map(|s| s.as_str()).unwrap_or("");
+    let value = body.get("value").map(|s| s.as_str()).unwrap_or("");
+    let description = body.get("description").map(|s| s.as_str());
+    let sensitive = body.get("sensitive").map(|s| s.as_str()).unwrap_or("0") == "1";
 
-    let mut data = std::collections::HashMap::new();
-    data.insert("key".to_string(), serde_json::json!(key));
-    if let Some(v) = body.get("value") {
-        data.insert("value".to_string(), serde_json::json!(v));
+    // Key-required guard, URL/SSRF validation (the SSR path previously had
+    // none), audit-log write, and the create live in the shared ops layer.
+    if let Err(out) = ops::create_variable(ctx, msg, key, value, None, description, sensitive).await
+    {
+        return out;
     }
-    if let Some(v) = body.get("description") {
-        data.insert("description".to_string(), serde_json::json!(v));
-    }
-    let sensitive = body.get("sensitive").map(|s| s.as_str()).unwrap_or("0");
-    data.insert(
-        "sensitive".to_string(),
-        serde_json::json!(if sensitive == "1" { 1 } else { 0 }),
-    );
-    helpers::stamp_created(&mut data);
-
-    if let Err(e) = db::create(ctx, VARIABLES, data).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "variable.create",
-        &format!("variables/{key}"),
-        &ip,
-    )
-    .await;
 
     // Re-render the variables page (htmx will swap #content)
     variables_page(ctx, &msg).await
@@ -581,52 +555,18 @@ pub async fn handle_update_variable(
     input: InputStream,
     var_key: &str,
 ) -> OutputStream {
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
     let bytes = input.collect_to_bytes().await;
     let body = parse_form_body(&bytes);
 
-    // Prevent setting sensitive keys (secrets/keys) to empty (would break auth)
-    if var_key.ends_with("_SECRET") || var_key.ends_with("_KEY") {
-        let new_value = body.get("value").map(|s| s.as_str()).unwrap_or("");
-        if new_value.is_empty() {
-            return err_bad_request(&format!("Cannot set {} to an empty value", var_key));
-        }
-    }
-
-    // Find existing record by key
-    let record = match db::get_by_field(
-        ctx,
-        VARIABLES,
-        "key",
-        serde_json::Value::String(var_key.to_string()),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => return err_not_found("Variable not found"),
+    // Sensitive-empty guard, URL/SSRF validation (the SSR path previously had
+    // none), audit-log write, and the upsert live in the shared ops layer.
+    let update = ops::VariableUpdate {
+        value: body.get("value").map(|s| s.as_str()),
+        description: body.get("description").map(|s| s.as_str()),
     };
-
-    let mut data = std::collections::HashMap::new();
-    if let Some(v) = body.get("value") {
-        data.insert("value".to_string(), serde_json::json!(v));
+    if let Err(out) = ops::update_variable(ctx, msg, var_key, update).await {
+        return out;
     }
-    if let Some(v) = body.get("description") {
-        data.insert("description".to_string(), serde_json::json!(v));
-    }
-    helpers::stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, VARIABLES, &record.id, data).await {
-        return err_internal("Failed", e.message);
-    }
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "variable.update",
-        &format!("variables/{var_key}"),
-        &ip,
-    )
-    .await;
 
     variables_page(ctx, &msg).await
 }
