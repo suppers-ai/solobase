@@ -16,8 +16,8 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 use crate::blocks::{
     auth::{
         bootstrap,
-        helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
-        repo::{bootstrap_tokens, sessions, users},
+        helpers::issue_tokens_and_cookie,
+        repo::{bootstrap_tokens, users},
         service::hash_token,
     },
     helpers::{
@@ -82,29 +82,20 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Err(e) => return err_internal("users::find_by_email after bootstrap", e),
     };
 
-    // 5. Mint a session — same pattern as auth_ui::api::login::handle.
+    // 5. Mint a session — same shared token-issuance tail as login/signup.
     let roles = vec!["admin".to_string()];
-    let (access_token, refresh_token, family) =
-        match generate_tokens(ctx, &user.id, &email, &roles, "password").await {
-            Ok(t) => t,
+    let issued =
+        match issue_tokens_and_cookie(ctx, &user.id, &email, &roles, "password", None, 0).await {
+            Ok(i) => i,
             Err(r) => return r,
         };
-    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
-    if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await {
-        tracing::warn!(
-            user_id = %user.id,
-            "failed to persist session row for bootstrap redemption: {e}"
-        );
-    }
 
     // 6. Set the auth cookie + redirect to the dashboard. The form is a
     //    plain HTML POST (no JS), so a 302 with Set-Cookie is the right
     //    completion signal.
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
     ResponseBuilder::new()
         .status(302)
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .set_header("Location", "/b/auth/dashboard")
         .empty()
 }

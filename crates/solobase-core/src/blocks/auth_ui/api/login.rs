@@ -5,9 +5,8 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
-        repo::{local_credentials, sessions, users},
-        service::hash_token,
+        helpers::{ensure_admin_role, issue_tokens_and_cookie},
+        repo::{local_credentials, users},
         DUMMY_HASH, USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
@@ -81,26 +80,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Get roles, granting admin role idempotently when ADMIN_EMAIL matches
     let roles = ensure_admin_role(ctx, &user.id, &email_lower).await;
 
-    // Generate tokens
-    let (access_token, refresh_token, family) =
-        match generate_tokens(ctx, &user.id, &email_lower, &roles, "password").await {
-            Ok(t) => t,
+    // Mint tokens, persist the refresh + session rows, build the cookie.
+    let issued =
+        match issue_tokens_and_cookie(ctx, &user.id, &email_lower, &roles, "password", None, 0)
+            .await
+        {
+            Ok(i) => i,
             Err(r) => return r,
         };
-
-    // Store refresh token
-    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
-
-    // Persist a session row so the userportal `/b/userportal/sessions`
-    // page can show this login. Failure must not block login — the
-    // session row is a UX signal, not a security gate (auth is still
-    // entirely JWT-based today).
-    if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await {
-        tracing::warn!(
-            user_id = %user.id,
-            "failed to persist session row for JWT login: {e}"
-        );
-    }
 
     // Update last login
     let upd = json_map(serde_json::json!({"last_login_at": crate::blocks::helpers::now_rfc3339()}));
@@ -108,16 +95,13 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         tracing::warn!("Failed to update last login time: {e}");
     }
 
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
-
     ResponseBuilder::new()
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .json(&serde_json::json!({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": issued.access_token,
+            "refresh_token": issued.refresh_token,
             "token_type": "Bearer",
-            "expires_in": access_lifetime,
+            "expires_in": issued.access_lifetime,
             "user": {
                 "id": user.id,
                 "email": email_lower,

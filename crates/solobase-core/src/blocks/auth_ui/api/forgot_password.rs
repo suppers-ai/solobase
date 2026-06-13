@@ -1,7 +1,7 @@
 //! POST /b/auth/api/forgot-password — relocated from auth/login.rs in Task 5.
 
 use wafer_core::clients::{crypto, database as db};
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::USERS_TABLE,
@@ -56,31 +56,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Send the raw token in the email; the hash lives only in the DB.
-    send_reset_email(ctx, &email_lower, &reset_token).await;
+    super::send_template_email(ctx, "password_reset", &email_lower, &reset_token).await;
 
     ok_json(&serde_json::json!({"message": safe_msg}))
-}
-
-/// Send password reset email via the suppers-ai/email block.
-async fn send_reset_email(ctx: &dyn Context, email: &str, token: &str) {
-    let req = serde_json::json!({
-        "template": "password_reset",
-        "to": email,
-        "token": token,
-    });
-    let email_msg = Message {
-        kind: "email.send_template".to_string(),
-        meta: Vec::new(),
-    };
-    let body_bytes = serde_json::to_vec(&req).unwrap_or_default();
-    let out = ctx
-        .call_block(
-            "suppers-ai/email",
-            email_msg,
-            InputStream::from_bytes(body_bytes),
-        )
-        .await;
-    if let Err(e) = out.collect_buffered().await {
-        tracing::warn!("Failed to send password_reset email to {}: {:?}", email, e);
-    }
 }

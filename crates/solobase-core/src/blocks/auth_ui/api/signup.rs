@@ -1,13 +1,15 @@
 //! POST /b/auth/api/signup — relocated from auth/login.rs in Task 5.
 
 use wafer_core::clients::{config, crypto, database as db};
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
-        repo::{local_credentials, sessions, users},
-        service::hash_token,
+        helpers::{
+            email_domain_allowed, initial_role_for, issue_tokens_and_cookie, password_min_length,
+            signup_allowed,
+        },
+        repo::{local_credentials, users},
         USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
@@ -27,8 +29,7 @@ async fn user_exists(ctx: &dyn Context, email_lower: &str) -> Result<bool, Strin
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Enforce ALLOW_SIGNUP on the API (not just the page)
-    let allow_signup = config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
-    if allow_signup != "true" && allow_signup != "1" {
+    if !signup_allowed(ctx).await {
         return error_response(ErrorCode::Forbidden, "Signups are currently disabled");
     }
 
@@ -51,23 +52,18 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Check allowed email domains (if configured)
-    let allowed_domains =
-        config::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "").await;
-    if !allowed_domains.is_empty() {
-        let email_domain = parts[1];
-        let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
-        if !allowed {
-            return error_response(
-                ErrorCode::InvalidEmail,
-                "Signups from this email domain are not allowed",
-            );
-        }
+    if !email_domain_allowed(ctx, &email_lower).await {
+        return error_response(
+            ErrorCode::InvalidEmail,
+            "Signups from this email domain are not allowed",
+        );
     }
 
-    if body.password.len() < 8 {
+    let min_len = password_min_length(ctx).await;
+    if body.password.len() < min_len {
         return error_response(
             ErrorCode::PasswordTooShort,
-            "Password must be at least 8 characters",
+            &format!("Password must be at least {min_len} characters"),
         );
     }
     if body.password.len() > 1024 {
@@ -159,17 +155,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Determine the role: admin if the email matches the configured bootstrap
     // admin email (re-uses the same key as bootstrap for consistency).
-    let admin_email = config::get_default(
-        ctx,
-        crate::blocks::auth::config::BOOTSTRAP_ADMIN_EMAIL_KEY,
-        "",
-    )
-    .await;
-    let role = if !admin_email.is_empty() && email_lower.eq_ignore_ascii_case(&admin_email) {
-        "admin"
-    } else {
-        "user"
-    };
+    let role = initial_role_for(ctx, &email_lower).await;
 
     // Insert via typed repo — no password_hash on the users row.
     let user = match users::insert(
@@ -215,7 +201,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Send verification email if required
     if require_verification {
-        send_verification_email(ctx, &email_lower, &verification_token).await;
+        super::send_template_email(ctx, "verification", &email_lower, &verification_token).await;
         // Do NOT issue tokens before email is verified
         return ResponseBuilder::new().status(201).json(&serde_json::json!({
             "email_verified": false,
@@ -227,33 +213,24 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         }));
     }
 
-    // Generate tokens (only when email verification is NOT required)
-    let (access_token, refresh_token, family) =
-        match generate_tokens(ctx, &user.id, &email_lower, &roles, "password").await {
-            Ok(t) => t,
+    // Mint tokens, persist the refresh + session rows, build the cookie
+    // (only when email verification is NOT required).
+    let issued =
+        match issue_tokens_and_cookie(ctx, &user.id, &email_lower, &roles, "password", None, 0)
+            .await
+        {
+            Ok(i) => i,
             Err(r) => return r,
         };
 
-    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
-
-    if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await {
-        tracing::warn!(
-            user_id = %user.id,
-            "failed to persist session row for JWT signup: {e}"
-        );
-    }
-
-    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
-    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
-
     ResponseBuilder::new()
         .status(201)
-        .set_cookie(&cookie)
+        .set_cookie(&issued.cookie)
         .json(&serde_json::json!({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": issued.access_token,
+            "refresh_token": issued.refresh_token,
             "token_type": "Bearer",
-            "expires_in": access_lifetime,
+            "expires_in": issued.access_lifetime,
             "email_verified": true,
             "user": {
                 "id": user.id,
@@ -303,28 +280,4 @@ const COMMON_PASSWORDS: &[&str] = &[
 
 fn is_common_password(pw: &str) -> bool {
     COMMON_PASSWORDS.iter().any(|p| p.eq_ignore_ascii_case(pw))
-}
-
-/// Send verification email via the suppers-ai/email block.
-async fn send_verification_email(ctx: &dyn Context, email: &str, token: &str) {
-    let req = serde_json::json!({
-        "template": "verification",
-        "to": email,
-        "token": token,
-    });
-    let email_msg = Message {
-        kind: "email.send_template".to_string(),
-        meta: Vec::new(),
-    };
-    let body_bytes = serde_json::to_vec(&req).unwrap_or_default();
-    let out = ctx
-        .call_block(
-            "suppers-ai/email",
-            email_msg,
-            InputStream::from_bytes(body_bytes),
-        )
-        .await;
-    if let Err(e) = out.collect_buffered().await {
-        tracing::warn!("Failed to send verification email to {}: {:?}", email, e);
-    }
 }
