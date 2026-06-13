@@ -92,6 +92,152 @@ async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     super::settings::settings_page(ctx, msg, "variables").await
 }
 
+/// How a variable's value cell should render. SEC-060: the masking decision
+/// is made once, by `ops::is_sensitive_key`, so every table agrees on it.
+enum ValueState {
+    /// Sensitive value present — show the mask.
+    Masked,
+    /// Non-sensitive value present — show it verbatim.
+    Plain(String),
+    /// No value stored (block-config tables distinguish this from empty).
+    NotSet,
+}
+
+impl ValueState {
+    /// Resolve the value cell from a key + raw value + sensitive flag, applying
+    /// the SEC-060 suffix rule via `ops::is_sensitive_key`. `track_unset`
+    /// controls whether an empty value renders as `(not set)` (block-config
+    /// tables) or as an empty `code` cell (flat DB-record tables).
+    fn resolve(key: &str, value: &str, sensitive_flag: i64, track_unset: bool) -> Self {
+        let sensitive = ops::is_sensitive_key(key, sensitive_flag);
+        if track_unset && value.is_empty() {
+            ValueState::NotSet
+        } else if sensitive {
+            ValueState::Masked
+        } else {
+            ValueState::Plain(value.to_string())
+        }
+    }
+}
+
+/// The data needed to render one variable table row. Built per-section, then
+/// handed to [`var_row`] so the masking/edit-button/warning markup lives in
+/// one place.
+struct VarRow<'a> {
+    key: &'a str,
+    /// Friendly name shown under the key (block-config tables only).
+    name: Option<&'a str>,
+    value: ValueState,
+    /// Declared default / auto-generate state (block-config tables only).
+    default: Option<&'a str>,
+    auto_generate: bool,
+    description: &'a str,
+    warning: &'a str,
+    /// Whether to render the "Default" column cell (block-config tables).
+    show_default: bool,
+}
+
+/// Render one variable table row: key (+ optional name), value cell (masked
+/// per SEC-060), optional default column, description (+ optional warning),
+/// and the edit button. Shared by all four variable tables so the masking
+/// policy and edit affordance can't drift between them.
+fn var_row(row: &VarRow) -> Markup {
+    html! {
+        tr {
+            td .font-medium style="font-size:13px" {
+                code { (row.key) }
+                @if let Some(name) = row.name {
+                    @if !name.is_empty() {
+                        br;
+                        span .text-muted style="font-size:12px" { (name) }
+                    }
+                }
+            }
+            td style="font-size:13px" {
+                @match &row.value {
+                    ValueState::Masked => code { "********" },
+                    ValueState::Plain(v) => code { (v) },
+                    ValueState::NotSet => span .text-muted { "(not set)" },
+                }
+            }
+            @if row.show_default {
+                td style="font-size:12px" {
+                    @match row.default {
+                        Some(d) if !d.is_empty() => code .text-muted { (d) },
+                        _ => @if row.auto_generate {
+                            span .badge .badge-info style="font-size:11px" { "auto-generated" }
+                        },
+                    }
+                }
+            }
+            td style="font-size:12px" {
+                (row.description)
+                @if !row.warning.is_empty() {
+                    div style="color:#92400e;font-size:11px;margin-top:2px" {
+                        "Warning: " (row.warning)
+                    }
+                }
+            }
+            td {
+                button .btn .btn-sm .btn-ghost
+                    hx-get={"/b/admin/variables/" (row.key) "/edit"}
+                    hx-target="#edit-var-modal"
+                    hx-swap="innerHTML"
+                    title="Edit"
+                { (icons::edit()) }
+            }
+        }
+    }
+}
+
+/// Build and render one row for a declared [`ConfigVar`] (the shared + per-block
+/// tables): pulls the stored value + sensitive flag from `var_map`, falling
+/// back to the var's declared sensitivity when no DB row exists, and shows the
+/// declared default / auto-generate badge.
+fn config_var_row(
+    var: &wafer_run::ConfigVar,
+    var_map: &std::collections::HashMap<String, (String, i64)>,
+) -> Markup {
+    let (db_value, sensitive_flag) = var_map
+        .get(&var.key)
+        .map(|(v, s)| (v.as_str(), *s))
+        .unwrap_or(("", var.is_sensitive() as i64));
+    var_row(&VarRow {
+        key: &var.key,
+        name: Some(&var.name),
+        value: ValueState::resolve(&var.key, db_value, sensitive_flag, true),
+        default: Some(&var.default),
+        auto_generate: var.auto_generate,
+        description: &var.description,
+        warning: &var.warning,
+        show_default: true,
+    })
+}
+
+/// Render a titled card wrapping a variable table. `show_default` adds the
+/// "Default" column header to match [`var_row`]'s default cell.
+fn var_table(header: Markup, show_default: bool, body: Markup) -> Markup {
+    html! {
+        div .card .mt-4 {
+            (header)
+            div .card-body {
+                table .table {
+                    thead {
+                        tr {
+                            th { "Key" }
+                            th { "Value" }
+                            @if show_default { th { "Default" } }
+                            th { "Description" }
+                            th style="width:50px" {}
+                        }
+                    }
+                    tbody { (body) }
+                }
+            }
+        }
+    }
+}
+
 /// "All Variables" tab -- flat table of all config variables from the DB.
 async fn config_all_tab(ctx: &dyn Context) -> Markup {
     let settings = db::list_all(ctx, VARIABLES, vec![]).await;
@@ -115,11 +261,13 @@ async fn config_all_tab(ctx: &dyn Context) -> Markup {
                                 @let value = record.str_field("value");
                                 @let description = record.str_field("description");
                                 @let warning = record.str_field("warning");
-                                @let sensitive = record.i64_field("sensitive") != 0;
+                                // SEC-060: mask via the shared rule, not the
+                                // `sensitive` flag alone.
+                                @let masked = ops::is_sensitive_key(key, record.i64_field("sensitive"));
                                 tr #{"var-row-" (key)} {
                                     td .font-medium { (key) }
                                     td .text-sm {
-                                        @if sensitive {
+                                        @if masked {
                                             code { "********" }
                                         } @else {
                                             code { (value) }
@@ -166,13 +314,15 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
         .await
         .unwrap_or_default();
 
-    // Build a map of key -> (value, sensitive)
-    let var_map: std::collections::HashMap<String, (String, bool)> = all_vars
+    // Build a map of key -> (value, sensitive-flag). The flag is kept as the
+    // raw `i64` so the SEC-060 suffix rule can be applied via
+    // `ops::is_sensitive_key` at render time.
+    let var_map: std::collections::HashMap<String, (String, i64)> = all_vars
         .iter()
         .map(|r| {
             let key = r.str_field("key").to_string();
             let value = r.str_field("value").to_string();
-            let sensitive = r.i64_field("sensitive") != 0;
+            let sensitive = r.i64_field("sensitive");
             (key, (value, sensitive))
         })
         .collect();
@@ -212,103 +362,52 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
     html! {
         // Shared variables section
         @if !shared_vars.is_empty() {
-            div .card .mt-4 {
-                div .card-header {
-                    h3 .card-title {
-                        span .badge .badge-warning .mr-2 { "shared" }
-                        " Shared Platform Config"
-                    }
-                    p .text-muted style="font-size:12px" {
-                        "Any block can read. Only admin can write."
-                    }
-                }
-                div .card-body {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Key" }
-                                th { "Value" }
-                                th { "Default" }
-                                th { "Description" }
-                                th style="width:50px" {}
-                            }
+            (var_table(
+                html! {
+                    div .card-header {
+                        h3 .card-title {
+                            span .badge .badge-warning .mr-2 { "shared" }
+                            " Shared Platform Config"
                         }
-                        tbody {
-                            @for var in &shared_vars {
-                                @let (db_value, sensitive) = var_map.get(&var.key)
-                                    .map(|(v, s)| (v.as_str(), *s))
-                                    .unwrap_or(("", var.is_sensitive()));
-                                @let has_value = !db_value.is_empty();
-                                tr {
-                                    td .font-medium style="font-size:13px" {
-                                        code { (var.key) }
-                                        @if !var.name.is_empty() {
-                                            br;
-                                            span .text-muted style="font-size:12px" { (var.name) }
-                                        }
-                                    }
-                                    td style="font-size:13px" {
-                                        @if sensitive {
-                                            @if has_value {
-                                                code { "********" }
-                                            } @else {
-                                                span .text-muted { "(not set)" }
-                                            }
-                                        } @else {
-                                            @if has_value {
-                                                code { (db_value) }
-                                            } @else {
-                                                span .text-muted { "(not set)" }
-                                            }
-                                        }
-                                    }
-                                    td style="font-size:12px" {
-                                        @if !var.default.is_empty() {
-                                            code .text-muted { (var.default) }
-                                        } @else if var.auto_generate {
-                                            span .badge .badge-info style="font-size:11px" { "auto-generated" }
-                                        }
-                                    }
-                                    td style="font-size:12px" { (var.description) }
-                                    td {
-                                        button .btn .btn-sm .btn-ghost
-                                            hx-get={"/b/admin/variables/" (var.key) "/edit"}
-                                            hx-target="#edit-var-modal"
-                                            hx-swap="innerHTML"
-                                            title="Edit"
-                                        { (icons::edit()) }
-                                    }
-                                }
-                            }
+                        p .text-muted style="font-size:12px" {
+                            "Any block can read. Only admin can write."
                         }
                     }
-                }
-            }
+                },
+                true,
+                html! {
+                    @for var in &shared_vars {
+                        (config_var_row(var, &var_map))
+                    }
+                },
+            ))
         }
 
         // Per-block sections
         @for block in &blocks_with_config {
-            div .card .mt-4 {
-                div .card-header {
-                    h3 .card-title {
-                        span .badge .badge-info .mr-2 { (block.name) }
-                        " Configuration"
-                    }
-                    // Show WRAP access info for this block's config. The
-                    // grants are looked up by exact resource pattern via the
-                    // `grants_by_resource` map built above — used to be a
-                    // cubic `blocks × grants × config_keys` loop per render.
-                    p .text-muted style="font-size:12px" {
-                        "Owner: " code { (block.name) }
-                        " \u{2014} Admin can read/write all. "
-                        @for ck in &block.config_keys {
-                            @for resource in [ck.key.clone(), format!("{}*", ck.key)] {
-                                @if let Some(matches) = grants_by_resource.get(&resource) {
-                                    @for (grantee, write) in matches {
-                                        @if *grantee != block.name {
-                                            span .badge .badge-secondary .mr-1 style="font-size:11px" {
-                                                (grantee) ": "
-                                                @if *write { "read+write" } @else { "read" }
+            (var_table(
+                html! {
+                    div .card-header {
+                        h3 .card-title {
+                            span .badge .badge-info .mr-2 { (block.name) }
+                            " Configuration"
+                        }
+                        // Show WRAP access info for this block's config. The
+                        // grants are looked up by exact resource pattern via the
+                        // `grants_by_resource` map built above — used to be a
+                        // cubic `blocks × grants × config_keys` loop per render.
+                        p .text-muted style="font-size:12px" {
+                            "Owner: " code { (block.name) }
+                            " \u{2014} Admin can read/write all. "
+                            @for ck in &block.config_keys {
+                                @for resource in [ck.key.clone(), format!("{}*", ck.key)] {
+                                    @if let Some(matches) = grants_by_resource.get(&resource) {
+                                        @for (grantee, write) in matches {
+                                            @if *grantee != block.name {
+                                                span .badge .badge-secondary .mr-1 style="font-size:11px" {
+                                                    (grantee) ": "
+                                                    @if *write { "read+write" } @else { "read" }
+                                                }
                                             }
                                         }
                                     }
@@ -316,76 +415,14 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
                             }
                         }
                     }
-                }
-                div .card-body {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Key" }
-                                th { "Value" }
-                                th { "Default" }
-                                th { "Description" }
-                                th style="width:50px" {}
-                            }
-                        }
-                        tbody {
-                            @for var in &block.config_keys {
-                                @let (db_value, sensitive) = var_map.get(&var.key)
-                                    .map(|(v, s)| (v.as_str(), *s))
-                                    .unwrap_or(("", var.is_sensitive()));
-                                @let has_value = !db_value.is_empty();
-                                tr {
-                                    td .font-medium style="font-size:13px" {
-                                        code { (var.key) }
-                                        @if !var.name.is_empty() {
-                                            br;
-                                            span .text-muted style="font-size:12px" { (var.name) }
-                                        }
-                                    }
-                                    td style="font-size:13px" {
-                                        @if sensitive {
-                                            @if has_value {
-                                                code { "********" }
-                                            } @else {
-                                                span .text-muted { "(not set)" }
-                                            }
-                                        } @else {
-                                            @if has_value {
-                                                code { (db_value) }
-                                            } @else {
-                                                span .text-muted { "(not set)" }
-                                            }
-                                        }
-                                    }
-                                    td style="font-size:12px" {
-                                        @if !var.default.is_empty() {
-                                            code .text-muted { (var.default) }
-                                        } @else if var.auto_generate {
-                                            span .badge .badge-info style="font-size:11px" { "auto-generated" }
-                                        }
-                                    }
-                                    td style="font-size:12px" {
-                                        (var.description)
-                                        @if !var.warning.is_empty() {
-                                            div style="color:#92400e;font-size:11px;margin-top:2px" {
-                                                "Warning: " (var.warning)
-                                            }
-                                        }
-                                    }
-                                    td {
-                                        button .btn .btn-sm .btn-ghost
-                                            hx-get={"/b/admin/variables/" (var.key) "/edit"}
-                                            hx-target="#edit-var-modal"
-                                            hx-swap="innerHTML"
-                                            title="Edit"
-                                        { (icons::edit()) }
-                                    }
-                                }
-                            }
-                        }
+                },
+                true,
+                html! {
+                    @for var in &block.config_keys {
+                        (config_var_row(var, &var_map))
                     }
-                }
-            }
+                },
+            ))
         }
 
         // Unowned variables section -- keys in DB not declared by any block or shared
@@ -393,53 +430,43 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
             .filter(|r| !known_keys.contains(r.str_field("key")))
             .collect();
         @if !unowned_vars.is_empty() {
-            div .card .mt-4 {
-                div .card-header {
-                    h3 .card-title {
-                        span .badge .badge-secondary .mr-2 { "unowned" }
-                        " Unowned Variables"
-                    }
-                    p .text-muted style="font-size:12px" {
-                        "Variables in the database not declared by any block. These may be legacy or manually created."
-                    }
-                }
-                div .card-body {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Key" }
-                                th { "Value" }
-                                th { "Description" }
-                                th style="width:50px" {}
-                            }
+            (var_table(
+                html! {
+                    div .card-header {
+                        h3 .card-title {
+                            span .badge .badge-secondary .mr-2 { "unowned" }
+                            " Unowned Variables"
                         }
-                        tbody {
-                            @for record in &unowned_vars {
-                                @let key = record.str_field("key");
-                                @let value = record.str_field("value");
-                                @let description = record.str_field("description");
-                                @let sensitive = record.i64_field("sensitive") != 0;
-                                tr {
-                                    td .font-medium style="font-size:13px" { code { (key) } }
-                                    td style="font-size:13px" {
-                                        @if sensitive { code { "********" } }
-                                        @else { code { (value) } }
-                                    }
-                                    td style="font-size:12px" { (description) }
-                                    td {
-                                        button .btn .btn-sm .btn-ghost
-                                            hx-get={"/b/admin/variables/" (key) "/edit"}
-                                            hx-target="#edit-var-modal"
-                                            hx-swap="innerHTML"
-                                            title="Edit"
-                                        { (icons::edit()) }
-                                    }
-                                }
-                            }
+                        p .text-muted style="font-size:12px" {
+                            "Variables in the database not declared by any block. These may be legacy or manually created."
                         }
                     }
-                }
-            }
+                },
+                false,
+                html! {
+                    @for record in &unowned_vars {
+                        @let key = record.str_field("key");
+                        // SEC-060: mask via the shared rule. `track_unset` is
+                        // false here so an empty value renders as an empty
+                        // `code` cell, matching the prior flat layout.
+                        (var_row(&VarRow {
+                            key,
+                            name: None,
+                            value: ValueState::resolve(
+                                key,
+                                record.str_field("value"),
+                                record.i64_field("sensitive"),
+                                false,
+                            ),
+                            default: None,
+                            auto_generate: false,
+                            description: record.str_field("description"),
+                            warning: "",
+                            show_default: false,
+                        }))
+                    }
+                },
+            ))
         }
     }
 }
