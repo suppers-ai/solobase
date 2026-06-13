@@ -120,8 +120,6 @@ fn resolve_backend_id(block: &LlmBlock, provider_block: &str) -> Result<String, 
         .ok_or("no enabled provider configured")
 }
 
-/// Build the `Message` used to dispatch `llm.chat` to `wafer-run/llm`,
-/// forwarding auth metadata from the incoming request.
 /// Common prelude for both chat handlers: parse the body, persist the user
 /// message, load history, resolve provider + model, build the `ChatRequest`,
 /// and call `wafer-run/llm` via the typed client.
@@ -165,7 +163,6 @@ async fn dispatch_chat(
     };
 
     // 5. Build the service request and dispatch via the typed client.
-    let _ = msg; // auth-meta propagation removed — see PR description.
     let chat_req = ChatRequest {
         backend_id,
         model: resolved_model.clone(),
@@ -309,9 +306,25 @@ pub(super) async fn handle_chat_stream(
     // TODO(llm-phase-b-task-14): wire assistant persistence through a
     // dedicated "finalize" call that doesn't require capturing `ctx`.
     let _ = thread_id;
-    let _ = msg;
-    let _ = ctx;
 
+    sse_json_response(stream)
+}
+
+/// Stream a typed frame stream to the client as JSON Server-Sent Events.
+///
+/// Emits the `text/event-stream` content-type as a mid-stream meta event so
+/// the HTTP listener writes the SSE header before the first `data:` frame,
+/// then re-encodes each typed item as a `data: <json>\n\n` frame. A service
+/// or encode error becomes a terminal `event: error\ndata: {}\n\n` frame; a
+/// natural end-of-stream becomes a terminal `data: [DONE]\n\n` frame so
+/// clients can distinguish it from a transport-level disconnect.
+///
+/// Shared by every LLM SSE endpoint (chat-stream, model-load) so the wire
+/// format can't drift between them.
+fn sse_json_response<T>(stream: NativeTypedFrameStream<T>) -> OutputStream
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Unpin + Send + 'static,
+{
     OutputStream::from_producer(move |sink, _cancel| async move {
         // Send the content-type as a mid-stream meta event so the HTTP
         // listener writes the SSE header before the first `data:` frame.
@@ -324,19 +337,11 @@ pub(super) async fn handle_chat_stream(
 
         let mut stream = stream;
         while let Some(item) = stream.next().await {
-            let Ok(chunk) = item else {
-                // Mid-stream service error: emit an `event: error` frame then
-                // stop. The consumer sees a final SSE event instead of an
-                // abrupt disconnect.
-                let frame = b"event: error\ndata: {}\n\n".to_vec();
-                let _ = sink.send_chunk(frame).await;
-                return;
-            };
-            // Re-encode the typed chunk as JSON for the SSE wire — clients
-            // consume JSON.
-            let Ok(json) = serde_json::to_vec(&chunk) else {
-                let frame = b"event: error\ndata: {}\n\n".to_vec();
-                let _ = sink.send_chunk(frame).await;
+            // A mid-stream service error or a JSON-encode failure both
+            // terminate the stream with a final `event: error` frame, so the
+            // consumer sees a clean SSE event instead of an abrupt disconnect.
+            let Some(json) = item.ok().and_then(|v| serde_json::to_vec(&v).ok()) else {
+                let _ = sink.send_chunk(b"event: error\ndata: {}\n\n".to_vec()).await;
                 return;
             };
             let mut frame = Vec::with_capacity(json.len() + 8);
@@ -701,8 +706,6 @@ fn extract_model_path(msg: &Message) -> (String, String) {
     (backend, model)
 }
 
-/// Build a `Message` to dispatch an LLM-service op, forwarding auth metadata
-/// from the incoming HTTP request.
 /// `GET /b/llm/api/models` — aggregated list across all registered LLM
 /// backends. Authenticated (any logged-in user).
 pub(super) async fn list_models(
@@ -759,39 +762,8 @@ pub(super) async fn load_model(
         Ok(s) => s,
         Err(e) => return err_internal("llm load_model failed", e.message),
     };
-    let _ = msg;
 
-    OutputStream::from_producer(move |sink, _cancel| async move {
-        let _ = sink
-            .send_meta(MetaEntry {
-                key: META_RESP_CONTENT_TYPE.to_string(),
-                value: "text/event-stream".to_string(),
-            })
-            .await;
-
-        let mut stream = stream;
-        while let Some(item) = stream.next().await {
-            let Ok(progress) = item else {
-                let frame = b"event: error\ndata: {}\n\n".to_vec();
-                let _ = sink.send_chunk(frame).await;
-                return;
-            };
-            // Re-encode the typed progress event as JSON for the SSE wire.
-            let Ok(json) = serde_json::to_vec(&progress) else {
-                let frame = b"event: error\ndata: {}\n\n".to_vec();
-                let _ = sink.send_chunk(frame).await;
-                return;
-            };
-            let mut frame = Vec::with_capacity(json.len() + 8);
-            frame.extend_from_slice(b"data: ");
-            frame.extend_from_slice(&json);
-            frame.extend_from_slice(b"\n\n");
-            if sink.send_chunk(frame).await.is_err() {
-                return;
-            }
-        }
-        let _ = sink.send_chunk(b"data: [DONE]\n\n".to_vec()).await;
-    })
+    sse_json_response(stream)
 }
 
 /// `POST /b/llm/api/models/:backend_id/:model_id/unload` — buffered unload.
@@ -812,7 +784,6 @@ pub(super) async fn unload_model(
         backend_id,
         model_id,
     };
-    let _ = msg;
     match llm_client::unload_model(ctx, &req).await {
         Ok(()) => ok_json(&serde_json::json!({ "unloaded": true })),
         Err(e) => err_internal("llm unload_model failed", e.message),
