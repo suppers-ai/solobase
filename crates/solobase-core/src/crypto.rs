@@ -1,168 +1,18 @@
-//! Shared crypto — argon2 password hashing + HMAC-SHA256 JWT.
+//! Solobase auth-token policy on top of [`wafer_block_crypto::primitives`].
 //!
-//! Works on both native and wasm32 targets (uses `getrandom` for RNG).
+//! The crypto primitives themselves (base64url, HMAC-SHA256, HS256 JWT
+//! sign/verify, HKDF per-block key derivation, argon2id password hashing,
+//! constant-time comparison, CSPRNG bytes) live in
+//! `wafer_block_crypto::primitives` — the single source of truth shared by
+//! the native runtime, solobase-cloudflare, and solobase-browser. Call them
+//! directly; this module no longer mirrors them.
+//!
+//! What remains here is genuinely solobase-specific policy: extracting auth
+//! meta from a `Bearer` token in the HTTP pipeline — issuer check (SEC-038),
+//! JWT blocklist (SEC-042), role mapping, and the per-block-derived-key →
+//! master-secret verification order.
 
-use std::{collections::HashMap, time::Duration};
-
-// ---------------------------------------------------------------------------
-// Password hashing (argon2id)
-// ---------------------------------------------------------------------------
-
-/// Hash a password with argon2id. Uses lower-cost params suitable for
-/// constrained environments (Workers). Native deployments may want to
-/// increase these.
-pub fn hash_password(password: &str) -> Result<String, String> {
-    use argon2::{password_hash::SaltString, Argon2, Params, PasswordHasher};
-
-    // 4 MiB memory, 2 iterations, 1 lane — fast enough for Workers
-    let params = Params::new(4096, 2, 1, None).map_err(|e| format!("argon2 params: {e}"))?;
-    let mut salt_bytes = [0u8; 16];
-    getrandom::getrandom(&mut salt_bytes).map_err(|e| format!("rng error: {e}"))?;
-    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| format!("salt encode: {e}"))?;
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-    argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| format!("argon2 hash: {e}"))
-}
-
-/// Verify a password against an argon2 hash.
-pub fn verify_password(password: &str, hash: &str) -> bool {
-    use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
-    let parsed = match PasswordHash::new(hash) {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
-    Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok()
-}
-
-// ---------------------------------------------------------------------------
-// HMAC-SHA256 JWT
-// ---------------------------------------------------------------------------
-
-pub fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key).map_err(|e| format!("HMAC key error: {e}"))?;
-    mac.update(data);
-    Ok(mac.finalize().into_bytes().to_vec())
-}
-
-pub fn base64_url_encode(input: &[u8]) -> String {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    URL_SAFE_NO_PAD.encode(input)
-}
-
-fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    URL_SAFE_NO_PAD
-        .decode(input)
-        .map_err(|e| format!("invalid base64: {e}"))
-}
-
-/// Sign a JWT with HMAC-SHA256.
-///
-/// Takes `claims` by value to avoid cloning the caller's HashMap just to add
-/// `iat` / `exp`. Callers typically build a fresh map per token anyway.
-pub fn jwt_sign(
-    mut claims: HashMap<String, serde_json::Value>,
-    expiry: Duration,
-    secret: &str,
-) -> Result<String, String> {
-    let now = chrono::Utc::now();
-    let expiry_secs = i64::try_from(expiry.as_secs())
-        .map_err(|_| "jwt expiry overflows i64 seconds".to_string())?;
-    let exp = now + chrono::Duration::seconds(expiry_secs);
-
-    claims.insert("iat".to_string(), serde_json::json!(now.timestamp()));
-    claims.insert("exp".to_string(), serde_json::json!(exp.timestamp()));
-
-    let header = r#"{"alg":"HS256","typ":"JWT"}"#;
-    let header_b64 = base64_url_encode(header.as_bytes());
-    let payload_json =
-        serde_json::to_string(&claims).map_err(|e| format!("jwt payload serialize: {e}"))?;
-    let payload_b64 = base64_url_encode(payload_json.as_bytes());
-
-    let signing_input = format!("{}.{}", header_b64, payload_b64);
-    let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes())?;
-    let sig_b64 = base64_url_encode(&sig);
-
-    Ok(format!("{}.{}.{}", header_b64, payload_b64, sig_b64))
-}
-
-/// Verify a JWT signature and check expiry. Returns the claims on success.
-pub fn jwt_verify(token: &str, secret: &str) -> Result<HashMap<String, serde_json::Value>, String> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err("invalid JWT format".into());
-    }
-
-    // Verify signature (constant-time comparison to prevent timing attacks)
-    let signing_input = format!("{}.{}", parts[0], parts[1]);
-    let expected_sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes())?;
-    let actual_sig = base64_url_decode(parts[2])?;
-    if !constant_time_eq(&expected_sig, &actual_sig) {
-        return Err("invalid JWT signature".into());
-    }
-
-    // Decode payload
-    let payload = base64_url_decode(parts[1])?;
-    let claims: HashMap<String, serde_json::Value> =
-        serde_json::from_slice(&payload).map_err(|e| format!("invalid JWT claims: {e}"))?;
-
-    // Require and check expiration — tokens without exp are rejected
-    let exp = claims
-        .get("exp")
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| "JWT missing exp claim".to_string())?;
-    let now = chrono::Utc::now().timestamp();
-    if exp < now {
-        return Err("JWT expired".into());
-    }
-
-    Ok(claims)
-}
-
-/// Generate cryptographically random bytes.
-pub fn random_bytes(n: usize) -> Result<Vec<u8>, String> {
-    let mut buf = vec![0u8; n];
-    getrandom::getrandom(&mut buf).map_err(|e| format!("rng error: {e}"))?;
-    Ok(buf)
-}
-
-/// Constant-time comparison to prevent timing attacks.
-/// Returns true if both slices are equal in length and content.
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-// ---------------------------------------------------------------------------
-// Per-block JWT key derivation (must match wafer-block-crypto's HKDF)
-// ---------------------------------------------------------------------------
-
-/// Derive a per-block JWT signing key from the master secret using HKDF-SHA256.
-/// This matches the derivation in `wafer-block-crypto::Argon2JwtCryptoService`.
-pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> Result<String, String> {
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-
-    let hk = Hkdf::<Sha256>::new(None, master_secret.as_bytes());
-    let info = format!("wafer-jwt|{block_id}");
-    let mut okm = [0u8; 32];
-    hk.expand(info.as_bytes(), &mut okm)
-        .map_err(|e| format!("HKDF expand: {e}"))?;
-    Ok(okm.iter().map(|b| format!("{b:02x}")).collect())
-}
+use wafer_block_crypto::primitives::{self, JwtExpPolicy};
 
 // ---------------------------------------------------------------------------
 // Auth meta extraction
@@ -186,6 +36,10 @@ pub const META_AUTH_EXP: &str = "auth.exp";
 /// Silently does nothing if the token is invalid, fails the issuer
 /// check (SEC-038), is blocklisted (SEC-042), or is a non-`access`
 /// type — the request continues as unauthenticated.
+///
+/// Verification uses [`JwtExpPolicy::Required`]: solobase's token mints all
+/// stamp `exp`, so an exp-less token was not produced by this stack and
+/// accepting one would create a forever-valid credential.
 ///
 /// [SEC-038] `expected_iss` is the deployment's canonical issuer
 /// (`SOLOBASE_SHARED__FRONTEND_URL`). Tokens whose `iss` claim doesn't
@@ -213,27 +67,27 @@ pub async fn extract_auth_meta(
     // through `sign_for(caller_id, ...)`. So the verify key is HKDF-derived
     // from `AUTH_UI_BLOCK_ID`, not `AUTH_BLOCK_ID`. Try the derived key
     // first, then fall back to the master secret for tokens signed without
-    // block derivation (e.g. unit-test fixtures). An HKDF error here means
-    // the master secret is malformed — treat that the same as a verification
-    // failure (request continues unauthenticated).
+    // block derivation (e.g. unit-test fixtures).
     //
     // History note: PR #155 (bcf96ce) originally swapped this from
     // AUTH_BLOCK_ID to AUTH_UI_BLOCK_ID. PR #170 (d7107c4)'s Result-wrap
     // refactor silently reverted it; the unit tests didn't catch the
     // regression because they sign with the master secret directly and so
     // exercise only the fallback branch.
-    let derived_secret =
-        match derive_block_jwt_key(jwt_secret, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-    let claims = match jwt_verify(token, &derived_secret) {
-        Ok(c) => c,
-        Err(_) => match jwt_verify(token, jwt_secret) {
+    let derived_secret = primitives::derive_block_key(
+        jwt_secret.as_bytes(),
+        crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+    );
+    let claims =
+        match primitives::jwt_verify(token, derived_secret.as_bytes(), JwtExpPolicy::Required) {
             Ok(c) => c,
-            Err(_) => return,
-        },
-    };
+            Err(_) => {
+                match primitives::jwt_verify(token, jwt_secret.as_bytes(), JwtExpPolicy::Required) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                }
+            }
+        };
 
     // Only accept "access" tokens for authentication (reject refresh tokens)
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -299,151 +153,69 @@ pub async fn extract_auth_meta(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, time::Duration};
+
     use super::*;
 
-    #[test]
-    fn hash_and_verify_password() {
-        let hash = hash_password("correcthorsebatterystaple").unwrap();
-        assert!(hash.starts_with("$argon2id$"));
-        assert!(verify_password("correcthorsebatterystaple", &hash));
-        assert!(!verify_password("wrongpassword", &hash));
-    }
+    // -- Consumer-side pinning tests --------------------------------------
+    //
+    // These pin the parts of the `wafer_block_crypto::primitives` contract
+    // that solobase's session-token handling depends on. The primitives
+    // module carries its own exhaustive test suite; the point here is to
+    // fail INSIDE solobase if the producer's policy ever shifts under us
+    // (the exp-required policy and the HKDF derivation format both have a
+    // documented history of cross-component drift).
 
     #[test]
-    fn verify_password_rejects_garbage_hash() {
-        assert!(!verify_password("anything", "not-a-hash"));
-        assert!(!verify_password("anything", ""));
-    }
-
-    #[test]
-    fn jwt_sign_and_verify_roundtrip() {
-        let secret = "test-secret-key";
+    fn pin_jwt_sign_verify_roundtrip() {
+        let secret = b"test-secret-padded-to-32-bytes-or-more";
         let mut claims = HashMap::new();
         claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        claims.insert("email".to_string(), serde_json::json!("test@example.com"));
-
-        let token = jwt_sign(claims, Duration::from_secs(3600), secret).unwrap();
-        let parts: Vec<&str> = token.split('.').collect();
-        assert_eq!(parts.len(), 3);
-
-        let verified = jwt_verify(&token, secret).unwrap();
+        let token = primitives::jwt_sign(claims, Duration::from_secs(3600), secret).unwrap();
+        let verified = primitives::jwt_verify(&token, secret, JwtExpPolicy::Required).unwrap();
         assert_eq!(verified["sub"], "user-123");
-        assert_eq!(verified["email"], "test@example.com");
         assert!(verified.contains_key("iat"));
         assert!(verified.contains_key("exp"));
     }
 
+    /// Pins the exp-required policy `extract_auth_meta` verifies with: an
+    /// exp-less token is a forever-valid credential and must be rejected.
+    /// (This policy was the subject of the historical solobase ↔ wafer
+    /// drift; see the `JwtExpPolicy` docs.)
     #[test]
-    fn jwt_verify_rejects_wrong_secret() {
-        let mut claims = HashMap::new();
-        claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        let token = jwt_sign(claims, Duration::from_secs(3600), "secret-a").unwrap();
+    fn pin_jwt_verify_rejects_missing_exp() {
+        let secret = b"test-secret-padded-to-32-bytes-or-more";
+        // jwt_sign always stamps exp, so hand-craft an exp-less token.
+        let payload_b64 = primitives::b64url_encode(br#"{"sub":"user-123"}"#);
+        let header_b64 = primitives::b64url_encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let signing_input = format!("{header_b64}.{payload_b64}");
+        let sig = primitives::hmac_sha256(secret, signing_input.as_bytes());
+        let token = format!("{signing_input}.{}", primitives::b64url_encode(&sig));
 
-        let err = jwt_verify(&token, "secret-b").unwrap_err();
-        assert_eq!(err, "invalid JWT signature");
+        let err = primitives::jwt_verify(&token, secret, JwtExpPolicy::Required)
+            .expect_err("exp-less token must be rejected");
+        assert!(err.to_string().contains("missing exp"), "got: {err}");
     }
 
+    /// Pins the HKDF per-block derivation format (`wafer-jwt|{block_id}`,
+    /// 32-byte output, lowercase hex). Cross-component contract: tokens
+    /// minted by the CF Worker / browser / native runtime must all verify
+    /// against the same derived key. Do not update the expected value to
+    /// make this pass — fix the derivation instead.
     #[test]
-    fn jwt_verify_rejects_expired_token() {
-        // Build a token with an exp in the past by manipulating claims directly
-        let secret = "secret";
-        let past = chrono::Utc::now().timestamp() - 60; // 1 minute ago
-        let mut claims = HashMap::new();
-        claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        claims.insert("exp".to_string(), serde_json::json!(past));
-        claims.insert("iat".to_string(), serde_json::json!(past - 3600));
-
-        let header = r#"{"alg":"HS256","typ":"JWT"}"#;
-        let header_b64 = base64_url_encode(header.as_bytes());
-        let payload_json = serde_json::to_string(&claims).unwrap();
-        let payload_b64 = base64_url_encode(payload_json.as_bytes());
-        let signing_input = format!("{}.{}", header_b64, payload_b64);
-        let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes()).unwrap();
-        let sig_b64 = base64_url_encode(&sig);
-        let token = format!("{}.{}.{}", header_b64, payload_b64, sig_b64);
-
-        let err = jwt_verify(&token, secret).unwrap_err();
-        assert_eq!(err, "JWT expired");
+    fn pin_derive_block_key_known_answer() {
+        assert_eq!(
+            primitives::derive_block_key(b"test-master-secret", "suppers-ai/auth"),
+            "35d13eb8846253b6c1fa61bfe10294b3f7cb2e9fcf10c89f0035346ff696c7d1"
+        );
     }
 
-    #[test]
-    fn jwt_verify_rejects_malformed_token() {
-        assert!(jwt_verify("not.a.valid.jwt", "secret").is_err());
-        assert!(jwt_verify("only-one-part", "secret").is_err());
-        assert!(jwt_verify("two.parts", "secret").is_err());
-        assert!(jwt_verify("", "secret").is_err());
-    }
-
-    #[test]
-    fn jwt_verify_rejects_tampered_payload() {
-        let mut claims = HashMap::new();
-        claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        let token = jwt_sign(claims, Duration::from_secs(3600), "secret").unwrap();
-
-        let parts: Vec<&str> = token.split('.').collect();
-        // Replace payload with different content
-        let tampered_payload = base64_url_encode(b"{\"sub\":\"admin\",\"exp\":9999999999}");
-        let tampered = format!("{}.{}.{}", parts[0], tampered_payload, parts[2]);
-
-        assert!(jwt_verify(&tampered, "secret").is_err());
-    }
-
-    #[test]
-    fn random_bytes_returns_correct_length() {
-        let bytes = random_bytes(32).unwrap();
-        assert_eq!(bytes.len(), 32);
-
-        let bytes2 = random_bytes(32).unwrap();
-        assert_ne!(bytes, bytes2, "two calls should produce different output");
-    }
-
-    #[test]
-    fn random_bytes_zero_length() {
-        let bytes = random_bytes(0).unwrap();
-        assert!(bytes.is_empty());
-    }
-
-    #[test]
-    fn hmac_sha256_deterministic() {
-        let a = hmac_sha256(b"hello", b"key").unwrap();
-        let b = hmac_sha256(b"hello", b"key").unwrap();
-        assert_eq!(a, b);
-
-        let c = hmac_sha256(b"hello", b"different-key").unwrap();
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn jwt_verify_rejects_missing_exp() {
-        let secret = "secret";
-        let mut claims = HashMap::new();
-        claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        // Manually build a token without exp
-        let header = r#"{"alg":"HS256","typ":"JWT"}"#;
-        let header_b64 = base64_url_encode(header.as_bytes());
-        let payload_json = serde_json::to_string(&claims).unwrap();
-        let payload_b64 = base64_url_encode(payload_json.as_bytes());
-        let signing_input = format!("{}.{}", header_b64, payload_b64);
-        let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes()).unwrap();
-        let sig_b64 = base64_url_encode(&sig);
-        let token = format!("{}.{}.{}", header_b64, payload_b64, sig_b64);
-
-        let err = jwt_verify(&token, secret).unwrap_err();
-        assert_eq!(err, "JWT missing exp claim");
-    }
-
-    #[test]
-    fn constant_time_eq_works() {
-        assert!(constant_time_eq(b"hello", b"hello"));
-        assert!(!constant_time_eq(b"hello", b"world"));
-        assert!(!constant_time_eq(b"hello", b"hell"));
-        assert!(constant_time_eq(b"", b""));
-    }
-
-    // SEC-042 extract_auth_meta blocklist tests. Tokens are signed with
-    // the master secret directly (no per-block HKDF) so the fallback path
-    // in extract_auth_meta verifies them — the function tries the derived
-    // key first, then falls back to the master secret.
+    // -- extract_auth_meta -------------------------------------------------
+    //
+    // SEC-042 blocklist tests sign with the master secret directly (no
+    // per-block HKDF) so the fallback path in extract_auth_meta verifies
+    // them — the function tries the derived key first, then falls back to
+    // the master secret.
 
     fn sign_access_jwt(secret: &str, sub: &str, jti: Option<&str>, ttl_secs: u64) -> String {
         let mut claims = HashMap::new();
@@ -452,7 +224,8 @@ mod tests {
         if let Some(j) = jti {
             claims.insert("jti".to_string(), serde_json::json!(j));
         }
-        jwt_sign(claims, Duration::from_secs(ttl_secs), secret).expect("test jwt_sign")
+        primitives::jwt_sign(claims, Duration::from_secs(ttl_secs), secret.as_bytes())
+            .expect("test jwt_sign")
     }
 
     #[tokio::test]
@@ -481,15 +254,17 @@ mod tests {
         use wafer_run::Message;
         let ctx = crate::test_support::TestContext::with_auth().await;
         let master = "test-master-secret";
-        let derived = derive_block_jwt_key(master, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID)
-            .expect("derive auth-ui key");
+        let derived = primitives::derive_block_key(
+            master.as_bytes(),
+            crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+        );
 
         let mut claims = HashMap::new();
         claims.insert("sub".to_string(), serde_json::json!("user-prod"));
         claims.insert("type".to_string(), serde_json::json!("access"));
         claims.insert("jti".to_string(), serde_json::json!("jti-prod"));
-        let token =
-            jwt_sign(claims, Duration::from_secs(3600), &derived).expect("sign with derived");
+        let token = primitives::jwt_sign(claims, Duration::from_secs(3600), derived.as_bytes())
+            .expect("sign with derived");
 
         let mut msg = Message::new("http.request");
         extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;

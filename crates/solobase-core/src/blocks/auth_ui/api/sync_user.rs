@@ -16,7 +16,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         return err_forbidden("INTERNAL_SECRET not configured — internal endpoints are disabled");
     }
     let provided_secret = msg.header("x-internal-secret");
-    if !crate::crypto::constant_time_eq(provided_secret.as_bytes(), expected_secret.as_bytes()) {
+    if !wafer_block_crypto::primitives::constant_time_eq(
+        provided_secret.as_bytes(),
+        expected_secret.as_bytes(),
+    ) {
         return err_unauthorized("Invalid internal secret");
     }
 
