@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database::{self as db, Record, RecordList};
 use wafer_run::{context::Context, WaferError};
-use wafer_sql_utils::Backend;
 
 /// Purchase header table — one row per checkout / order.
 pub(crate) const PURCHASES_TABLE: &str = "suppers_ai__products__purchases";
@@ -88,6 +87,7 @@ pub(crate) async fn complete_atomic(
     payment_intent: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
@@ -111,7 +111,7 @@ pub(crate) async fn complete_atomic(
                 value: serde_json::json!(["checkout_started", "pending"]),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -122,6 +122,7 @@ pub(crate) async fn claim_for_checkout(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<i64, WaferError> {
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
@@ -143,7 +144,7 @@ pub(crate) async fn claim_for_checkout(
                 value: serde_json::json!("pending"),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -154,6 +155,7 @@ pub(crate) async fn revert_checkout_claim(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<i64, WaferError> {
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
@@ -175,7 +177,7 @@ pub(crate) async fn revert_checkout_claim(
                 value: serde_json::json!("checkout_started"),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -189,6 +191,7 @@ pub(crate) async fn refund_atomic(
     reason: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
@@ -210,7 +213,7 @@ pub(crate) async fn refund_atomic(
                 value: serde_json::json!("completed"),
             },
         ],
-        Backend::Sqlite,
+        backend,
     );
     db::execute(ctx, &stmt).await
 }
@@ -260,12 +263,13 @@ pub(crate) async fn line_item_product_ids(
         limit: 1,
         ..Default::default()
     };
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_select_columns(
         LINE_ITEMS_TABLE,
         &["product_id"],
         &opts,
         None,
-        Backend::Sqlite,
+        backend,
     );
     db::query(ctx, &stmt).await
 }
@@ -310,12 +314,13 @@ pub(crate) async fn completed_purchase_ids(
         ],
         ..Default::default()
     };
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_select_columns(
         PURCHASES_TABLE,
         &["id"],
         &opts,
         None,
-        Backend::Sqlite,
+        backend,
     );
     db::query(ctx, &stmt).await
 }
@@ -345,12 +350,13 @@ pub(crate) async fn line_item_exists_for_product(
         limit: 1,
         ..Default::default()
     };
+    let backend = crate::db_backend(ctx).await;
     let stmt = wafer_sql_utils::query::build_select_columns(
         LINE_ITEMS_TABLE,
         &["id"],
         &opts,
         None,
-        Backend::Sqlite,
+        backend,
     );
     matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
 }
