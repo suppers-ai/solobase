@@ -20,7 +20,10 @@ use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
 use wafer_sql_utils::Backend;
 
-use crate::features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY};
+use crate::{
+    admin_schema::BLOCK_SETTINGS_TABLE,
+    features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY},
+};
 // NOTE: `BlockSettings::state_for` parses only the requested block's entry
 // out of the JSON map, avoiding the full-map materialization that
 // `from_config_json` would do on every `apply_if_blessed` call.
@@ -63,10 +66,6 @@ pub async fn db_backend(ctx: &dyn Context) -> Backend {
         Backend::Sqlite
     }
 }
-
-/// Full table name for the block_settings collection. Hardcoded here to
-/// avoid a circular dep on `crate::blocks::admin`.
-const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
 
 /// Read `SOLOBASE_SHARED__DATABASE__BACKEND` from the config snapshot,
 /// concatenate the matching per-backend SQL files, and forward to

@@ -31,6 +31,13 @@ default = [
 ]
 sqlite = []
 postgres = []
+# Exposes `solobase_core::test_support::TestContext` (the shared in-memory
+# SQLite + block harness) as part of the public API so the `tests/`
+# integration crates can reuse it instead of hand-rolling a `MigrationTestCtx`.
+# Pulls `wafer-block-sqlite` in as a regular (non-optional) dep — TestContext
+# wires the production `DatabaseBlock` over `SQLiteDatabaseService`. Enabled
+# via the self dev-dependency below; never enabled in production builds.
+test-support = ["dep:wafer-block-sqlite"]
 storage-local = []
 storage-s3 = []
 # Enable WASM block loading via the wasmi interpreter for auto-discovery.
@@ -201,6 +208,12 @@ tracing = "0.1"
 workspace = true
 
 [dev-dependencies]
+# Self dev-dependency with `test-support` so the `tests/` integration crates
+# can `use solobase_core::test_support::TestContext` (the shared in-memory
+# harness) instead of re-implementing it. A self dev-dep is the standard way
+# to feature-gate a test-only public module without leaking it into the
+# production lib build.
+solobase-core = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt", "time", "net"] }
 tempfile = "3"
 # Dev-dep so integration tests can drive the SQLite database service even

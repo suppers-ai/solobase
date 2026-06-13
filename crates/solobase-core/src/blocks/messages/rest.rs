@@ -9,7 +9,7 @@ use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream}
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::blocks::{
     crud,
-    helpers::{err_bad_request, err_internal, err_not_found, ok_json},
+    helpers::{err_bad_request, err_internal, err_not_found, ok_json, path_param},
 };
 
 /// Path prefix preceding the context id in the REST routes.
@@ -25,21 +25,6 @@ fn non_empty(s: &str) -> Option<String> {
     } else {
         Some(s.to_string())
     }
-}
-
-// ---------------------------------------------------------------------------
-// Path extraction helpers
-// ---------------------------------------------------------------------------
-
-/// Extract context ID from paths like `/b/messages/api/contexts/{id}`
-/// or `/b/messages/api/contexts/{id}/entries`.
-fn extract_context_id(msg: &Message) -> &str {
-    let var = msg.var("id");
-    if !var.is_empty() {
-        return var;
-    }
-    let suffix = msg.path().strip_prefix(CONTEXTS_PREFIX).unwrap_or("");
-    suffix.split('/').next().unwrap_or("")
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +94,7 @@ pub async fn get_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 pub async fn update_context(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let id = extract_context_id(msg);
+    let id = path_param(msg, "id", CONTEXTS_PREFIX);
     if id.is_empty() {
         return err_bad_request("Missing context ID");
     }
@@ -127,7 +112,7 @@ pub async fn update_context(ctx: &dyn Context, msg: &Message, input: InputStream
 }
 
 pub async fn delete_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let id = extract_context_id(msg);
+    let id = path_param(msg, "id", CONTEXTS_PREFIX);
     if id.is_empty() {
         return err_bad_request("Missing context ID");
     }
@@ -143,7 +128,7 @@ pub async fn delete_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 pub async fn list_entries(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let context_id = extract_context_id(msg);
+    let context_id = path_param(msg, "id", CONTEXTS_PREFIX);
     if context_id.is_empty() {
         return err_bad_request("Missing context ID");
     }
@@ -161,7 +146,7 @@ pub async fn list_entries(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 pub async fn add_entry(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let context_id = extract_context_id(msg);
+    let context_id = path_param(msg, "id", CONTEXTS_PREFIX);
     if context_id.is_empty() {
         return err_bad_request("Missing context ID");
     }

@@ -179,20 +179,43 @@ mod tests {
         assert_eq!(format!("{}", ErrorCode::NotFound), "not_found");
         assert_eq!(format!("{}", ErrorCode::InvalidToken), "invalid_token");
     }
+
+    #[tokio::test]
+    async fn error_response_carries_code_as_structured_meta() {
+        // The precise solobase code lands in `error.code` meta (not as a
+        // `"[code] "` prefix on the human message), and the coarse wafer code
+        // is the transport classification.
+        let out = error_response(ErrorCode::InvalidToken, "token is bad");
+        match out.collect_buffered().await {
+            Err(wafer_run::TerminalNotResponse::Error(err)) => {
+                assert_eq!(err.code, wafer_run::ErrorCode::Unauthenticated);
+                assert_eq!(err.message, "token is bad");
+                assert!(
+                    !err.message.starts_with('['),
+                    "message must not carry the old bracket-code prefix"
+                );
+                assert_eq!(err.detail_code(), Some("invalid_token"));
+            }
+            other => panic!("expected an error stream, got {other:?}"),
+        }
+    }
 }
 
 /// Helper to create a JSON error response with a structured error code.
 ///
-/// Maps a solobase `ErrorCode` to the appropriate wafer `ErrorCode` and
-/// returns an `OutputStream::error(...)` with the error code as part of the message.
+/// Maps the fine-grained solobase [`ErrorCode`] to the coarse wafer
+/// `ErrorCode` (which drives transport/status mapping) and attaches the
+/// precise solobase code as structured `error.code` meta via
+/// [`wafer_run::WaferError::with_detail_code`] — the
+/// `wafer_block::META_ERROR_CODE` convention. The message stays human-only;
+/// the old `"[{code}] {message}"` in-band prefix is gone, so HTTP adapters
+/// surface the machine-readable code as a JSON `code` field from the meta
+/// rather than callers parsing it back out of the message.
 pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream {
     let wafer_code = solobase_error_code_to_wafer(code);
-    let full_message = format!("[{}] {}", code.as_str(), message);
-    wafer_run::OutputStream::error(wafer_run::WaferError {
-        code: wafer_code,
-        message: full_message,
-        meta: vec![],
-    })
+    wafer_run::OutputStream::error(
+        wafer_run::WaferError::new(wafer_code, message.to_string()).with_detail_code(code.as_str()),
+    )
 }
 
 /// Map a solobase `ErrorCode` to a wafer `ErrorCode`.

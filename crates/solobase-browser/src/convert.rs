@@ -345,12 +345,18 @@ fn finalise_buffered(
             // Error bodies ARE JSON; a `resp.content_type` on the error meta is
             // superseded (exactly one Content-Type, matching the codec).
             headers.set("Content-Type", http_codec::DEFAULT_RESPONSE_CONTENT_TYPE)?;
-            let body = serde_json::json!({
+            // Surface the precise application code (set via
+            // `WaferError::with_detail_code`, carried as `error.code` meta) as a
+            // machine-readable `code` field; the coarse wafer code stays in
+            // `error`. Omitted when no detail code was attached.
+            let mut body = serde_json::json!({
                 "error": err.code,
                 "message": err.message,
-            })
-            .to_string()
-            .into_bytes();
+            });
+            if let Some(detail) = err.detail_code() {
+                body["code"] = serde_json::Value::String(detail.to_string());
+            }
+            let body = body.to_string().into_bytes();
             make_response(body, status, headers)
         }
 

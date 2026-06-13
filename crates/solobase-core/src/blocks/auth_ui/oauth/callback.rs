@@ -679,7 +679,7 @@ mod security_regression_tests {
         ctx.register_block("wafer-run/crypto", crypto_block);
 
         // Mock network block under the production block id.
-        let net: Arc<dyn Block> = Arc::new(crate::blocks::network::SolobaseNetworkBlock::new(
+        let net: Arc<dyn Block> = Arc::new(wafer_core::service_blocks::network::NetworkBlock::new(
             Arc::new(MockGoogleNetwork {
                 userinfo_email: userinfo_email.to_string(),
             }),
