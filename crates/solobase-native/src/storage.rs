@@ -2,8 +2,66 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use wafer_core::interfaces::storage::service::StorageService;
+
+/// Construct the storage service selected by `SOLOBASE_STORAGE_TYPE`.
+///
+/// - `"local"` (the default) roots a local-filesystem store at
+///   `storage_root` (`SOLOBASE_STORAGE_ROOT`).
+/// - `"s3"` builds an S3-compatible store from the `SOLOBASE_S3_*` env vars
+///   (`BUCKET` required; `PREFIX`/`ENDPOINT`/`REGION` optional). Requires the
+///   `s3` cargo feature; without it this is a hard boot error rather than a
+///   silent fallback to local disk.
+/// - any other value is a hard error.
+///
+/// Centralises the `storage_type` → factory dispatch so the boot path can't
+/// log `storage = s3` while silently writing to local disk.
+///
+/// # Errors
+///
+/// Returns an error when the type is unknown, when `s3` is requested but the
+/// feature is off / `SOLOBASE_S3_BUCKET` is missing, or when the underlying
+/// factory fails.
+pub async fn make_storage_service(
+    storage_type: &str,
+    storage_root: &str,
+) -> Result<Arc<dyn StorageService>> {
+    match storage_type {
+        "local" => make_local_storage_service(storage_root),
+        "s3" => make_s3_storage_service_dispatch().await,
+        other => Err(anyhow!(
+            "unsupported SOLOBASE_STORAGE_TYPE `{other}` (expected `local` or `s3`)"
+        )),
+    }
+}
+
+/// S3 branch of [`make_storage_service`], split out so the feature-gate +
+/// env-var sourcing live in one place. Reads `SOLOBASE_S3_BUCKET` (required),
+/// `SOLOBASE_S3_PREFIX`, `SOLOBASE_S3_ENDPOINT`, and `SOLOBASE_S3_REGION`.
+#[cfg(feature = "s3")]
+async fn make_s3_storage_service_dispatch() -> Result<Arc<dyn StorageService>> {
+    let bucket = std::env::var("SOLOBASE_S3_BUCKET")
+        .map_err(|_| anyhow!("SOLOBASE_STORAGE_TYPE=s3 requires SOLOBASE_S3_BUCKET to be set"))?;
+    let config = S3Config {
+        bucket,
+        prefix: std::env::var("SOLOBASE_S3_PREFIX").unwrap_or_default(),
+        endpoint: std::env::var("SOLOBASE_S3_ENDPOINT").ok(),
+        region: std::env::var("SOLOBASE_S3_REGION").ok(),
+    };
+    make_s3_storage_service(config).await
+}
+
+/// Feature-off branch: s3 was requested but the binary wasn't built with the
+/// `s3` feature. Fail loudly instead of writing to local disk.
+#[cfg(not(feature = "s3"))]
+async fn make_s3_storage_service_dispatch() -> Result<Arc<dyn StorageService>> {
+    Err(anyhow!(
+        "SOLOBASE_STORAGE_TYPE=s3 but this binary was built without the `s3` \
+         feature; rebuild with `--features solobase-native/s3` (or set \
+         SOLOBASE_STORAGE_TYPE=local)"
+    ))
+}
 
 /// Initialise a local-filesystem storage service rooted at `root`.
 ///

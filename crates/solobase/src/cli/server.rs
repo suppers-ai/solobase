@@ -111,13 +111,25 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         );
     }
 
+    // Dispatch on the infra config: `SOLOBASE_DB_TYPE` (sqlite|postgres) and
+    // `SOLOBASE_STORAGE_TYPE` (local|s3) select the platform service. An
+    // unsupported value, or a type whose cargo feature is off, is a hard boot
+    // error — the boot path no longer logs `db = postgres` / `storage = s3`
+    // while silently running SQLite / local disk.
+    let database = solobase_native::make_database_service(
+        &infra.db_type,
+        &infra.db_path,
+        infra.db_url.as_deref(),
+    )
+    .await
+    .context("construct database service")?;
+    let storage = solobase_native::make_storage_service(&infra.storage_type, &infra.storage_root)
+        .await
+        .context("construct storage service")?;
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
-        .database(solobase_native::make_sqlite_database_service(
-            &infra.db_path,
-        )?)
-        .storage(solobase_native::make_local_storage_service(
-            &infra.storage_root,
-        )?)
+        .database(database)
+        .storage(storage)
         .config(Arc::new(config_service))
         .config_source(Arc::new(wafer_run::StaticConfigSource::new(vars.clone())))
         .crypto(solobase_native::make_jwt_crypto_service(jwt_secret)?)
