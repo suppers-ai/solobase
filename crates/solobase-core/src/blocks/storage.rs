@@ -125,6 +125,91 @@ fn access_type_for_op(kind: &str) -> &'static str {
     }
 }
 
+/// A `wire::storage` request whose path field needs namespace rewriting.
+///
+/// Implemented by every op carrying a folder/name field: object ops
+/// (put/get/delete) expose their object `key` for the SEC-003 `wrap_resource`
+/// composite; folder/list ops return `None`, leaving `wrap_resource = path`.
+trait PathRewrite: serde::Serialize + serde::de::DeserializeOwned {
+    /// Mutable access to the request's path field (`folder` or `name`).
+    fn path_field_mut(&mut self) -> &mut String;
+    /// The object key for the `wrap_resource = "{path}/{key}"` composite, or
+    /// `None` for ops with no object key (folder ops, list).
+    fn wrap_key(&self) -> Option<&str> {
+        None
+    }
+}
+
+impl PathRewrite for wire::PutRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.folder
+    }
+    fn wrap_key(&self) -> Option<&str> {
+        Some(&self.key)
+    }
+}
+impl PathRewrite for wire::GetRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.folder
+    }
+    fn wrap_key(&self) -> Option<&str> {
+        Some(&self.key)
+    }
+}
+impl PathRewrite for wire::DeleteRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.folder
+    }
+    fn wrap_key(&self) -> Option<&str> {
+        Some(&self.key)
+    }
+}
+impl PathRewrite for wire::ListRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.folder
+    }
+}
+impl PathRewrite for wire::CreateFolderRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+}
+impl PathRewrite for wire::DeleteFolderRequest {
+    fn path_field_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+}
+
+/// Decode `body` as `T`, namespace-resolve its path field, recompute the
+/// SEC-003 `wrap_resource` (object ops include the object key; folder/list ops
+/// keep `wrap_resource = path`), re-encode, and return the rewritten bytes.
+///
+/// One generic body shared by all six path-carrying ops — keeps the per-op
+/// `wrap_resource` rule in exactly one place.
+fn rewrite_op<T: PathRewrite>(
+    body: &[u8],
+    caller: &str,
+) -> Result<(Vec<u8>, ResolvedPath), WaferError> {
+    let mut req: T = codec::decode(body).map_err(|e: wafer_block::WaferError| {
+        WaferError::new(
+            ErrorCode::InvalidArgument,
+            format!("invalid storage request: {}", e.message),
+        )
+    })?;
+    let mut resolved = resolve_folder(caller, req.path_field_mut());
+    if let Some(key) = req.wrap_key() {
+        resolved.wrap_resource = format!("{}/{}", resolved.path, key);
+    }
+    *req.path_field_mut() = resolved.path.clone();
+    let bytes = codec::encode(&req).map_err(|e: wafer_block::WaferError| {
+        WaferError::new(
+            ErrorCode::Internal,
+            format!("encoding storage request: {}", e.message),
+        )
+    })?;
+    Ok((bytes, resolved))
+}
+
 /// Rewrite the folder/name field in the request body bytes.
 ///
 /// Returns the rewritten body bytes plus the resolved path info.
@@ -140,19 +225,6 @@ fn rewrite_request_body(
     body: &[u8],
     caller: &str,
 ) -> Result<(Vec<u8>, ResolvedPath), WaferError> {
-    let invalid = |e: wafer_block::WaferError| {
-        WaferError::new(
-            ErrorCode::InvalidArgument,
-            format!("invalid storage request: {}", e.message),
-        )
-    };
-    let encode_err = |e: wafer_block::WaferError| {
-        WaferError::new(
-            ErrorCode::Internal,
-            format!("encoding storage request: {}", e.message),
-        )
-    };
-
     match kind {
         // No folder field to rewrite — handled by filtering results.
         // list_folders has no `wrap.resource` cross-check in the wafer-core
@@ -165,51 +237,12 @@ fn rewrite_request_body(
                 cross_block: false,
             },
         )),
-        "storage.create_folder" => {
-            let mut req: wire::CreateFolderRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.name);
-            req.name = resolved.path.clone();
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
-        "storage.delete_folder" => {
-            let mut req: wire::DeleteFolderRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.name);
-            req.name = resolved.path.clone();
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
-        "storage.put" => {
-            let mut req: wire::PutRequest = codec::decode(body).map_err(invalid)?;
-            let mut resolved = resolve_folder(caller, &req.folder);
-            req.folder = resolved.path.clone();
-            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
-        "storage.get" => {
-            let mut req: wire::GetRequest = codec::decode(body).map_err(invalid)?;
-            let mut resolved = resolve_folder(caller, &req.folder);
-            req.folder = resolved.path.clone();
-            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
-        "storage.delete" => {
-            let mut req: wire::DeleteRequest = codec::decode(body).map_err(invalid)?;
-            let mut resolved = resolve_folder(caller, &req.folder);
-            req.folder = resolved.path.clone();
-            resolved.wrap_resource = format!("{}/{}", resolved.path, req.key);
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
-        "storage.list" => {
-            let mut req: wire::ListRequest = codec::decode(body).map_err(invalid)?;
-            let resolved = resolve_folder(caller, &req.folder);
-            req.folder = resolved.path.clone();
-            let bytes = codec::encode(&req).map_err(encode_err)?;
-            Ok((bytes, resolved))
-        }
+        "storage.create_folder" => rewrite_op::<wire::CreateFolderRequest>(body, caller),
+        "storage.delete_folder" => rewrite_op::<wire::DeleteFolderRequest>(body, caller),
+        "storage.put" => rewrite_op::<wire::PutRequest>(body, caller),
+        "storage.get" => rewrite_op::<wire::GetRequest>(body, caller),
+        "storage.delete" => rewrite_op::<wire::DeleteRequest>(body, caller),
+        "storage.list" => rewrite_op::<wire::ListRequest>(body, caller),
         other => Err(WaferError::new(
             ErrorCode::InvalidArgument,
             format!("unknown storage op: {other}"),
@@ -265,7 +298,7 @@ impl Block for SolobaseStorageBlock {
                 &caller,
                 &msg.kind,
                 &resolved.path,
-                "BLOCKED: path traversal",
+                "BLOCKED: path traversal".to_string(),
             )
             .await;
             return OutputStream::error(WaferError::new(
@@ -295,7 +328,7 @@ impl Block for SolobaseStorageBlock {
                     &caller,
                     &msg.kind,
                     &resolved.path,
-                    &format!("BLOCKED: {}", e.message),
+                    format!("BLOCKED: {}", e.message),
                 )
                 .await;
                 return OutputStream::error(e);
@@ -321,7 +354,14 @@ impl Block for SolobaseStorageBlock {
 
         OutputStream::from_producer(move |sink, _cancel| async move {
             let mut inner = inner_out;
-            let mut error_status: Option<String> = None;
+            // Best-effort terminal-success log shared by the Complete, Halt, and
+            // stream-ended-without-terminal paths. (An `Error` event logs its
+            // own `ERROR: …` status in-arm and returns, so it never reaches
+            // these paths.)
+            let log_ok = || {
+                let status = format!("OK ({}ms)", (now_millis() - start) as i64);
+                log_storage_access(ctx_arc.as_ref(), &caller_log, &kind_log, &path_log, status)
+            };
             while let Some(evt) = inner.next().await {
                 match evt {
                     StreamEvent::Chunk(bytes) => {
@@ -333,29 +373,17 @@ impl Block for SolobaseStorageBlock {
                         let _ = sink.send_meta(entry).await;
                     }
                     StreamEvent::Complete { meta } => {
-                        let duration_ms = (now_millis() - start) as i64;
-                        let status = error_status
-                            .clone()
-                            .unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
-                        let _ = log_storage_access(
-                            ctx_arc.as_ref(),
-                            &caller_log,
-                            &kind_log,
-                            &path_log,
-                            &status,
-                        )
-                        .await;
+                        let _ = log_ok().await;
                         let _ = sink.complete(meta).await;
                         return;
                     }
                     StreamEvent::Error(e) => {
-                        error_status = Some(format!("ERROR: {}", e.message));
                         let _ = log_storage_access(
                             ctx_arc.as_ref(),
                             &caller_log,
                             &kind_log,
                             &path_log,
-                            error_status.as_deref().unwrap_or("ERROR"),
+                            format!("ERROR: {}", e.message),
                         )
                         .await;
                         let _ = sink.error(*e).await;
@@ -370,33 +398,14 @@ impl Block for SolobaseStorageBlock {
                         return;
                     }
                     StreamEvent::Halt { body, meta } => {
-                        let duration_ms = (now_millis() - start) as i64;
-                        let status = error_status
-                            .clone()
-                            .unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
-                        let _ = log_storage_access(
-                            ctx_arc.as_ref(),
-                            &caller_log,
-                            &kind_log,
-                            &path_log,
-                            &status,
-                        )
-                        .await;
+                        let _ = log_ok().await;
                         let _ = sink.halt(body, meta).await;
                         return;
                     }
                 }
             }
             // Stream ended without a terminal event — best-effort log.
-            let duration_ms = (now_millis() - start) as i64;
-            let _ = log_storage_access(
-                ctx_arc.as_ref(),
-                &caller_log,
-                &kind_log,
-                &path_log,
-                &format!("OK ({duration_ms}ms)"),
-            )
-            .await;
+            let _ = log_ok().await;
         })
     }
 
@@ -410,12 +419,16 @@ impl Block for SolobaseStorageBlock {
 }
 
 /// Log a storage access event (best-effort).
+///
+/// `status` is taken by value so callers in the streaming producer can hand
+/// off an owned, formatted string without the returned future borrowing a
+/// closure-local.
 async fn log_storage_access(
     ctx: &dyn Context,
     source_block: &str,
     operation: &str,
     path: &str,
-    status: &str,
+    status: String,
 ) -> Result<(), WaferError> {
     db::create(
         ctx,
