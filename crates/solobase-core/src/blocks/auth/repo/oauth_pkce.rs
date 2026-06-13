@@ -17,7 +17,7 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{map_opt_str, map_str, now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__oauth_pkce_states";
 
@@ -42,19 +42,15 @@ pub struct PkceStateRow {
     pub expires_at: String,
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<PkceStateRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     Ok(PkceStateRow {
-        provider: s("provider").ok_or_else(|| RepoError::Db("missing provider".into()))?,
-        code_verifier: s("code_verifier")
+        provider: map_opt_str(m, "provider")
+            .ok_or_else(|| RepoError::Db("missing provider".into()))?,
+        code_verifier: map_opt_str(m, "code_verifier")
             .ok_or_else(|| RepoError::Db("missing code_verifier".into()))?,
-        redirect_uri: s("redirect_uri")
+        redirect_uri: map_opt_str(m, "redirect_uri")
             .ok_or_else(|| RepoError::Db("missing redirect_uri".into()))?,
-        expires_at: s("expires_at").unwrap_or_default(),
+        expires_at: map_str(m, "expires_at"),
     })
 }
 

@@ -2,15 +2,13 @@
 //! relocated from auth/login.rs in Task 5.
 
 use maud::html;
-use wafer_core::clients::{crypto, database as db};
+use wafer_core::clients::crypto;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::{
-        auth::{brand_panel, USERS_TABLE},
-        helpers::{
-            err_bad_request, err_internal, hex_encode, json_map, ok_json, sha256_hex, RecordExt,
-        },
+        auth::{brand_panel, repo::users},
+        helpers::{err_bad_request, err_internal, hex_encode, ok_json, sha256_hex},
     },
     ui,
     ui::templates::auth_split,
@@ -47,26 +45,18 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     // Find user by verification token. The DB column stores
     // `sha256_hex(raw)`; hash the supplied token the same way before
     // comparing.
-    let user = match db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "verification_token",
-        serde_json::Value::String(sha256_hex(token.as_bytes())),
-    )
-    .await
-    {
-        Ok(u) => u,
-        Err(_) => {
-            return html_respond(
-                "Invalid Link",
-                "This verification link is invalid or has expired. Please request a new one.",
-                false,
-                &logo_url,
-            )
-        }
+    let Ok(Some(user)) =
+        users::find_by_verification_token(ctx, &sha256_hex(token.as_bytes())).await
+    else {
+        return html_respond(
+            "Invalid Link",
+            "This verification link is invalid or has expired. Please request a new one.",
+            false,
+            &logo_url,
+        );
     };
 
-    if user.bool_field("email_verified") {
+    if user.email_verified {
         return html_respond(
             "Email Already Verified",
             "Your email has already been verified. You can sign in now.",
@@ -75,15 +65,9 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         );
     }
 
-    // Mark as verified, clear token
-    let mut data = json_map(serde_json::json!({
-        "email_verified": true,
-        "verification_token": ""
-    }));
-    crate::blocks::helpers::stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal("Failed to verify email", e);
+    // Mark as verified + clear token in one typed write.
+    if let Err(e) = users::mark_email_verified(ctx, &user.id).await {
+        return err_internal("Failed to verify email", e.to_string());
     }
 
     html_respond(
@@ -108,26 +92,20 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     let email_lower = body.email.trim().to_lowercase();
     let safe_msg = "If that email is registered, a verification link has been sent.";
 
-    let user = match db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "email",
-        serde_json::Value::String(email_lower.clone()),
-    )
-    .await
-    {
-        Ok(u) => u,
-        Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
+    let Ok(Some(user)) = users::find_by_email(ctx, &email_lower).await else {
+        return ok_json(&serde_json::json!({"message": safe_msg}));
     };
 
-    if user.bool_field("email_verified") {
+    if user.email_verified {
         return ok_json(&serde_json::json!({"message": "Email is already verified."}));
     }
 
     // Rate limit: 60 second cooldown
-    let last_sent = user.str_field("last_verification_sent");
+    let last_sent = users::last_verification_sent(ctx, &user.id)
+        .await
+        .unwrap_or_default();
     if !last_sent.is_empty() {
-        if let Ok(last) = chrono::DateTime::parse_from_rfc3339(last_sent) {
+        if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&last_sent) {
             let elapsed = chrono::Utc::now() - last.with_timezone(&chrono::Utc);
             let remaining = 60 - elapsed.num_seconds();
             if remaining > 0 {
@@ -149,14 +127,8 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     let new_token_hash = sha256_hex(new_token.as_bytes());
 
     let now = crate::blocks::helpers::now_rfc3339();
-    let mut data = json_map(serde_json::json!({
-        "verification_token": new_token_hash,
-        "last_verification_sent": now
-    }));
-    crate::blocks::helpers::stamp_updated(&mut data);
-
-    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal("Failed to update token", e);
+    if let Err(e) = users::set_verification_token(ctx, &user.id, &new_token_hash, &now).await {
+        return err_internal("Failed to update token", e.to_string());
     }
 
     super::send_template_email(ctx, "verification", &email_lower, &new_token).await;

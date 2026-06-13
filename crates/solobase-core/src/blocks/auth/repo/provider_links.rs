@@ -12,7 +12,7 @@ use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{map_opt_str, map_str, now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__provider_links";
 
@@ -39,20 +39,17 @@ pub struct NewLink<'a> {
     pub access_token: &'a str,
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<ProviderLink, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     Ok(ProviderLink {
-        provider: s("provider").ok_or_else(|| RepoError::Db("missing provider".into()))?,
-        provider_ref: s("provider_ref")
+        provider: map_opt_str(m, "provider")
+            .ok_or_else(|| RepoError::Db("missing provider".into()))?,
+        provider_ref: map_opt_str(m, "provider_ref")
             .ok_or_else(|| RepoError::Db("missing provider_ref".into()))?,
-        user_id: s("user_id").ok_or_else(|| RepoError::Db("missing user_id".into()))?,
-        provider_login: s("provider_login").unwrap_or_default(),
-        access_token: s("access_token").unwrap_or_default(),
-        linked_at: s("linked_at").unwrap_or_default(),
+        user_id: map_opt_str(m, "user_id")
+            .ok_or_else(|| RepoError::Db("missing user_id".into()))?,
+        provider_login: map_str(m, "provider_login"),
+        access_token: map_str(m, "access_token"),
+        linked_at: map_str(m, "linked_at"),
     })
 }
 

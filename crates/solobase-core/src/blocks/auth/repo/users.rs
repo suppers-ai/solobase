@@ -7,7 +7,7 @@ use uuid::Uuid;
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{map_bool, map_opt_str, map_str, now_iso, RepoError};
 
 pub const TABLE: &str = "suppers_ai__auth__users";
 
@@ -32,32 +32,17 @@ pub struct NewUser {
     pub role: String,
 }
 
-fn now_iso() -> String {
-    // Matches the plain `...Z` style already used by the migration tests; the
-    // exact formatting is not load-bearing beyond being comparable and ISO-8601.
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<UserRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
-    // Defensive bool decode — handles JSON bool, integer (TEXT-int via sqlite),
-    // and string ('true'/'1') so the row reads cleanly across all backends.
-    let b = |k: &str| match m.get(k) {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
-        _ => false,
-    };
     Ok(UserRow {
-        id: s("id").ok_or_else(|| RepoError::Db("missing id".into()))?,
-        email: s("email").ok_or_else(|| RepoError::Db("missing email".into()))?,
-        display_name: s("display_name").unwrap_or_default(),
-        avatar_url: s("avatar_url"),
-        role: s("role").unwrap_or_else(|| "user".into()),
-        disabled: b("disabled"),
-        email_verified: b("email_verified"),
-        created_at: s("created_at").unwrap_or_default(),
-        updated_at: s("updated_at").unwrap_or_default(),
+        id: map_opt_str(m, "id").ok_or_else(|| RepoError::Db("missing id".into()))?,
+        email: map_opt_str(m, "email").ok_or_else(|| RepoError::Db("missing email".into()))?,
+        display_name: map_str(m, "display_name"),
+        avatar_url: map_opt_str(m, "avatar_url"),
+        role: map_opt_str(m, "role").unwrap_or_else(|| "user".into()),
+        disabled: map_bool(m, "disabled"),
+        email_verified: map_bool(m, "email_verified"),
+        created_at: map_str(m, "created_at"),
+        updated_at: map_str(m, "updated_at"),
     })
 }
 
@@ -147,6 +132,161 @@ pub async fn set_email_verified(
         .await
         .map_err(|e| RepoError::Db(format!("set email_verified for {user_id}: {e}")))?;
     Ok(())
+}
+
+/// Find a user by the SHA-256 hex of their email-verification token.
+///
+/// The `verification_token` column stores `sha256_hex(raw)`; callers hash the
+/// supplied raw token the same way before calling. Returns `Ok(None)` when no
+/// row matches (the token is invalid/expired).
+pub async fn find_by_verification_token(
+    ctx: &dyn Context,
+    token_hash: &str,
+) -> Result<Option<UserRow>, RepoError> {
+    use wafer_block::ErrorCode;
+    match db::get_by_field(ctx, TABLE, "verification_token", json!(token_hash)).await {
+        Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(RepoError::Db(format!("find by verification_token: {e}"))),
+    }
+}
+
+/// Mark a user's email as verified and clear their `verification_token` in one
+/// write. Stamps `updated_at` with [`super::now_iso`].
+pub async fn mark_email_verified(ctx: &dyn Context, user_id: &str) -> Result<(), RepoError> {
+    let mut data = std::collections::HashMap::new();
+    data.insert("email_verified".to_string(), json!(true));
+    data.insert("verification_token".to_string(), json!(""));
+    data.insert("updated_at".to_string(), json!(now_iso()));
+    db::update(ctx, TABLE, user_id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("mark verified for {user_id}: {e}")))?;
+    Ok(())
+}
+
+/// Read a user's `last_verification_sent` timestamp (the resend cooldown
+/// anchor). Returns an empty string when unset/absent. `Ok(None)` would be
+/// indistinguishable from "never sent" here, so absence collapses to `""`.
+pub async fn last_verification_sent(ctx: &dyn Context, user_id: &str) -> Result<String, RepoError> {
+    use wafer_block::ErrorCode;
+
+    use crate::blocks::helpers::RecordExt;
+
+    match db::get(ctx, TABLE, user_id).await {
+        Ok(r) => Ok(r.str_field("last_verification_sent").to_string()),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(String::new()),
+        Err(e) => Err(RepoError::Db(format!("get last_verification_sent: {e}"))),
+    }
+}
+
+/// Store a freshly-minted email-verification token (its SHA-256 hex) and the
+/// `last_verification_sent` cooldown timestamp. Stamps `updated_at`.
+pub async fn set_verification_token(
+    ctx: &dyn Context,
+    user_id: &str,
+    token_hash: &str,
+    sent_at: &str,
+) -> Result<(), RepoError> {
+    let mut data = std::collections::HashMap::new();
+    data.insert("verification_token".to_string(), json!(token_hash));
+    data.insert("last_verification_sent".to_string(), json!(sent_at));
+    data.insert("updated_at".to_string(), json!(now_iso()));
+    db::update(ctx, TABLE, user_id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("set verification_token for {user_id}: {e}")))?;
+    Ok(())
+}
+
+/// A user matched by their password-reset token, with the token's expiry so
+/// the caller can reject expired tokens without a second read.
+#[derive(Debug, Clone)]
+pub struct ResetTokenUser {
+    /// Stable user id.
+    pub id: String,
+    /// `reset_token_expires` column value (ISO-8601), empty if unset.
+    pub reset_token_expires: String,
+}
+
+/// Find a user by the SHA-256 hex of their password-reset token.
+///
+/// The `reset_token` column stores `sha256_hex(raw)`. Returns the matched
+/// user's id and the stored expiry so the handler can validate it in one
+/// round-trip. `Ok(None)` when no row matches.
+pub async fn find_by_reset_token(
+    ctx: &dyn Context,
+    token_hash: &str,
+) -> Result<Option<ResetTokenUser>, RepoError> {
+    use wafer_block::ErrorCode;
+
+    use crate::blocks::helpers::RecordExt;
+
+    match db::get_by_field(ctx, TABLE, "reset_token", json!(token_hash)).await {
+        Ok(rec) => Ok(Some(ResetTokenUser {
+            id: rec.id.clone(),
+            reset_token_expires: rec.str_field("reset_token_expires").to_string(),
+        })),
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(RepoError::Db(format!("find by reset_token: {e}"))),
+    }
+}
+
+/// Store a password-reset token (its SHA-256 hex) and its absolute expiry.
+/// Stamps `updated_at`.
+pub async fn set_reset_token(
+    ctx: &dyn Context,
+    user_id: &str,
+    token_hash: &str,
+    expires_at: &str,
+) -> Result<(), RepoError> {
+    let mut data = std::collections::HashMap::new();
+    data.insert("reset_token".to_string(), json!(token_hash));
+    data.insert("reset_token_expires".to_string(), json!(expires_at));
+    data.insert("updated_at".to_string(), json!(now_iso()));
+    db::update(ctx, TABLE, user_id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("set reset_token for {user_id}: {e}")))?;
+    Ok(())
+}
+
+/// Clear a user's password-reset token + expiry after a successful reset.
+/// Stamps `updated_at`.
+pub async fn clear_reset_token(ctx: &dyn Context, user_id: &str) -> Result<(), RepoError> {
+    let mut data = std::collections::HashMap::new();
+    data.insert("reset_token".to_string(), json!(""));
+    data.insert("reset_token_expires".to_string(), json!(""));
+    data.insert("updated_at".to_string(), json!(now_iso()));
+    db::update(ctx, TABLE, user_id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("clear reset_token for {user_id}: {e}")))?;
+    Ok(())
+}
+
+/// Update a user's editable profile fields (`display_name`/`name` and
+/// `avatar_url`) and return the refreshed row.
+///
+/// `name` writes BOTH `display_name` and the legacy `name` alias (the same
+/// dual-write [`insert`] does) so the typed `UserRow` and the raw `name`
+/// column stay in lockstep. `None` arguments leave the corresponding column
+/// untouched. Stamps `updated_at`.
+pub async fn update_profile(
+    ctx: &dyn Context,
+    user_id: &str,
+    name: Option<&str>,
+    avatar_url: Option<&str>,
+) -> Result<UserRow, RepoError> {
+    let mut data = std::collections::HashMap::new();
+    if let Some(n) = name {
+        data.insert("display_name".to_string(), json!(n));
+        data.insert("name".to_string(), json!(n));
+    }
+    if let Some(a) = avatar_url {
+        data.insert("avatar_url".to_string(), json!(a));
+    }
+    data.insert("updated_at".to_string(), json!(now_iso()));
+    let rec = db::update(ctx, TABLE, user_id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("update profile for {user_id}: {e}")))?;
+    row_from_map(&rec.data)
 }
 
 #[cfg(test)]
@@ -282,5 +422,93 @@ mod typed_client_tests {
         .await
         .unwrap();
         assert_eq!(count(&ctx).await.unwrap(), 1);
+    }
+
+    async fn seed_one(ctx: &TestContext) -> String {
+        insert(
+            ctx,
+            NewUser {
+                email: "tok@example.com".into(),
+                display_name: "Tok".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn verification_token_round_trip_and_mark_verified() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_one(&ctx).await;
+
+        set_verification_token(&ctx, &id, "vhash", "2026-06-01T00:00:00Z")
+            .await
+            .unwrap();
+        let found = find_by_verification_token(&ctx, "vhash")
+            .await
+            .unwrap()
+            .expect("found by token");
+        assert_eq!(found.id, id);
+        assert!(!found.email_verified);
+        assert_eq!(
+            last_verification_sent(&ctx, &id).await.unwrap(),
+            "2026-06-01T00:00:00Z"
+        );
+
+        mark_email_verified(&ctx, &id).await.unwrap();
+        assert!(is_email_verified(&ctx, &id).await.unwrap());
+        // Token cleared → no longer findable.
+        assert!(find_by_verification_token(&ctx, "vhash")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn reset_token_round_trip_and_clear() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_one(&ctx).await;
+
+        set_reset_token(&ctx, &id, "rhash", "2099-01-01T00:00:00Z")
+            .await
+            .unwrap();
+        let found = find_by_reset_token(&ctx, "rhash")
+            .await
+            .unwrap()
+            .expect("found by reset token");
+        assert_eq!(found.id, id);
+        assert_eq!(found.reset_token_expires, "2099-01-01T00:00:00Z");
+
+        clear_reset_token(&ctx, &id).await.unwrap();
+        assert!(find_by_reset_token(&ctx, "rhash").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn update_profile_dual_writes_name_and_avatar() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_one(&ctx).await;
+
+        let updated = update_profile(&ctx, &id, Some("New Name"), Some("https://a/b.png"))
+            .await
+            .unwrap();
+        assert_eq!(updated.display_name, "New Name");
+        assert_eq!(updated.avatar_url.as_deref(), Some("https://a/b.png"));
+        // The legacy `name` column is dual-written.
+        let raw = db::get(&ctx, TABLE, &id).await.unwrap();
+        use crate::blocks::helpers::RecordExt;
+        assert_eq!(raw.str_field("name"), "New Name");
+        assert_eq!(raw.str_field("display_name"), "New Name");
     }
 }

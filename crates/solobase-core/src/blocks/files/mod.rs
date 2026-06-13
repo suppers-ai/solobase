@@ -21,7 +21,7 @@ use wafer_run::{
     LifecycleType, Message, OutputStream, WaferError,
 };
 
-use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
+use super::rate_limit::{check_user_rate_limit_with, RateLimit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
 
 pub struct FilesBlock {
@@ -170,26 +170,20 @@ impl Block for FilesBlock {
             return crate::blocks::helpers::err_unauthorized("Authentication required");
         }
 
-        // Per-user rate limiting
+        // Per-user rate limiting. `create` (upload) gets its own bucket;
+        // `retrieve`/everything-else fall back to the read/write split. The
+        // Allowed(headers) outcome is discarded here: attaching X-RateLimit-*
+        // to a streaming response would need platform-side middleware to
+        // inject the headers after the handler returns its OutputStream.
+        if let RateLimitOutcome::Limited(r) = check_user_rate_limit_with(
+            &self.limiter,
+            ctx,
+            &msg,
+            Some((RateLimit::UPLOAD, "upload")),
+        )
+        .await
         {
-            let action = msg.action().to_string();
-            let (default, category) = if action == "create" {
-                (RateLimit::UPLOAD, "upload")
-            } else if action == "retrieve" {
-                (RateLimit::API_READ, "api_read")
-            } else {
-                (RateLimit::API_WRITE, "api_write")
-            };
-            // Allowed(headers) is discarded here: attaching X-RateLimit-* to
-            // a streaming response would need platform-side middleware to
-            // inject the headers after the handler returns its OutputStream.
-            // Tracked as a non-blocker — limits still enforced, just not
-            // surfaced.
-            if let RateLimitOutcome::Limited(r) =
-                check_rate_limit(&self.limiter, ctx, &user_id, category, default).await
-            {
-                return r;
-            }
+            return r;
         }
 
         // User-facing SSR pages.

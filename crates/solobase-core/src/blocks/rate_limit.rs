@@ -311,22 +311,104 @@ pub async fn check_rate_limit(
 ///
 /// Automatically determines read vs write category from the message action.
 /// Returns `RateLimitOutcome::Disabled` for unauthenticated requests (empty user_id).
+///
+/// `upload_action` lets callers (e.g. the files block) map their "create"
+/// action onto the `upload` category instead of `api_write` — pass `None` for
+/// the default read/write split.
 pub async fn check_user_rate_limit(
     limiter: &UserRateLimiter,
     ctx: &dyn wafer_run::context::Context,
     msg: &wafer_run::Message,
 ) -> RateLimitOutcome {
+    check_user_rate_limit_with(limiter, ctx, msg, None).await
+}
+
+/// As [`check_user_rate_limit`], but with an optional category override for the
+/// `create` action. `upload_action = Some((RateLimit::UPLOAD, "upload"))` makes
+/// `create` requests count against the upload bucket; `None` uses the default
+/// read (`retrieve`) vs write (everything else) split.
+pub async fn check_user_rate_limit_with(
+    limiter: &UserRateLimiter,
+    ctx: &dyn wafer_run::context::Context,
+    msg: &wafer_run::Message,
+    create_override: Option<(RateLimit, &str)>,
+) -> RateLimitOutcome {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return RateLimitOutcome::Disabled;
     }
-    let action = msg.action().to_string();
-    let (default, category) = if action == "retrieve" {
-        (RateLimit::API_READ, "api_read")
-    } else {
-        (RateLimit::API_WRITE, "api_write")
+    let action = msg.action();
+    let (default, category) = match action {
+        "retrieve" => (RateLimit::API_READ, "api_read"),
+        "create" => create_override.unwrap_or((RateLimit::API_WRITE, "api_write")),
+        _ => (RateLimit::API_WRITE, "api_write"),
     };
     check_rate_limit(limiter, ctx, &user_id, category, default).await
+}
+
+/// The identity an IP-keyed rate-limit bucket uses for a request: the remote
+/// address, or `"unknown"` when the platform didn't populate one (so anonymous
+/// callers behind a missing `remote_addr` still share one bucket rather than
+/// bypassing the limit entirely).
+pub fn ip_identity(msg: &wafer_run::Message) -> String {
+    let ip = msg.remote_addr();
+    if ip.is_empty() {
+        "unknown".to_string()
+    } else {
+        ip.to_string()
+    }
+}
+
+/// Whether a route-limit rule keys its bucket by client IP or by user id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitKey {
+    /// Key the bucket by [`ip_identity`] — for unauthenticated endpoints.
+    Ip,
+    /// Key the bucket by `msg.user_id()` — for authenticated endpoints. A
+    /// request with an empty user_id is skipped (no limit applied).
+    User,
+}
+
+/// One declarative rate-limit rule: a `(action, path)` predicate plus the
+/// bucket key, category name, and default limit to apply when it matches.
+pub struct RouteLimit {
+    /// Predicate over `(action, normalized_path)`. The first rule whose
+    /// predicate returns `true` wins.
+    pub matches: fn(&str, &str) -> bool,
+    /// Whether to key the bucket by IP or user id.
+    pub key: LimitKey,
+    /// Rate-limit category name (drives the `RATE_LIMIT_{CATEGORY}` override).
+    pub category: &'static str,
+    /// Default limit when no config override is present.
+    pub limit: RateLimit,
+}
+
+/// Walk a declarative table of [`RouteLimit`] rules and apply the first one
+/// that matches `(action, path)`. Returns `Some(outcome)` when a rule matched
+/// (the caller returns the `Limited` stream or attaches the `Allowed` headers);
+/// `None` when no rule matched (the request is not rate-limited at this layer).
+///
+/// `User`-keyed rules are skipped for requests with an empty user_id.
+pub async fn check_route_limits(
+    limiter: &UserRateLimiter,
+    ctx: &dyn wafer_run::context::Context,
+    msg: &wafer_run::Message,
+    action: &str,
+    path: &str,
+    rules: &[RouteLimit],
+) -> Option<RateLimitOutcome> {
+    let rule = rules.iter().find(|r| (r.matches)(action, path))?;
+    let identity = match rule.key {
+        LimitKey::Ip => ip_identity(msg),
+        LimitKey::User => {
+            let uid = msg.user_id();
+            if uid.is_empty() {
+                return None;
+            }
+            uid.to_string()
+        }
+    };
+    Some(check_rate_limit(limiter, ctx, &identity, rule.category, rule.limit).await)
 }
 
 #[cfg(test)]
@@ -463,5 +545,103 @@ mod tests {
             window: Duration::from_secs(60),
         };
         assert!(limiter.check(&ctx, "key", limit).await.is_ok());
+    }
+
+    fn msg_with(action: &str, user_id: &str, remote: &str) -> Message {
+        let mut m = Message::new("test");
+        m.set_meta("req.action", action);
+        if !user_id.is_empty() {
+            m.set_meta("auth.user_id", user_id);
+        }
+        if !remote.is_empty() {
+            m.set_meta("req.client.ip", remote);
+        }
+        m
+    }
+
+    #[test]
+    fn ip_identity_falls_back_to_unknown() {
+        assert_eq!(ip_identity(&msg_with("create", "", "1.2.3.4")), "1.2.3.4");
+        assert_eq!(ip_identity(&msg_with("create", "", "")), "unknown");
+    }
+
+    const TEST_ROUTES: &[RouteLimit] = &[
+        RouteLimit {
+            matches: |a, p| a == "create" && p == "/auth/api/login",
+            key: LimitKey::Ip,
+            category: "auth",
+            limit: RateLimit {
+                max_requests: 2,
+                window: Duration::from_secs(60),
+            },
+        },
+        RouteLimit {
+            matches: |a, _| a == "update",
+            key: LimitKey::User,
+            category: "auth_write",
+            limit: RateLimit {
+                max_requests: 2,
+                window: Duration::from_secs(60),
+            },
+        },
+    ];
+
+    #[tokio::test]
+    async fn check_route_limits_matches_ip_rule_and_limits() {
+        let ctx = TestCtx;
+        let limiter = UserRateLimiter::new();
+        let msg = msg_with("create", "", "9.9.9.9");
+        // First two allowed, third limited.
+        for _ in 0..2 {
+            assert!(matches!(
+                check_route_limits(
+                    &limiter,
+                    &ctx,
+                    &msg,
+                    "create",
+                    "/auth/api/login",
+                    TEST_ROUTES
+                )
+                .await,
+                Some(RateLimitOutcome::Allowed(_))
+            ));
+        }
+        assert!(matches!(
+            check_route_limits(
+                &limiter,
+                &ctx,
+                &msg,
+                "create",
+                "/auth/api/login",
+                TEST_ROUTES
+            )
+            .await,
+            Some(RateLimitOutcome::Limited(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn check_route_limits_skips_user_rule_when_anonymous_and_no_match() {
+        let ctx = TestCtx;
+        let limiter = UserRateLimiter::new();
+        // User-keyed rule but empty user_id → None (skipped).
+        let anon = msg_with("update", "", "");
+        assert!(
+            check_route_limits(&limiter, &ctx, &anon, "update", "/auth/api/me", TEST_ROUTES)
+                .await
+                .is_none()
+        );
+        // No rule matches this (action, path) → None.
+        let other = msg_with("retrieve", "u1", "");
+        assert!(check_route_limits(
+            &limiter,
+            &ctx,
+            &other,
+            "retrieve",
+            "/auth/whatever",
+            TEST_ROUTES
+        )
+        .await
+        .is_none());
     }
 }

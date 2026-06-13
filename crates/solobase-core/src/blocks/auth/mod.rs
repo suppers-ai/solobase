@@ -11,7 +11,7 @@
 //! What lives in this module after the split:
 //!
 //! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
-//!   `migrations`, `pat`, `providers`, `repo`, `service`, `session`).
+//!   `migrations`, `repo`, `service`).
 //! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
 //!   the four `*_TABLE` re-exports from `repo/{api_keys,rate_limits,tokens,
 //!   users}.rs`, `DUMMY_HASH`).
@@ -24,10 +24,8 @@ pub mod bootstrap;
 pub mod cache;
 pub mod config;
 pub mod migrations;
-pub mod pat;
 pub mod repo;
 pub mod service;
-pub mod session;
 
 use std::{collections::HashMap, time::Duration};
 
@@ -516,69 +514,51 @@ pub async fn authenticate_api_key(
 ) {
     use wafer_run::*;
 
-    use crate::blocks::helpers::{sha256_hex, RecordExt};
+    use crate::blocks::helpers::sha256_hex;
 
     let key_hash = sha256_hex(api_key.as_bytes());
 
-    use wafer_block::ErrorCode as DbErrorCode;
-
-    // Look up by key_hash. A real DB error (WRAP denial, connection blip)
-    // would otherwise silently demote the request to anonymous — that's
-    // still the right fallback for availability, but it must be
-    // observable.
-    let key_record = match db::get_by_field(
-        ctx,
-        API_KEYS_TABLE,
-        "key_hash",
-        serde_json::Value::String(key_hash),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) if e.code == DbErrorCode::NotFound => return,
+    // Look up by key_hash via the typed api_keys repo. A real DB error (WRAP
+    // denial, connection blip) would otherwise silently demote the request to
+    // anonymous — that's still the right fallback for availability, but it
+    // must be observable, so the repo logs and returns None-equivalent here.
+    let key_row = match repo::api_keys::find_by_key_hash(ctx, &key_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return,
         Err(e) => {
             tracing::warn!("authenticate_api_key: lookup failed: {e}");
             return;
         }
     };
 
-    // Check if revoked
-    let revoked_at = key_record.str_field("revoked_at");
-    if !revoked_at.is_empty() {
+    // Reject revoked or expired keys.
+    if key_row.is_revoked() {
+        return;
+    }
+    if key_row.is_expired(&crate::blocks::helpers::now_rfc3339()) {
         return;
     }
 
-    // Check if expired
-    let expires_at = key_record.str_field("expires_at");
-    if !expires_at.is_empty() {
-        let now = crate::blocks::helpers::now_rfc3339();
-        if now > expires_at.to_string() {
-            return;
-        }
-    }
-
-    // Look up the user to get email and roles
-    let user_id = key_record.str_field("user_id");
-    if user_id.is_empty() {
+    // Look up the user to get email and roles.
+    if key_row.user_id.is_empty() {
         return;
     }
-
-    let user = match db::get(ctx, USERS_TABLE, user_id).await {
-        Ok(u) => u,
-        Err(e) if e.code == DbErrorCode::NotFound => return,
+    let user = match repo::users::find_by_id(ctx, &key_row.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return,
         Err(e) => {
-            tracing::warn!(user_id = %user_id, "authenticate_api_key: user lookup failed: {e}");
+            tracing::warn!(user_id = %key_row.user_id, "authenticate_api_key: user lookup failed: {e}");
             return;
         }
     };
 
     // Fetch roles from user_roles collection (roles are not stored on the user record)
-    let roles = helpers::get_user_roles(ctx, user_id).await;
+    let roles = helpers::get_user_roles(ctx, &key_row.user_id).await;
     let roles_str = roles.join(",");
 
     // Set auth meta (same fields as JWT auth)
-    msg.set_meta(META_AUTH_USER_ID, user_id);
-    msg.set_meta(META_AUTH_USER_EMAIL, user.str_field("email"));
+    msg.set_meta(META_AUTH_USER_ID, &key_row.user_id);
+    msg.set_meta(META_AUTH_USER_EMAIL, &user.email);
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
 

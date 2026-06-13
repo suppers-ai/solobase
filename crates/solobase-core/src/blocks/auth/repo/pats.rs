@@ -7,7 +7,7 @@ use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
-use super::RepoError;
+use super::{decode_hex, map_opt_str, map_str, now_iso, RepoError};
 use crate::blocks::helpers::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__personal_access_tokens";
@@ -32,25 +32,11 @@ pub struct NewPat {
     pub expires_at: Option<String>,
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 /// Decode the stored `token_hash` value back into raw bytes.
 ///
 /// Storage format is a lowercase 64-char hex string (matches what
 /// `sessions`/`tokens` already do — see review L215).
 fn decode_bytes(v: &Value) -> Option<Vec<u8>> {
-    fn decode_hex(s: &str) -> Option<Vec<u8>> {
-        if s.len() % 2 != 0 {
-            return None;
-        }
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-            .collect()
-    }
-
     match v {
         Value::String(s) => decode_hex(s),
         _ => None,
@@ -78,7 +64,6 @@ fn decode_scopes(v: &Value) -> Result<Vec<String>, RepoError> {
 }
 
 fn row_from_map(m: &HashMap<String, Value>) -> Result<PatRow, RepoError> {
-    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     let token_hash = m
         .get("token_hash")
         .and_then(decode_bytes)
@@ -89,12 +74,13 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<PatRow, RepoError> {
     };
     Ok(PatRow {
         token_hash,
-        user_id: s("user_id").ok_or_else(|| RepoError::Db("missing user_id".into()))?,
-        name: s("name").unwrap_or_default(),
+        user_id: map_opt_str(m, "user_id")
+            .ok_or_else(|| RepoError::Db("missing user_id".into()))?,
+        name: map_str(m, "name"),
         scopes,
-        created_at: s("created_at").unwrap_or_default(),
-        last_used_at: s("last_used_at"),
-        expires_at: s("expires_at"),
+        created_at: map_str(m, "created_at"),
+        last_used_at: map_opt_str(m, "last_used_at"),
+        expires_at: map_opt_str(m, "expires_at"),
     })
 }
 

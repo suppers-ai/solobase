@@ -28,10 +28,67 @@ use wafer_run::{
     InputType, InstanceMode, LifecycleEvent, Message, OutputStream, WaferError,
 };
 
-use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
+use super::rate_limit::{
+    check_route_limits, LimitKey, RateLimit, RateLimitOutcome, RouteLimit, UserRateLimiter,
+};
 use crate::blocks::helpers::err_not_found;
 
 pub const AUTH_UI_BLOCK_ID: &str = "suppers-ai/auth-ui";
+
+/// Declarative rate-limit table for the auth-ui HTTP surface, replacing the
+/// hand-rolled five-arm match. Rules are tried top-down; the first
+/// `(action, path)` match wins (see [`check_route_limits`]). IP-keyed rules
+/// guard unauthenticated endpoints; User-keyed rules guard authenticated ones.
+const RATE_LIMIT_ROUTES: &[RouteLimit] = &[
+    // Unauthenticated sensitive endpoints: login / signup — keyed by IP.
+    RouteLimit {
+        matches: |a, p| a == "create" && matches!(p, "/auth/api/login" | "/auth/api/signup"),
+        key: LimitKey::Ip,
+        category: "auth",
+        limit: RateLimit::AUTH,
+    },
+    // Token refresh — keyed by IP, its own (looser) category.
+    RouteLimit {
+        matches: |a, p| a == "create" && p == "/auth/api/refresh",
+        key: LimitKey::Ip,
+        category: "refresh",
+        limit: RateLimit::REFRESH,
+    },
+    // Forgot/reset password + verification — keyed by IP, shares the auth bucket.
+    RouteLimit {
+        matches: |a, p| match p {
+            "/auth/api/forgot-password"
+            | "/auth/api/reset-password"
+            | "/auth/api/resend-verification" => a == "create",
+            "/auth/api/verify" => a == "retrieve" || a == "create",
+            _ => false,
+        },
+        key: LimitKey::Ip,
+        category: "auth",
+        limit: RateLimit::AUTH,
+    },
+    // Authenticated read endpoints — keyed by user_id.
+    RouteLimit {
+        matches: |a, p| a == "retrieve" && matches!(p, "/auth/api/me" | "/auth/api/api-keys"),
+        key: LimitKey::User,
+        category: "auth_read",
+        limit: RateLimit::API_READ,
+    },
+    // Authenticated write endpoints — keyed by user_id. Catches every update /
+    // delete plus the two non-update write endpoints. Ordered last so the
+    // read rule above wins for retrieves.
+    RouteLimit {
+        matches: |a, p| {
+            a == "update"
+                || a == "delete"
+                || (a == "create"
+                    && matches!(p, "/auth/api/change-password" | "/auth/api/api-keys"))
+        },
+        key: LimitKey::User,
+        category: "auth_write",
+        limit: RateLimit::API_WRITE,
+    },
+];
 
 pub struct AuthUiBlock {
     limiter: UserRateLimiter,
@@ -189,98 +246,23 @@ impl Block for AuthUiBlock {
             raw_path
         };
 
-        // Apply per-user/IP rate limiting based on endpoint category.
-        // Ported verbatim from auth/mod.rs:434-524.
+        // Apply per-user/IP rate limiting via the declarative RATE_LIMIT_ROUTES
+        // table (see its doc comment for the rule set).
         //
-        // `RateLimitOutcome::Allowed(headers)` is currently discarded at every
-        // arm below — injecting X-RateLimit-* response headers needs a
-        // streaming-middleware shape we don't have yet. Tracked as a single
-        // follow-up rather than five identical TODOs scattered through the
-        // match.
-        match (action.as_str(), path.as_str()) {
-            // Unauthenticated sensitive endpoints: rate limit by IP
-            ("create", "/auth/api/login") | ("create", "/auth/api/signup") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
-                {
-                    return r;
-                }
-            }
-            ("create", "/auth/api/refresh") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "refresh", RateLimit::REFRESH)
-                        .await
-                {
-                    return r;
-                }
-            }
-            // Forgot/reset password + verification: rate limit by IP
-            ("create", "/auth/api/forgot-password")
-            | ("create", "/auth/api/reset-password")
-            | ("create", "/auth/api/resend-verification")
-            | ("retrieve" | "create", "/auth/api/verify") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
-                {
-                    return r;
-                }
-            }
-            // Authenticated write endpoints: rate limit by user_id
-            ("update", _)
-            | ("create", "/auth/api/change-password")
-            | ("create", "/auth/api/api-keys")
-            | ("delete", _) => {
-                let user_id = msg.user_id().to_string();
-                if !user_id.is_empty() {
-                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
-                        &self.limiter,
-                        ctx,
-                        &user_id,
-                        "auth_write",
-                        RateLimit::API_WRITE,
-                    )
-                    .await
-                    {
-                        return r;
-                    }
-                }
-            }
-            // Authenticated read endpoints: rate limit by user_id
-            ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
-                let user_id = msg.user_id().to_string();
-                if !user_id.is_empty() {
-                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
-                        &self.limiter,
-                        ctx,
-                        &user_id,
-                        "auth_read",
-                        RateLimit::API_READ,
-                    )
-                    .await
-                    {
-                        return r;
-                    }
-                }
-            }
-            _ => {}
+        // `RateLimitOutcome::Allowed(headers)` is discarded here — injecting
+        // X-RateLimit-* response headers needs a streaming-middleware shape we
+        // don't have yet. Tracked as a single follow-up, not a per-route TODO.
+        if let Some(RateLimitOutcome::Limited(r)) = check_route_limits(
+            &self.limiter,
+            ctx,
+            &msg,
+            action.as_str(),
+            path.as_str(),
+            RATE_LIMIT_ROUTES,
+        )
+        .await
+        {
+            return r;
         }
 
         match (action.as_str(), path.as_str()) {
