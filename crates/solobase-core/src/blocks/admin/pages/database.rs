@@ -12,12 +12,13 @@
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::{introspect, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
     blocks::{
-        admin::database::validate_readonly_query,
+        admin::database::{
+            introspect_columns, introspect_table_summaries, validate_readonly_query, TableSummary,
+        },
         helpers::{now_millis, parse_form_body, url_path_encode as pct_encode},
     },
     ui::{
@@ -48,45 +49,6 @@ impl Tab {
             Tab::Sql => "sql",
         }
     }
-}
-
-/// Lightweight summary for the left-pane list.
-struct TableSummary {
-    name: String,
-    row_count: i64,
-}
-
-async fn load_tables(ctx: &dyn Context) -> Vec<TableSummary> {
-    let sql = introspect::build_list_tables(Backend::Sqlite);
-    let records = db::query_raw(ctx, &sql, &[]).await.unwrap_or_default();
-    let mut out = Vec::with_capacity(records.len());
-    for r in &records {
-        let name = r
-            .data
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() {
-            continue;
-        }
-        // The name comes from the backend's own table listing; a build error
-        // (invalid identifier) is treated like a failed count query: 0 rows.
-        let row_count = match introspect::build_table_row_count(&name, Backend::Sqlite) {
-            Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
-                .await
-                .ok()
-                .and_then(|r| {
-                    r.first()
-                        .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-                })
-                .unwrap_or(0),
-            Err(_) => 0,
-        };
-        out.push(TableSummary { name, row_count });
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
 }
 
 fn backend_badge(table_count: usize) -> Markup {
@@ -247,24 +209,9 @@ async fn schema_panel(ctx: &dyn Context, table: Option<&str>) -> Markup {
     };
 
     // The selected name is user input; an invalid identifier renders the same
-    // empty state as a table the backend can't introspect.
-    let columns = match introspect::build_table_info(name, Backend::Sqlite) {
-        Ok((info_sql, info_args)) => db::query_raw(ctx, &info_sql, &info_args)
-            .await
-            .unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
-    let row_count = match introspect::build_table_row_count(name, Backend::Sqlite) {
-        Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
-            .await
-            .ok()
-            .and_then(|r| {
-                r.first()
-                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-            })
-            .unwrap_or(0),
-        Err(_) => 0,
-    };
+    // empty state as a table the backend can't introspect. Columns + row count
+    // come from the shared introspection routine used by the JSON API too.
+    let (columns, row_count) = introspect_columns(ctx, name).await;
 
     html! {
         div .db-panel {
@@ -288,17 +235,12 @@ async fn schema_panel(ctx: &dyn Context, table: Option<&str>) -> Markup {
                         }
                         tbody {
                             @for c in &columns {
-                                @let col = c.data.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                @let ty = c.data.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                @let notnull = c.data.get("notnull").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
-                                @let pk = c.data.get("pk").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
-                                @let dflt = c.data.get("dflt_value").and_then(|v| v.as_str()).unwrap_or("");
                                 tr {
-                                    td .font-medium { (col) }
-                                    td .text-muted { (ty) }
-                                    td { @if notnull { "✓" } @else { "" } }
-                                    td { @if pk { "✓" } @else { "" } }
-                                    td .text-muted .text-sm { (dflt) }
+                                    td .font-medium { (c.name) }
+                                    td .text-muted { (c.ty) }
+                                    td { @if c.notnull { "✓" } @else { "" } }
+                                    td { @if c.pk { "✓" } @else { "" } }
+                                    td .text-muted .text-sm { (c.default_value.as_deref().unwrap_or("")) }
                                 }
                             }
                         }
@@ -423,7 +365,7 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    let tables = load_tables(ctx).await;
+    let tables = introspect_table_summaries(ctx).await;
     let selected = msg.query("table");
     let tab = Tab::from_query(msg.query("tab"));
 

@@ -6,6 +6,117 @@ use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
 };
 
+/// Lightweight per-table summary: name + row count. Shared by the JSON
+/// `GET /admin/database/tables` handler and the SSR database page's
+/// left-pane list so both run the same introspection routine.
+pub(in crate::blocks::admin) struct TableSummary {
+    pub name: String,
+    pub row_count: i64,
+}
+
+/// A single column's introspected metadata. Shared by the JSON
+/// `GET /admin/database/tables/{name}/columns` handler and the SSR
+/// schema panel.
+pub(in crate::blocks::admin) struct ColumnInfo {
+    pub name: String,
+    pub ty: String,
+    pub notnull: bool,
+    pub pk: bool,
+    /// The column's default expression, if any (SQLite `dflt_value`).
+    pub default_value: Option<String>,
+}
+
+/// Run the backend table count for one table name, returning 0 on any
+/// failure (an invalid identifier is treated like a failed count query).
+///
+/// The name always originates from the backend's own table listing, so a
+/// build error here means an identifier the backend can't quote.
+async fn table_row_count(ctx: &dyn Context, name: &str) -> i64 {
+    match introspect::build_table_row_count(name, Backend::Sqlite) {
+        Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
+            .await
+            .ok()
+            .and_then(|r| {
+                r.first()
+                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+            })
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+/// List every table with its row count, sorted by name.
+///
+/// Single source of truth for the table-browser introspection shared by the
+/// JSON API and the SSR page. The per-table COUNT is issued sequentially —
+/// concurrent counts on a single backend connection (the SQLite case) can
+/// deadlock, and the row is read-once-per-page, so the dedupe (not the
+/// fan-out) is the win here.
+pub(in crate::blocks::admin) async fn introspect_table_summaries(
+    ctx: &dyn Context,
+) -> Vec<TableSummary> {
+    let sql = introspect::build_list_tables(Backend::Sqlite);
+    let records = db::query_raw(ctx, &sql, &[]).await.unwrap_or_default();
+    let mut out = Vec::with_capacity(records.len());
+    for r in &records {
+        let name = r
+            .data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let row_count = table_row_count(ctx, &name).await;
+        out.push(TableSummary { name, row_count });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Introspect one table's columns plus its row count. `table` is untrusted
+/// (URL path / selected name); an invalid identifier yields an empty column
+/// list and a 0 count rather than an error, matching both surfaces' prior
+/// behavior.
+pub(in crate::blocks::admin) async fn introspect_columns(
+    ctx: &dyn Context,
+    table: &str,
+) -> (Vec<ColumnInfo>, i64) {
+    let columns = match introspect::build_table_info(table, Backend::Sqlite) {
+        Ok((info_sql, info_args)) => db::query_raw(ctx, &info_sql, &info_args)
+            .await
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let cols = columns
+        .iter()
+        .map(|c| ColumnInfo {
+            name: c
+                .data
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            ty: c
+                .data
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            notnull: c.data.get("notnull").and_then(|v| v.as_i64()).unwrap_or(0) == 1,
+            pk: c.data.get("pk").and_then(|v| v.as_i64()).unwrap_or(0) == 1,
+            default_value: c
+                .data
+                .get("dflt_value")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        })
+        .collect();
+    let row_count = table_row_count(ctx, table).await;
+    (cols, row_count)
+}
+
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
@@ -43,39 +154,16 @@ async fn handle_info(ctx: &dyn Context) -> OutputStream {
 }
 
 async fn handle_tables(ctx: &dyn Context) -> OutputStream {
-    let sql = introspect::build_list_tables(Backend::Sqlite);
-    let tables = match db::query_raw(ctx, &sql, &[]).await {
-        Ok(t) => t,
-        Err(e) => return err_internal("Database error", e),
-    };
-
-    let mut table_info = Vec::new();
-    for table in &tables {
-        let name = table
-            .data
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        // The name comes from the backend's own table listing; a build error
-        // (invalid identifier) is treated like a failed count query: 0 rows.
-        let count = match introspect::build_table_row_count(name, Backend::Sqlite) {
-            Ok(count_sql) => db::query_raw(ctx, &count_sql, &[])
-                .await
-                .ok()
-                .and_then(|r| {
-                    r.first()
-                        .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-                })
-                .unwrap_or(0),
-            Err(_) => 0,
-        };
-
-        table_info.push(serde_json::json!({
-            "name": name,
-            "row_count": count
-        }));
-    }
-
+    let table_info: Vec<serde_json::Value> = introspect_table_summaries(ctx)
+        .await
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "row_count": t.row_count,
+            })
+        })
+        .collect();
     ok_json(&serde_json::json!(table_info))
 }
 
@@ -93,24 +181,20 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     // The table name is user input from the URL path; an invalid identifier
     // is a bad request, not a server error.
-    let (info_sql, info_args) = match introspect::build_table_info(table_name, Backend::Sqlite) {
-        Ok(v) => v,
-        Err(_) => return err_bad_request("Invalid table name"),
-    };
-    let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
-        Ok(c) => c,
-        Err(e) => return err_internal("Database error", e),
-    };
+    if introspect::build_table_info(table_name, Backend::Sqlite).is_err() {
+        return err_bad_request("Invalid table name");
+    }
 
+    let (columns, _row_count) = introspect_columns(ctx, table_name).await;
     let col_info: Vec<serde_json::Value> = columns
         .iter()
         .map(|c| {
             serde_json::json!({
-                "name": c.data.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-                "type": c.data.get("type").and_then(|v| v.as_str()).unwrap_or(""),
-                "notnull": c.data.get("notnull").and_then(|v| v.as_i64()).unwrap_or(0) == 1,
-                "pk": c.data.get("pk").and_then(|v| v.as_i64()).unwrap_or(0) == 1,
-                "default_value": c.data.get("dflt_value")
+                "name": c.name,
+                "type": c.ty,
+                "notnull": c.notnull,
+                "pk": c.pk,
+                "default_value": c.default_value,
             })
         })
         .collect();
