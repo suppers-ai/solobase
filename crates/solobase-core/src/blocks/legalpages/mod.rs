@@ -157,6 +157,11 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_list(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
+        // Not a pure-CRUD list: it sorts by `updated_at` desc (editors expect
+        // most-recently-touched first), whereas `crud::crud_list` is fixed to
+        // `created_at` desc. Kept inline rather than widening the shared
+        // helper's signature — `blocks::crud` is owned by the products package.
+        let (_, page_size, offset) = msg.pagination_params(20);
         let doc_type = msg.query("type");
         let mut filters = Vec::new();
         if !doc_type.is_empty() {
@@ -166,11 +171,20 @@ impl LegalPagesBlock {
                 value: serde_json::Value::String(doc_type.to_string()),
             });
         }
-        let sort = vec![SortField {
-            field: "updated_at".to_string(),
-            desc: true,
-        }];
-        crud::crud_list(ctx, msg, COLLECTION, filters, Some(sort)).await
+        let opts = ListOptions {
+            filters,
+            sort: vec![SortField {
+                field: "updated_at".to_string(),
+                desc: true,
+            }],
+            limit: page_size as i64,
+            offset: offset as i64,
+            skip_count: false,
+        };
+        match db::list(ctx, COLLECTION, &opts).await {
+            Ok(result) => ok_json(&result),
+            Err(e) => err_internal("Database error", e),
+        }
     }
 
     async fn handle_admin_create(
