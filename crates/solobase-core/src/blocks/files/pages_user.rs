@@ -72,10 +72,12 @@ pub fn render_new_bucket_modal() -> Markup {
                         type="text"
                         name="name"
                         required
-                        minlength="3"
-                        maxlength="63"
-                        // S3-compatible: lowercase letters, digits, hyphens; start/end alnum.
-                        pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                        minlength=(super::storage::BUCKET_NAME_MIN_LEN)
+                        maxlength=(super::storage::BUCKET_NAME_MAX_LEN)
+                        // S3-compatible: lowercase letters, digits, hyphens;
+                        // start/end alnum. Single source of truth shared with
+                        // the server-side `is_valid_bucket_name` check.
+                        pattern=(super::storage::BUCKET_NAME_PATTERN)
                         autocomplete="off"
                         spellcheck="false"
                         placeholder="my-bucket";

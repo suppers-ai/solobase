@@ -131,7 +131,11 @@ pub(super) async fn is_bucket_access_denied(
 /// paths (or any backend that ever normalises `\` to `/`) would otherwise
 /// allow `..\..\etc\passwd`-style traversal that the `..` check alone would
 /// not catch when the segment separator is `\` instead of `/`.
-fn is_valid_storage_key(key: &str) -> bool {
+///
+/// `pub(super)` so the share-creation path (`cloud.rs::handle_create_share`)
+/// enforces exactly the same rule rather than re-inlining a copy that drifts
+/// (the SEC-064 backslash check was the missing piece there).
+pub(super) fn is_valid_storage_key(key: &str) -> bool {
     !key.is_empty()
         && !key.contains("..")
         && !key.starts_with('/')
@@ -139,9 +143,38 @@ fn is_valid_storage_key(key: &str) -> bool {
         && !key.contains('\\')
 }
 
-/// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
-fn is_valid_bucket_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains("..") && !name.contains('/') && !name.contains('\0')
+/// Minimum / maximum bucket-name length (S3-compatible).
+pub(super) const BUCKET_NAME_MIN_LEN: usize = 3;
+pub(super) const BUCKET_NAME_MAX_LEN: usize = 63;
+
+/// HTML5 `pattern=` attribute source for the bucket-name input — the single
+/// source of truth shared with the server-side [`is_valid_bucket_name`] check
+/// so the client modal and the API enforce identically. S3-compatible:
+/// lowercase letters, digits, and hyphens; must start and end with a letter
+/// or digit. (Length is enforced separately via `minlength`/`maxlength` on the
+/// input and the length check in [`is_valid_bucket_name`].)
+pub(super) const BUCKET_NAME_PATTERN: &str = "[a-z0-9]([a-z0-9-]*[a-z0-9])?";
+
+/// Validate a bucket name against the S3-compatible rule the client modal
+/// advertises ([`BUCKET_NAME_PATTERN`] + length bounds): 3–63 chars,
+/// lowercase letters / digits / hyphens, must start and end with a letter or
+/// digit. This rejects path traversal (`..`, `/`, `\`), NUL, uppercase, and
+/// leading/trailing hyphens by construction.
+///
+/// `pub(super)` so the share path uses the identical rule.
+pub(super) fn is_valid_bucket_name(name: &str) -> bool {
+    let len = name.len();
+    if len < BUCKET_NAME_MIN_LEN || len > BUCKET_NAME_MAX_LEN {
+        return false;
+    }
+    let bytes = name.as_bytes();
+    let is_alnum = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    // First and last char must be a lowercase letter or digit.
+    if !is_alnum(bytes[0]) || !is_alnum(bytes[len - 1]) {
+        return false;
+    }
+    // Interior chars: lowercase letter, digit, or hyphen.
+    bytes.iter().all(|&b| is_alnum(b) || b == b'-')
 }
 
 /// Collect an `InputStream` into `Vec<u8>` with a hard size cap. Errors out
@@ -652,10 +685,12 @@ mod tests {
 
     #[test]
     fn test_is_valid_bucket_name() {
-        // Valid bucket names
+        // Valid bucket names (S3-compatible: 3-63 chars, lowercase/digits/
+        // hyphens, start+end alnum).
         assert!(is_valid_bucket_name("my-bucket"));
         assert!(is_valid_bucket_name("bucket123"));
         assert!(is_valid_bucket_name("uploads"));
+        assert!(is_valid_bucket_name("a1b"));
 
         // Invalid bucket names
         assert!(!is_valid_bucket_name(""));
@@ -663,6 +698,35 @@ mod tests {
         assert!(!is_valid_bucket_name("bucket/subdir"));
         assert!(!is_valid_bucket_name("bucket\0name"));
         assert!(!is_valid_bucket_name(".."));
+        // Too short / too long.
+        assert!(!is_valid_bucket_name("ab"));
+        assert!(!is_valid_bucket_name(&"a".repeat(64)));
+        // Uppercase rejected (S3 rule + matches the modal pattern).
+        assert!(!is_valid_bucket_name("MyBucket"));
+        // Leading / trailing hyphen rejected (start+end must be alnum).
+        assert!(!is_valid_bucket_name("-bucket"));
+        assert!(!is_valid_bucket_name("bucket-"));
+        // Backslash rejected (SEC-064; not in the allowed alphabet).
+        assert!(!is_valid_bucket_name("bucket\\name"));
+    }
+
+    /// The server-side validator enforces the same alphabet the HTML
+    /// `pattern=` attribute ([`BUCKET_NAME_PATTERN`]) advertises, so the client
+    /// modal and the API agree on what a valid bucket name is (modulo length,
+    /// which the input enforces separately via minlength/maxlength). This pins
+    /// the cases the pattern accepts/rejects against the validator.
+    #[test]
+    fn bucket_name_validator_matches_advertised_pattern() {
+        // Sanity-check the constant is the S3 alphabet we documented.
+        assert_eq!(BUCKET_NAME_PATTERN, "[a-z0-9]([a-z0-9-]*[a-z0-9])?");
+        // Pattern-accepted names (length-valid) the validator must accept.
+        for name in ["my-bucket", "bucket123", "a1b", "abc"] {
+            assert!(is_valid_bucket_name(name), "validator should accept {name}");
+        }
+        // Pattern-rejected names the validator must reject.
+        for name in ["MyBucket", "-bucket", "bucket-", "bucket/sub", "bucket\\x"] {
+            assert!(!is_valid_bucket_name(name), "validator should reject {name}");
+        }
     }
 }
 
