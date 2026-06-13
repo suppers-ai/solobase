@@ -179,8 +179,11 @@ tokio-stream = { version = "0.1", optional = true }
 # on wasm32 which conflicts with `worker`'s `wasm-streams 0.5`.
 reqwest = { workspace = true, optional = true }
 
-# URL parsing/building for OAuth authorize_url assembly.
+# URL parsing/building for OAuth authorize_url assembly + form-body encode/
+# decode (`url::form_urlencoded`). `percent-encoding` (url's own dependency)
+# drives `url_path_encode`'s RFC-3986 path-segment AsciiSet.
 url = "2"
+percent-encoding = "2"
 
 # Markdown → HTML renderer for the legalpages block. Replaces the
 # ammonia HTML-sanitizer pipeline. Optional + gated under

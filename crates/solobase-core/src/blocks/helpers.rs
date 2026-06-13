@@ -2,15 +2,14 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 use wafer_core::clients::database::Record;
-use wafer_run::{
-    ErrorCode, MetaEntry, OutputStream, WaferError, META_RESP_CONTENT_TYPE,
-    META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
-};
-
 /// Hashing/hex helpers re-exported from `wafer_block` (the single canonical
 /// implementation). Re-exported here so the many `helpers::{hex_encode,
 /// sha256, sha256_hex}` call sites across the blocks keep one import path.
 pub use wafer_run::{hex_encode, sha256, sha256_hex};
+use wafer_run::{
+    ErrorCode, MetaEntry, OutputStream, WaferError, META_RESP_CONTENT_TYPE,
+    META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+};
 
 /// Current UTC time as RFC 3339 string.
 pub fn now_rfc3339() -> String {
@@ -163,84 +162,41 @@ pub fn forward_auth_meta(msg: &mut wafer_run::Message, original: &wafer_run::Mes
     }
 }
 
+/// The RFC 3986 unreserved characters (`A-Z a-z 0-9 - _ . ~`) — the only bytes
+/// [`url_path_encode`] leaves untouched. Built from `NON_ALPHANUMERIC` (which
+/// encodes every non-alphanumeric ASCII byte) by removing the four unreserved
+/// punctuation marks, so everything else (space → `%20`, `/` → `%2F`, …) is
+/// percent-encoded.
+const PATH_SEGMENT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
+
 /// Percent-encode a string for use as a URL path segment. Encodes everything
 /// except RFC 3986 unreserved characters (`A-Z a-z 0-9 - _ . ~`). Spaces become
 /// `%20`, `/` becomes `%2F`, etc. Use this when constructing `<a href>` URLs
 /// from caller-supplied data (object keys, bucket names, etc.) — maud's HTML
 /// escaping does NOT URL-encode.
 pub fn url_path_encode(s: &str) -> String {
-    s.as_bytes()
-        .iter()
-        .map(|&b| match b {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                String::from(b as char)
-            }
-            _ => format!("%{:02X}", b),
-        })
-        .collect()
+    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT).to_string()
 }
 
 /// Percent-encode a string for use as an OAuth / `application/x-www-form-urlencoded`
-/// query parameter. Delegates to [`url::form_urlencoded::byte_serialize`] which
-/// encodes spaces as `+` and everything outside the unreserved set as `%XX`.
-/// Prefer this over hand-rolling percent-encoding in OAuth / form-body contexts.
+/// query parameter or form-body value. Delegates to
+/// [`url::form_urlencoded::byte_serialize`] which encodes spaces as `+` and
+/// everything outside the unreserved set as `%XX`. This is the single form
+/// encoder — use it for OAuth params, HTTP form bodies, and any value placed in
+/// a query string (verification/reset links, Mailgun fields, …).
 pub fn urlencode(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 
-/// Percent-encode a string for use as an `application/x-www-form-urlencoded`
-/// value. Same alphabet as [`url_path_encode`] but spaces become `+` (per the
-/// form-encoding convention) rather than `%20`. Use this for HTTP form bodies
-/// and `multipart/form-data` field values.
-pub fn form_url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
-        match b {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            b' ' => out.push('+'),
-            _ => {
-                use std::fmt::Write;
-                let _ = write!(out, "%{:02X}", b);
-            }
-        }
-    }
-    out
-}
-
-/// Decode a percent-encoded (URL-encoded) string.
-pub fn urlencoding_decode(s: &str) -> String {
-    let s = s.replace('+', " ");
-    let mut result = Vec::new();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                result.push(byte);
-                i += 3;
-                continue;
-            }
-        }
-        result.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&result).into_owned()
-}
-
-/// Parse URL-encoded form body (htmx default) into a HashMap.
+/// Parse a URL-encoded form body (htmx default) into a HashMap. Thin wrapper
+/// over [`url::form_urlencoded::parse`], which handles `+`→space and `%XX`
+/// decoding. Repeated keys collapse to the last value (the existing behaviour).
 pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
-    let body = String::from_utf8_lossy(data);
-    let mut map = HashMap::new();
-    for pair in body.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            let key = urlencoding_decode(k);
-            let value = urlencoding_decode(v);
-            map.insert(key, value);
-        }
-    }
-    map
+    url::form_urlencoded::parse(data).into_owned().collect()
 }
 
 /// Parse a request body as either JSON or URL-encoded form into a JSON Value.
@@ -494,13 +450,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn urlencoding_decode_plus_to_space() {
-        assert_eq!(urlencoding_decode("a+b"), "a b");
+    fn parse_form_body_decodes_plus_to_space() {
+        let parsed = parse_form_body(b"k=a+b");
+        assert_eq!(parsed.get("k"), Some(&"a b".to_string()));
     }
 
     #[test]
-    fn urlencoding_decode_percent() {
-        assert_eq!(urlencoding_decode("a%2Fb"), "a/b");
+    fn parse_form_body_decodes_percent_escapes() {
+        let parsed = parse_form_body(b"k=a%2Fb");
+        assert_eq!(parsed.get("k"), Some(&"a/b".to_string()));
+    }
+
+    #[test]
+    fn parse_form_body_multiple_pairs_and_decoded_keys() {
+        let parsed = parse_form_body(b"first+name=John+Doe&email=a%40b.com");
+        assert_eq!(parsed.get("first name"), Some(&"John Doe".to_string()));
+        assert_eq!(parsed.get("email"), Some(&"a@b.com".to_string()));
     }
 
     #[test]
@@ -533,15 +498,16 @@ mod tests {
     }
 
     #[test]
-    fn form_url_encode_uses_plus_for_space() {
-        assert_eq!(form_url_encode("hello world"), "hello+world");
-        assert_eq!(form_url_encode("a+b=c&d"), "a%2Bb%3Dc%26d");
-        assert_eq!(form_url_encode("a/b"), "a%2Fb");
-        assert_eq!(form_url_encode("café"), "caf%C3%A9");
-        // Round-trip via parse_form_body decodes '+' back to ' '.
-        let encoded = form_url_encode("hello world");
+    fn urlencode_form_value_round_trips_through_parse_form_body() {
+        // `urlencode` is the single form encoder (space → '+', reserved → %XX).
+        assert_eq!(urlencode("hello world"), "hello+world");
+        assert_eq!(urlencode("a+b=c&d"), "a%2Bb%3Dc%26d");
+        assert_eq!(urlencode("a/b"), "a%2Fb");
+        assert_eq!(urlencode("café"), "caf%C3%A9");
+        // Round-trip: encode → form body → parse decodes '+' back to ' '.
+        let encoded = urlencode("hello world & friends");
         let parsed = parse_form_body(format!("k={encoded}").as_bytes());
-        assert_eq!(parsed.get("k"), Some(&"hello world".to_string()));
+        assert_eq!(parsed.get("k"), Some(&"hello world & friends".to_string()));
     }
 
     #[test]

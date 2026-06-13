@@ -4694,6 +4694,7 @@ dependencies = [
  "hex",
  "js-sys",
  "maud",
+ "percent-encoding",
  "pulldown-cmark",
  "reqwest",
  "rusqlite",
