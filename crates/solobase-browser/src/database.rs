@@ -22,7 +22,10 @@ use wafer_core::interfaces::database::{
 };
 use wafer_sql_utils::{introspect, Backend};
 
-use crate::bridge;
+use crate::{
+    bridge,
+    db_codec::{first_scalar, params_to_json, parse_rows, parse_rows_modified},
+};
 
 /// Browser-side DatabaseService backed by sql.js via the JS bridge.
 pub struct BrowserDatabaseService;
@@ -33,82 +36,6 @@ pub struct BrowserDatabaseService;
 // cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserDatabaseService {}
 unsafe impl Sync for BrowserDatabaseService {}
-
-// ─── pure helpers ─────────────────────────────────────────────────────────────
-
-/// Map a JSON value to a scalar suitable for embedding in a params array.
-/// Arrays and objects are serialized as JSON strings — sql.js binds them as
-/// TEXT, matching the D1 `json_value_to_js` policy.
-fn coerce_param(v: &serde_json::Value) -> serde_json::Value {
-    match v {
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            serde_json::Value::String(v.to_string())
-        }
-        other => other.clone(),
-    }
-}
-
-/// Serialize params into the JSON array string the bridge functions expect.
-/// Each value is `coerce_param`'d first so arrays/objects bind as JSON text.
-fn params_to_json(params: &[serde_json::Value]) -> Result<String, DatabaseError> {
-    let coerced: Vec<serde_json::Value> = params.iter().map(coerce_param).collect();
-    serde_json::to_string(&coerced)
-        .map_err(|e| DatabaseError::Internal(format!("encode params: {e}")))
-}
-
-/// Parse the JSON array of row objects returned by `db_query_raw` into
-/// `Vec<Record>`. JSON-looking TEXT columns (sql.js stores JSON as TEXT) are
-/// re-parsed back into structured values.
-fn parse_rows(json: &str) -> Result<Vec<Record>, DatabaseError> {
-    let rows: Vec<serde_json::Value> = serde_json::from_str(json)
-        .map_err(|e| DatabaseError::Internal(format!("parse rows: {e}")))?;
-
-    let mut records = Vec::with_capacity(rows.len());
-    for row in rows {
-        let serde_json::Value::Object(obj) = row else {
-            return Err(DatabaseError::Internal("expected row object".to_string()));
-        };
-
-        let mut data: HashMap<String, serde_json::Value> = HashMap::new();
-        let mut id = String::new();
-
-        for (k, v) in obj {
-            let parsed = match &v {
-                serde_json::Value::String(s)
-                    if (s.starts_with('{') && s.ends_with('}'))
-                        || (s.starts_with('[') && s.ends_with(']')) =>
-                {
-                    serde_json::from_str(s).unwrap_or(v.clone())
-                }
-                other => other.clone(),
-            };
-
-            if k == "id" {
-                id = match &parsed {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    _ => String::new(),
-                };
-            }
-            data.insert(k, parsed);
-        }
-
-        records.push(Record { id, data });
-    }
-
-    Ok(records)
-}
-
-/// The first scalar value of a single-column aggregate row, regardless of its
-/// alias (the shared builders alias `COUNT`/`SUM` columns).
-fn first_scalar(records: Vec<Record>) -> Option<serde_json::Value> {
-    records.into_iter().next().and_then(|r| {
-        r.data.into_iter().next().map(|(_, v)| v)
-        // `id` is stripped into `Record.id` by `parse_rows`; a pure scalar
-        // query (`SELECT COUNT(*) AS cnt`) never names a column `id`, so
-        // the remaining-data map carries the value.
-    })
-}
 
 // ─── DbExec primitives — the only backend-specific execution code ─────────────
 
@@ -148,7 +75,7 @@ impl DbExec for BrowserDatabaseService {
         // Persist sql.js to OPFS after every mutating statement (INSERT/UPDATE/
         // DELETE and the ALTER TABLE adds from the lazy column-add path).
         bridge::dbFlush().await;
-        Ok(result.trim().parse::<i64>().unwrap_or(0))
+        Ok(parse_rows_modified(&result))
     }
 
     async fn run_scalar_i64(
