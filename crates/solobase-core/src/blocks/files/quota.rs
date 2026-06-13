@@ -214,7 +214,10 @@ mod tests {
             quota.max_files_per_bucket,
             QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET
         );
-        assert_eq!(quota.reset_period_days, QuotaConfig::DEFAULT_RESET_PERIOD_DAYS);
+        assert_eq!(
+            quota.reset_period_days,
+            QuotaConfig::DEFAULT_RESET_PERIOD_DAYS
+        );
     }
 
     #[tokio::test]

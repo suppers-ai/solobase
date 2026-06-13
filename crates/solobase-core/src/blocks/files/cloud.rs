@@ -120,7 +120,10 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         "access_count": 0,
     }));
     if let Some(exp) = &expires_at {
-        data.insert("expires_at".to_string(), serde_json::Value::String(exp.clone()));
+        data.insert(
+            "expires_at".to_string(),
+            serde_json::Value::String(exp.clone()),
+        );
     }
     if let Some(max) = body.max_access_count {
         data.insert("max_access_count".to_string(), serde_json::json!(max));

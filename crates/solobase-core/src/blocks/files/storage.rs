@@ -699,7 +699,10 @@ mod tests {
         }
         // Pattern-rejected names the validator must reject.
         for name in ["MyBucket", "-bucket", "bucket-", "bucket/sub", "bucket\\x"] {
-            assert!(!is_valid_bucket_name(name), "validator should reject {name}");
+            assert!(
+                !is_valid_bucket_name(name),
+                "validator should reject {name}"
+            );
         }
     }
 }
@@ -718,7 +721,9 @@ mod integration_tests {
             "created_by": owner,
             "created_at": helpers::now_rfc3339(),
         }));
-        db::create(ctx, BUCKETS_TABLE, data).await.expect("seed bucket");
+        db::create(ctx, BUCKETS_TABLE, data)
+            .await
+            .expect("seed bucket");
     }
 
     fn bucket_names(v: &serde_json::Value) -> Vec<String> {

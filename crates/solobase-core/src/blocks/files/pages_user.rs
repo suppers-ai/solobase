@@ -1462,7 +1462,9 @@ mod integration_tests {
         obj.insert("key".into(), json!("a.png"));
         obj.insert("size".into(), json!(1024));
         obj.insert("uploaded_by".into(), json!("admin_1"));
-        db::create(&ctx, OBJECTS_TABLE, obj).await.expect("seed obj");
+        db::create(&ctx, OBJECTS_TABLE, obj)
+            .await
+            .expect("seed obj");
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
