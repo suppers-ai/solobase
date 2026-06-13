@@ -220,30 +220,30 @@ fn escape_like(input: &str) -> String {
 }
 
 async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    // Only show buckets owned by the current user (or all for admin)
+    // [`BUCKETS_TABLE`] is the single source of truth for bucket existence /
+    // ownership / visibility. Both the admin and user branches read it (the
+    // admin sees every bucket, the user only their own) — storage folders are
+    // a blob namespace, not a directory we enumerate here, so the admin list
+    // no longer diverges from `store::list_folders`.
     let user_id = msg.user_id();
-    let is_admin = helpers::is_admin(msg);
-    if is_admin {
-        match store::list_folders(ctx).await {
-            Ok(folders) => ok_json(&serde_json::json!({"buckets": folders})),
-            Err(e) => err_internal("Storage error", e),
-        }
+    let filters = if helpers::is_admin(msg) {
+        Vec::new()
     } else {
-        let filters = vec![Filter {
+        vec![Filter {
             field: "created_by".to_string(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
-        }];
-        match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-            Ok(records) => {
-                let names: Vec<&str> = records
-                    .iter()
-                    .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
-                    .collect();
-                ok_json(&serde_json::json!({"buckets": names}))
-            }
-            Err(e) => err_internal("Database error", e),
+        }]
+    };
+    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
+        Ok(records) => {
+            let names: Vec<&str> = records
+                .iter()
+                .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
+                .collect();
+            ok_json(&serde_json::json!({"buckets": names}))
         }
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -271,30 +271,33 @@ async fn handle_create_bucket(
         return err_bad_request("Invalid bucket name");
     }
 
-    match store::create_folder(ctx, &body.name, body.public).await {
-        Ok(()) => {
-            // Track in DB
-            let mut data = HashMap::new();
-            data.insert(
-                "name".to_string(),
-                serde_json::Value::String(body.name.clone()),
-            );
-            data.insert("public".to_string(), serde_json::Value::Bool(body.public));
-            data.insert(
-                "created_by".to_string(),
-                serde_json::Value::String(msg.user_id().to_string()),
-            );
-            data.insert(
-                "created_at".to_string(),
-                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-            );
-            if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
-                tracing::warn!("Failed to track bucket creation in database: {e}");
-            }
-            ok_json(&serde_json::json!({"name": body.name, "created": true}))
-        }
-        Err(e) => err_internal("Failed to create bucket", e),
+    // Create the blob-namespace folder first, then record the metadata row.
+    if let Err(e) = store::create_folder(ctx, &body.name, body.public).await {
+        return err_internal("Failed to create bucket", e);
     }
+
+    // [`BUCKETS_TABLE`] is the source of truth for bucket existence, so the
+    // metadata insert must succeed for the bucket to count as created. If it
+    // fails, compensate by deleting the just-created folder rather than
+    // warn-and-continue (which would leave an orphan folder invisible to every
+    // listing path, which now all read the table).
+    let data = helpers::json_map(serde_json::json!({
+        "name": body.name,
+        "public": body.public,
+        "created_by": msg.user_id(),
+        "created_at": helpers::now_rfc3339(),
+    }));
+    if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
+        if let Err(cleanup) = store::delete_folder(ctx, &body.name).await {
+            tracing::error!(
+                bucket = %body.name,
+                error = %cleanup,
+                "failed to roll back orphan storage folder after bucket metadata insert failed",
+            );
+        }
+        return err_internal("Failed to create bucket", e);
+    }
+    ok_json(&serde_json::json!({"name": body.name, "created": true}))
 }
 
 async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -730,6 +733,77 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod integration_tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_support::{admin_msg, auth_msg, output_json, TestContext};
+
+    async fn seed_bucket(ctx: &TestContext, name: &str, owner: &str) {
+        let data = helpers::json_map(json!({
+            "name": name,
+            "public": false,
+            "created_by": owner,
+            "created_at": helpers::now_rfc3339(),
+        }));
+        db::create(ctx, BUCKETS_TABLE, data).await.expect("seed bucket");
+    }
+
+    fn bucket_names(v: &serde_json::Value) -> Vec<String> {
+        v.get("buckets")
+            .and_then(|b| b.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Single source of truth: the admin bucket listing now reads
+    /// [`BUCKETS_TABLE`] (every bucket) instead of `store::list_folders`, so it
+    /// can no longer diverge from the per-user listing that already read the
+    /// table. An admin sees all buckets regardless of owner.
+    #[tokio::test]
+    async fn admin_list_buckets_reads_metadata_table_for_all_owners() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "alice-bucket", "alice").await;
+        seed_bucket(&ctx, "bob-bucket", "bob").await;
+
+        let out = handle_list_buckets(&ctx, &admin_msg("retrieve", "/storage/buckets")).await;
+        let mut names = bucket_names(&output_json(out).await);
+        names.sort();
+        assert_eq!(names, vec!["alice-bucket", "bob-bucket"]);
+    }
+
+    /// A non-admin user sees only the buckets they own (same table, filtered).
+    #[tokio::test]
+    async fn user_list_buckets_is_owner_scoped() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "alice-bucket", "alice").await;
+        seed_bucket(&ctx, "bob-bucket", "bob").await;
+
+        let out =
+            handle_list_buckets(&ctx, &auth_msg("retrieve", "/storage/buckets", "alice")).await;
+        let names = bucket_names(&output_json(out).await);
+        assert_eq!(names, vec!["alice-bucket"]);
+    }
+
+    /// `handle_stats` counts buckets from [`BUCKETS_TABLE`] (the same source the
+    /// admin SSR overview uses), not by enumerating storage folders.
+    #[tokio::test]
+    async fn stats_counts_buckets_from_metadata_table() {
+        let ctx = TestContext::with_files().await;
+        seed_bucket(&ctx, "one", "alice").await;
+        seed_bucket(&ctx, "two", "bob").await;
+
+        let out = handle_stats(&ctx, &admin_msg("retrieve", "/admin/storage/stats")).await;
+        let body = output_json(out).await;
+        assert_eq!(body.get("bucket_count").and_then(|v| v.as_i64()), Some(2));
+    }
+}
+
 async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let complete_filter = &[Filter {
         field: "status".to_string(),
@@ -742,7 +816,9 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let total_size = db::sum(ctx, OBJECTS_TABLE, "size", complete_filter)
         .await
         .unwrap_or(0.0);
-    let bucket_count = store::list_folders(ctx).await.map(|f| f.len()).unwrap_or(0);
+    // Count buckets from the metadata table (single source of truth), the same
+    // way the admin SSR overview does, rather than enumerating storage folders.
+    let bucket_count = db::count(ctx, BUCKETS_TABLE, &[]).await.unwrap_or(0);
 
     ok_json(&serde_json::json!({
         "total_objects": total_objects,
