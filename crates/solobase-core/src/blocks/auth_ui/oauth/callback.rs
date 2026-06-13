@@ -78,281 +78,44 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_internal_no_cause("OAuth provider not fully configured");
     }
 
-    // Exchange code for token (URL-encode all values, include PKCE verifier)
-    let token_url = spec.token_url;
-    let token_body_str = spec.build_token_body(
+    // Phase 1: exchange the authorization code for a provider access token.
+    let oauth_token = match exchange_code(
+        ctx,
+        spec,
         code,
         &client_id,
         &client_secret,
         &redirect_uri,
         &code_verifier,
-    );
-
-    let mut headers = HashMap::new();
-    headers.insert(
-        "Content-Type".to_string(),
-        "application/x-www-form-urlencoded".to_string(),
-    );
-    headers.insert("Accept".to_string(), "application/json".to_string());
-
-    let token_body_bytes = token_body_str.into_bytes();
-    let token_resp = match network::do_request(
-        ctx,
-        "POST",
-        token_url,
-        &headers,
-        Some(&token_body_bytes),
     )
     .await
     {
-        Ok(r) => r,
-        Err(e) => return err_internal("Token exchange failed", e),
+        Ok(t) => t,
+        Err(r) => return r,
     };
 
-    let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
-        Ok(d) => d,
-        Err(_) => return err_internal_no_cause("Failed to parse token response"),
+    // Phase 2: fetch the user's profile (with GitHub's /user/emails fallback).
+    let info = match fetch_user_info(ctx, spec, &oauth_token).await {
+        Ok(i) => i,
+        Err(r) => return r,
     };
 
-    let access_token_oauth = token_data
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if access_token_oauth.is_empty() {
-        return err_internal_no_cause("No access token in OAuth response");
-    }
-
-    // Get user info
-    let userinfo_url = spec.userinfo_url;
-    let auth_header = spec.userinfo_auth_header(access_token_oauth);
-
-    let mut info_headers = HashMap::new();
-    info_headers.insert("Authorization".to_string(), auth_header);
-    info_headers.insert("Accept".to_string(), "application/json".to_string());
-    // GitHub's REST API rejects requests without a User-Agent header
-    // (returns 403 + an HTML error body). Other providers accept it.
-    info_headers.insert(
-        "User-Agent".to_string(),
-        concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
-    );
-
-    let info_resp = match network::do_request(ctx, "GET", userinfo_url, &info_headers, None).await {
-        Ok(r) => r,
-        Err(e) => return err_internal("User info request failed", e),
+    // Phase 3: resolve the local user (link / email-merge / create), enforcing
+    // the disabled-account and signup gates, and upsert the provider link.
+    let user_id = match resolve_user(ctx, &provider, &oauth_token, &info).await {
+        Ok(id) => id,
+        Err(r) => return r,
     };
 
-    let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
-        Ok(d) => d,
-        Err(e) => {
-            // Log the SHA-256 hash of the body instead of the body itself —
-            // a parse failure is rare and the raw body typically contains
-            // the upstream email / provider IDs that we don't want to drop
-            // into the error log surface.
-            let body_hash = crate::blocks::helpers::sha256_hex(&info_resp.body);
-            return err_internal(
-                "Failed to parse OAuth user info",
-                format!(
-                    "status={} parse={} body_len={} body_sha256={}",
-                    info_resp.status_code,
-                    e,
-                    info_resp.body.len(),
-                    body_hash
-                ),
-            );
-        }
-    };
-
-    let mut email = user_info
-        .get("email")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_lowercase();
-    let name = user_info
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let avatar = user_info
-        .get("picture")
-        .or_else(|| user_info.get("avatar_url"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // GitHub's /user endpoint returns a null `email` for users who have
-    // their primary email set to private. The authoritative list lives at
-    // /user/emails — which is only returned when the `user:email` scope
-    // was granted. Pick the first primary verified address. Only providers
-    // with an `emails_url` (GitHub) carry this fallback.
-    if let (true, Some(emails_url)) = (email.is_empty(), spec.emails_url) {
-        let mut emails_headers = HashMap::new();
-        emails_headers.insert(
-            "Authorization".to_string(),
-            spec.userinfo_auth_header(access_token_oauth),
-        );
-        emails_headers.insert("Accept".to_string(), "application/json".to_string());
-        emails_headers.insert(
-            "User-Agent".to_string(),
-            concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
-        );
-        if let Ok(emails_resp) =
-            network::do_request(ctx, "GET", emails_url, &emails_headers, None).await
-        {
-            if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&emails_resp.body) {
-                if let Some(entries) = arr.as_array() {
-                    // Prefer primary+verified; fall back to any verified.
-                    let pick = entries
-                        .iter()
-                        .find(|e| {
-                            e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false)
-                                && e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
-                        })
-                        .or_else(|| {
-                            entries.iter().find(|e| {
-                                e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
-                            })
-                        });
-                    if let Some(e) = pick {
-                        if let Some(s) = e.get("email").and_then(|v| v.as_str()) {
-                            email = s.to_lowercase();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if email.is_empty() {
-        return err_internal_no_cause("No email returned by OAuth provider");
-    }
-
-    // Extract the stable provider-side user identifier.
-    // GitHub returns `id` as a JSON number; Google returns `sub` (string);
-    // Microsoft returns `id` (string). Coerce to string in all cases.
-    let provider_ref = {
-        // Try `sub` first (Google OIDC), then `id` (GitHub, Microsoft).
-        let raw = user_info.get("sub").or_else(|| user_info.get("id"));
-        match raw {
-            Some(serde_json::Value::String(s)) => s.clone(),
-            Some(serde_json::Value::Number(n)) => n.to_string(),
-            _ => String::new(),
-        }
-    };
-    if provider_ref.is_empty() {
-        return err_internal_no_cause("OAuth provider did not return a stable user id");
-    }
-
-    // Stable per-provider handle (GitHub `login`, others fall back to email local-part).
-    let provider_login = user_info
-        .get("login")
-        .and_then(|v| v.as_str())
-        .unwrap_or_else(|| email.split('@').next().unwrap_or(""))
-        .to_string();
-
-    // --- Step 1: look up existing link by (provider, provider_ref) ---
-    let existing_link =
-        match provider_links::find_by_provider_ref(ctx, &provider, &provider_ref).await {
-            Ok(l) => l,
-            Err(e) => return err_internal("provider_links lookup failed", e),
-        };
-
-    // --- Step 2 / 3: resolve user_id ---
-    let user_id: String = if let Some(link) = existing_link {
-        // Known provider link — reuse the bound user.
-        link.user_id
-    } else {
-        // No link yet. Try email-based account merging.
-        match users::find_by_email(ctx, &email).await {
-            Ok(Some(existing_user)) => {
-                // Check if the existing user account is disabled. The
-                // authoritative flag is `UserRow.disabled`; the previous
-                // `role == "disabled"` check tested a value nothing ever
-                // writes, so disabled accounts could still authenticate via
-                // OAuth.
-                if existing_user.disabled {
-                    return err_forbidden("Account is disabled");
-                }
-                // Reuse this account; the upsert below will create the new link.
-                existing_user.id
-            }
-            Ok(None) => {
-                // Brand-new user — enforce signup gates. Shared with the JSON
-                // signup handler so the ALLOW_SIGNUP / ALLOWED_EMAIL_DOMAINS /
-                // bootstrap-admin rules can't drift between the two flows.
-                if !signup_allowed(ctx).await {
-                    return err_forbidden("Signups are currently disabled");
-                }
-
-                if !email_domain_allowed(ctx, &email).await {
-                    return err_forbidden("Signups from this email domain are not allowed");
-                }
-
-                // Determine role: admin if email matches bootstrap email.
-                let role = initial_role_for(ctx, &email).await;
-
-                let display_name = if name.is_empty() {
-                    email.clone()
-                } else {
-                    name.clone()
-                };
-                let new_user = users::NewUser {
-                    email: email.clone(),
-                    display_name,
-                    avatar_url: if avatar.is_empty() {
-                        None
-                    } else {
-                        Some(avatar.clone())
-                    },
-                    role: role.to_string(),
-                };
-                match users::insert(ctx, new_user).await {
-                    Ok(u) => {
-                        // Assign role row in USER_ROLES_TABLE for legacy readers.
-                        let role_data = json_map(serde_json::json!({
-                            "user_id": u.id,
-                            "role": role,
-                            "assigned_at": crate::blocks::helpers::now_rfc3339()
-                        }));
-                        if let Err(e) =
-                            db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data).await
-                        {
-                            tracing::warn!("Failed to assign default role on OAuth signup: {e}");
-                        }
-                        u.id
-                    }
-                    Err(e) => return err_internal("Failed to create user", e),
-                }
-            }
-            Err(e) => return err_internal("User lookup failed", e),
-        }
-    };
-
-    // --- Step 4: upsert the provider_links row ---
-    if let Err(e) = provider_links::upsert(
-        ctx,
-        provider_links::NewLink {
-            provider: &provider,
-            provider_ref: &provider_ref,
-            user_id: &user_id,
-            provider_login: &provider_login,
-            access_token: access_token_oauth,
-        },
-    )
-    .await
-    {
-        // Log but don't fail — the user is authenticated; link persistence
-        // is best-effort metadata. A failed upsert means re-login will
-        // fall back to email-based merging on next attempt.
-        tracing::warn!("Failed to upsert provider_links: {e}");
-    }
-
-    // Step 5: update last_login_at on the users row (best-effort).
+    // Update last_login_at on the users row (best-effort).
     let upd = json_map(serde_json::json!({
         "last_login_at": crate::blocks::helpers::now_rfc3339()
     }));
     if let Err(e) = db::update(ctx, USERS_TABLE, &user_id, upd).await {
         tracing::warn!("Failed to update last_login_at: {e}");
     }
+
+    let email = info.email;
 
     let roles = ensure_admin_role(ctx, &user_id, &email).await;
 
@@ -407,6 +170,323 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .set_cookie(&issued.cookie)
         .set_header("Location", &redirect_url)
         .json(&serde_json::json!({"redirect": redirect_url}))
+}
+
+/// The profile fields the callback needs from a provider's userinfo response,
+/// already normalised (email lowercased, missing strings empty).
+struct OAuthUserInfo {
+    /// Lowercased verified email (after the GitHub `/user/emails` fallback).
+    email: String,
+    /// Display name, empty if the provider omitted it.
+    name: String,
+    /// Avatar URL, empty if the provider omitted it.
+    avatar: String,
+    /// Stable provider-side user id (`sub` for Google, `id` for GitHub /
+    /// Microsoft), coerced to a string.
+    provider_ref: String,
+    /// Per-provider login handle (GitHub `login`, else the email local-part).
+    provider_login: String,
+}
+
+/// Phase 1 — exchange the authorization `code` for a provider access token.
+///
+/// POSTs the token-exchange body (PKCE verifier included where the provider
+/// uses it) and returns the `access_token` string. Any transport / parse
+/// failure or a missing token is mapped to a ready-to-return [`OutputStream`].
+async fn exchange_code(
+    ctx: &dyn Context,
+    spec: &super::spec::OAuthProviderSpec,
+    code: &str,
+    client_id: &str,
+    client_secret: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+) -> Result<String, OutputStream> {
+    let token_body_str =
+        spec.build_token_body(code, client_id, client_secret, redirect_uri, code_verifier);
+
+    let mut headers = HashMap::new();
+    headers.insert(
+        "Content-Type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
+    headers.insert("Accept".to_string(), "application/json".to_string());
+
+    let token_body_bytes = token_body_str.into_bytes();
+    let token_resp =
+        match network::do_request(ctx, "POST", spec.token_url, &headers, Some(&token_body_bytes))
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(err_internal("Token exchange failed", e)),
+        };
+
+    let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
+        Ok(d) => d,
+        Err(_) => return Err(err_internal_no_cause("Failed to parse token response")),
+    };
+
+    let access_token_oauth = token_data
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if access_token_oauth.is_empty() {
+        return Err(err_internal_no_cause("No access token in OAuth response"));
+    }
+    Ok(access_token_oauth.to_string())
+}
+
+/// Phase 2 — fetch and normalise the user's profile.
+///
+/// Calls the provider userinfo endpoint, then (for providers with an
+/// `emails_url`, i.e. GitHub) falls back to `/user/emails` for a verified
+/// primary address when the userinfo payload omits one. Returns the normalised
+/// [`OAuthUserInfo`]; a missing email or stable id is an error.
+async fn fetch_user_info(
+    ctx: &dyn Context,
+    spec: &super::spec::OAuthProviderSpec,
+    oauth_token: &str,
+) -> Result<OAuthUserInfo, OutputStream> {
+    // Shared header set for every provider API call. GitHub's REST API rejects
+    // requests without a User-Agent header (returns 403 + an HTML error body);
+    // other providers accept it.
+    let api_headers = || {
+        let mut h = HashMap::new();
+        h.insert(
+            "Authorization".to_string(),
+            spec.userinfo_auth_header(oauth_token),
+        );
+        h.insert("Accept".to_string(), "application/json".to_string());
+        h.insert(
+            "User-Agent".to_string(),
+            concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
+        );
+        h
+    };
+
+    let info_resp =
+        match network::do_request(ctx, "GET", spec.userinfo_url, &api_headers(), None).await {
+            Ok(r) => r,
+            Err(e) => return Err(err_internal("User info request failed", e)),
+        };
+
+    let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
+        Ok(d) => d,
+        Err(e) => {
+            // Log the SHA-256 hash of the body instead of the body itself —
+            // a parse failure is rare and the raw body typically contains
+            // the upstream email / provider IDs that we don't want to drop
+            // into the error log surface.
+            let body_hash = crate::blocks::helpers::sha256_hex(&info_resp.body);
+            return Err(err_internal(
+                "Failed to parse OAuth user info",
+                format!(
+                    "status={} parse={} body_len={} body_sha256={}",
+                    info_resp.status_code,
+                    e,
+                    info_resp.body.len(),
+                    body_hash
+                ),
+            ));
+        }
+    };
+
+    let mut email = user_info
+        .get("email")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let name = user_info
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let avatar = user_info
+        .get("picture")
+        .or_else(|| user_info.get("avatar_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // GitHub's /user endpoint returns a null `email` for users who have
+    // their primary email set to private. The authoritative list lives at
+    // /user/emails — which is only returned when the `user:email` scope
+    // was granted. Pick the first primary verified address. Only providers
+    // with an `emails_url` (GitHub) carry this fallback.
+    if let (true, Some(emails_url)) = (email.is_empty(), spec.emails_url) {
+        if let Ok(emails_resp) =
+            network::do_request(ctx, "GET", emails_url, &api_headers(), None).await
+        {
+            if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&emails_resp.body) {
+                if let Some(entries) = arr.as_array() {
+                    // Prefer primary+verified; fall back to any verified.
+                    let pick = entries
+                        .iter()
+                        .find(|e| {
+                            e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false)
+                                && e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
+                        })
+                        .or_else(|| {
+                            entries.iter().find(|e| {
+                                e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
+                            })
+                        });
+                    if let Some(e) = pick {
+                        if let Some(s) = e.get("email").and_then(|v| v.as_str()) {
+                            email = s.to_lowercase();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if email.is_empty() {
+        return Err(err_internal_no_cause("No email returned by OAuth provider"));
+    }
+
+    // Extract the stable provider-side user identifier.
+    // GitHub returns `id` as a JSON number; Google returns `sub` (string);
+    // Microsoft returns `id` (string). Coerce to string in all cases.
+    let provider_ref = match user_info.get("sub").or_else(|| user_info.get("id")) {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    };
+    if provider_ref.is_empty() {
+        return Err(err_internal_no_cause(
+            "OAuth provider did not return a stable user id",
+        ));
+    }
+
+    // Stable per-provider handle (GitHub `login`, others fall back to email local-part).
+    let provider_login = user_info
+        .get("login")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| email.split('@').next().unwrap_or(""))
+        .to_string();
+
+    Ok(OAuthUserInfo {
+        email,
+        name,
+        avatar,
+        provider_ref,
+        provider_login,
+    })
+}
+
+/// Phase 3 — resolve the local user id for this OAuth identity.
+///
+/// Tries, in order: an existing `(provider, provider_ref)` link; an
+/// email-matched local account (rejected if disabled); otherwise creates a new
+/// user (subject to the shared signup gates). Then upserts the provider link.
+/// Returns the resolved local user id.
+async fn resolve_user(
+    ctx: &dyn Context,
+    provider: &str,
+    oauth_token: &str,
+    info: &OAuthUserInfo,
+) -> Result<String, OutputStream> {
+    // --- Step 1: look up existing link by (provider, provider_ref) ---
+    let existing_link =
+        match provider_links::find_by_provider_ref(ctx, provider, &info.provider_ref).await {
+            Ok(l) => l,
+            Err(e) => return Err(err_internal("provider_links lookup failed", e)),
+        };
+
+    // --- Step 2 / 3: resolve user_id ---
+    let user_id: String = if let Some(link) = existing_link {
+        // Known provider link — reuse the bound user.
+        link.user_id
+    } else {
+        // No link yet. Try email-based account merging.
+        match users::find_by_email(ctx, &info.email).await {
+            Ok(Some(existing_user)) => {
+                // Check if the existing user account is disabled. The
+                // authoritative flag is `UserRow.disabled`; the previous
+                // `role == "disabled"` check tested a value nothing ever
+                // writes, so disabled accounts could still authenticate via
+                // OAuth.
+                if existing_user.disabled {
+                    return Err(err_forbidden("Account is disabled"));
+                }
+                // Reuse this account; the upsert below will create the new link.
+                existing_user.id
+            }
+            Ok(None) => {
+                // Brand-new user — enforce signup gates. Shared with the JSON
+                // signup handler so the ALLOW_SIGNUP / ALLOWED_EMAIL_DOMAINS /
+                // bootstrap-admin rules can't drift between the two flows.
+                if !signup_allowed(ctx).await {
+                    return Err(err_forbidden("Signups are currently disabled"));
+                }
+
+                if !email_domain_allowed(ctx, &info.email).await {
+                    return Err(err_forbidden(
+                        "Signups from this email domain are not allowed",
+                    ));
+                }
+
+                // Determine role: admin if email matches bootstrap email.
+                let role = initial_role_for(ctx, &info.email).await;
+
+                let display_name = if info.name.is_empty() {
+                    info.email.clone()
+                } else {
+                    info.name.clone()
+                };
+                let new_user = users::NewUser {
+                    email: info.email.clone(),
+                    display_name,
+                    avatar_url: if info.avatar.is_empty() {
+                        None
+                    } else {
+                        Some(info.avatar.clone())
+                    },
+                    role: role.to_string(),
+                };
+                match users::insert(ctx, new_user).await {
+                    Ok(u) => {
+                        // Assign role row in USER_ROLES_TABLE for legacy readers.
+                        let role_data = json_map(serde_json::json!({
+                            "user_id": u.id,
+                            "role": role,
+                            "assigned_at": crate::blocks::helpers::now_rfc3339()
+                        }));
+                        if let Err(e) =
+                            db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data).await
+                        {
+                            tracing::warn!("Failed to assign default role on OAuth signup: {e}");
+                        }
+                        u.id
+                    }
+                    Err(e) => return Err(err_internal("Failed to create user", e)),
+                }
+            }
+            Err(e) => return Err(err_internal("User lookup failed", e)),
+        }
+    };
+
+    // --- Step 4: upsert the provider_links row ---
+    if let Err(e) = provider_links::upsert(
+        ctx,
+        provider_links::NewLink {
+            provider,
+            provider_ref: &info.provider_ref,
+            user_id: &user_id,
+            provider_login: &info.provider_login,
+            access_token: oauth_token,
+        },
+    )
+    .await
+    {
+        // Log but don't fail — the user is authenticated; link persistence
+        // is best-effort metadata. A failed upsert means re-login will
+        // fall back to email-based merging on next attempt.
+        tracing::warn!("Failed to upsert provider_links: {e}");
+    }
+
+    Ok(user_id)
 }
 
 /// [SEC-036] Validates `SOLOBASE_SHARED__FRONTEND_URL` before it is used as
