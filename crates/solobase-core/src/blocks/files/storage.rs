@@ -76,19 +76,19 @@ fn extract_object_key(path: &str) -> &str {
     }
 }
 
-/// Check if the current user owns the given bucket (or is admin).
-/// Returns true if access is denied.
-pub(super) async fn is_bucket_access_denied(
-    ctx: &dyn Context,
-    msg: &Message,
-    bucket: &str,
-) -> bool {
-    let is_admin = helpers::is_admin(msg);
-    if is_admin {
-        return false;
-    }
-
-    let user_id = msg.user_id();
+/// True when `user_id` owns a bucket named `bucket` (i.e. a matching row
+/// exists in [`BUCKETS_TABLE`]). DB errors are logged and treated as "not
+/// owned" (fail closed).
+///
+/// This is the single ownership predicate for the files block. Callers
+/// decide the admin policy on top of it:
+/// - JSON API handlers go through [`is_bucket_access_denied`], which grants
+///   admins access to every bucket.
+/// - The SSR user portal (`pages_user::object_list_page`) deliberately does
+///   NOT bypass for admins — the portal is strictly owner-scoped so an
+///   admin browsing `/b/storage/` sees only their own buckets; cross-user
+///   inspection happens via the admin pages instead.
+pub(super) async fn bucket_owned_by(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
     let filters = vec![
         Filter {
             field: "name".to_string(),
@@ -102,9 +102,26 @@ pub(super) async fn is_bucket_access_denied(
         },
     ];
     match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-        Ok(records) if !records.is_empty() => false,
-        _ => true, // denied
+        Ok(records) => !records.is_empty(),
+        Err(e) => {
+            tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
+            false
+        }
     }
+}
+
+/// Check if the current user owns the given bucket (or is admin).
+/// Returns true if access is denied. See [`bucket_owned_by`] for the
+/// admin-bypass policy split between the JSON API and the SSR portal.
+pub(super) async fn is_bucket_access_denied(
+    ctx: &dyn Context,
+    msg: &Message,
+    bucket: &str,
+) -> bool {
+    if helpers::is_admin(msg) {
+        return false;
+    }
+    !bucket_owned_by(ctx, msg.user_id(), bucket).await
 }
 
 /// Validate a storage key for path traversal attacks.
