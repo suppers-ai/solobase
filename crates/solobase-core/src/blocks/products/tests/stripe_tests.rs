@@ -4,7 +4,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use wafer_run::{ErrorCode, InputStream, Message};
 
-use super::mock_context::*;
+use super::harness::*;
 use crate::blocks::{helpers::hex_encode, products::stripe};
 
 // ============================================================
@@ -66,17 +66,18 @@ fn charge_refunded_event(payment_intent: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn webhook_checkout_completed_marks_purchase() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     // Seed a pending purchase
     let mut pd = HashMap::new();
     pd.insert("user_id".to_string(), serde_json::json!("user_1"));
     pd.insert("status".to_string(), serde_json::json!("pending"));
     pd.insert("total_cents".to_string(), serde_json::json!(5000));
-    ctx.seed("suppers_ai__products__purchases", "pur_wh1", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_wh1", pd).await;
 
     let event = checkout_completed_event("pur_wh1", "pi_12345");
     let (msg, input) = webhook_msg(&event, WEBHOOK_SECRET);
@@ -88,10 +89,11 @@ async fn webhook_checkout_completed_marks_purchase() {
 
 #[tokio::test]
 async fn webhook_checkout_completed_empty_purchase_id() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     // Event with empty purchase_id — should still return 200 (no-op)
     let event = serde_json::json!({
@@ -115,10 +117,11 @@ async fn webhook_checkout_completed_empty_purchase_id() {
 
 #[tokio::test]
 async fn webhook_charge_refunded_marks_purchase() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     // Seed a completed purchase with a payment intent
     let mut pd = HashMap::new();
@@ -128,7 +131,7 @@ async fn webhook_charge_refunded_marks_purchase() {
         "provider_payment_intent_id".to_string(),
         serde_json::json!("pi_refund_test"),
     );
-    ctx.seed("suppers_ai__products__purchases", "pur_ref1", pd);
+    seed(&ctx, "suppers_ai__products__purchases", "pur_ref1", pd).await;
 
     let event = charge_refunded_event("pi_refund_test");
     let (msg, input) = webhook_msg(&event, WEBHOOK_SECRET);
@@ -140,10 +143,11 @@ async fn webhook_charge_refunded_marks_purchase() {
 
 #[tokio::test]
 async fn webhook_charge_refunded_unknown_intent_is_noop() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     // No matching purchase — should still return 200
     let event = charge_refunded_event("pi_unknown");
@@ -160,10 +164,11 @@ async fn webhook_charge_refunded_unknown_intent_is_noop() {
 
 #[tokio::test]
 async fn webhook_unhandled_event_returns_ok() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     let event = serde_json::json!({
         "type": "payment_intent.created",
@@ -183,7 +188,7 @@ async fn webhook_unhandled_event_returns_ok() {
 #[tokio::test]
 async fn webhook_rejects_missing_secret_config() {
     // No STRIPE_WEBHOOK_SECRET configured
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     let event = checkout_completed_event("pur_1", "pi_1");
     let (msg, input) = webhook_msg(&event, "anything");
@@ -194,10 +199,11 @@ async fn webhook_rejects_missing_secret_config() {
 
 #[tokio::test]
 async fn webhook_rejects_missing_signature_header() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     let event = checkout_completed_event("pur_1", "pi_1");
     let payload_bytes = serde_json::to_vec(&event).unwrap();
@@ -213,10 +219,11 @@ async fn webhook_rejects_missing_signature_header() {
 
 #[tokio::test]
 async fn webhook_rejects_invalid_signature() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     let event = checkout_completed_event("pur_1", "pi_1");
     // Sign with wrong secret
@@ -228,10 +235,11 @@ async fn webhook_rejects_invalid_signature() {
 
 #[tokio::test]
 async fn webhook_rejects_tampered_payload() {
-    let ctx = MockContext::new().with_config(
+    let ctx = ctx_with(&[(
         "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET",
         WEBHOOK_SECRET,
-    );
+    )])
+    .await;
 
     // Create a valid signature for one payload
     let original_event = checkout_completed_event("pur_1", "pi_1");
@@ -269,7 +277,7 @@ async fn webhook_rejects_tampered_payload() {
 
 #[tokio::test]
 async fn checkout_rejects_when_stripe_not_configured() {
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     // No STRIPE_SECRET_KEY configured
 
     let (msg, input) = create_msg(

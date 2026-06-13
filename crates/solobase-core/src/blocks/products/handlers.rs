@@ -17,7 +17,7 @@ use crate::blocks::{
     crud,
     helpers::{
         err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
-        field_as_string, ok_json, RecordExt,
+        field_as_string, ok_json, stamp_created, RecordExt,
     },
 };
 
@@ -68,6 +68,61 @@ fn escape_like(input: &str) -> String {
     out
 }
 
+/// Build a `name LIKE %search%` filter with LIKE wildcards escaped.
+/// Returns `None` for an empty search term.
+pub(super) fn name_like_filter(search: &str) -> Option<Filter> {
+    if search.is_empty() {
+        return None;
+    }
+    Some(Filter {
+        field: "name".to_string(),
+        operator: FilterOp::Like,
+        value: serde_json::Value::String(format!("%{}%", escape_like(search))),
+    })
+}
+
+/// Build the shared product list filters from query params: `group_id` /
+/// `status` equality plus an escaped `search` LIKE on `name`.
+fn product_filters(msg: &Message) -> Vec<Filter> {
+    let mut filters = Vec::new();
+    let group_id = msg.query("group_id").to_string();
+    if !group_id.is_empty() {
+        filters.push(Filter {
+            field: "group_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(group_id),
+        });
+    }
+    let status = msg.query("status").to_string();
+    if !status.is_empty() {
+        filters.push(Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(status),
+        });
+    }
+    if let Some(search) = name_like_filter(msg.query("search")) {
+        filters.push(search);
+    }
+    filters
+}
+
+/// User-owned product rows: `/b/products/products/{id}`, owned via `created_by`.
+const USER_PRODUCT: crud::OwnedResource<'static> = crud::OwnedResource {
+    collection: PRODUCTS_TABLE,
+    path_prefix: "/b/products/products/",
+    owner_field: "created_by",
+    label: "Product",
+};
+
+/// User-owned group rows: `/b/products/groups/{id}`, owned via `user_id`.
+const USER_GROUP: crud::OwnedResource<'static> = crud::OwnedResource {
+    collection: GROUPS_TABLE,
+    path_prefix: "/b/products/groups/",
+    owner_field: "user_id",
+    label: "Group",
+};
+
 pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
@@ -114,7 +169,7 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) 
             super::variables::handle_list(ctx, msg).await
         }
         ("create", "/admin/b/products/variables") => {
-            super::variables::handle_create(ctx, input).await
+            super::variables::handle_create(ctx, msg, input).await
         }
         ("update", _) if path.starts_with("/admin/b/products/variables/") => {
             super::variables::handle_update(ctx, msg, input).await
@@ -236,33 +291,7 @@ pub async fn handle_user(ctx: &dyn Context, msg: &Message, input: InputStream) -
 // --- Product CRUD ---
 
 async fn handle_list_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let mut filters = Vec::new();
-    let group_id = msg.query("group_id").to_string();
-    if !group_id.is_empty() {
-        filters.push(Filter {
-            field: "group_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(group_id),
-        });
-    }
-    let status = msg.query("status").to_string();
-    if !status.is_empty() {
-        filters.push(Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(status),
-        });
-    }
-    let search = msg.query("search").to_string();
-    if !search.is_empty() {
-        filters.push(Filter {
-            field: "name".to_string(),
-            operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", escape_like(&search))),
-        });
-    }
-
-    crud::crud_list(ctx, msg, PRODUCTS_TABLE, filters).await
+    crud::crud_list(ctx, msg, PRODUCTS_TABLE, product_filters(msg), None).await
 }
 
 async fn handle_get_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -323,7 +352,7 @@ async fn handle_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream
 // --- Groups ---
 
 async fn handle_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, GROUPS_TABLE, vec![]).await
+    crud::crud_list(ctx, msg, GROUPS_TABLE, vec![], None).await
 }
 
 async fn handle_create_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -354,7 +383,7 @@ async fn handle_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Types ---
 
 async fn handle_list_types(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, TYPES_TABLE, vec![]).await
+    crud::crud_list(ctx, msg, TYPES_TABLE, vec![], None).await
 }
 
 async fn handle_create_type(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -368,7 +397,7 @@ async fn handle_delete_type(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Pricing Templates ---
 
 async fn handle_list_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, PRICING_TABLE, vec![]).await
+    crud::crud_list(ctx, msg, PRICING_TABLE, vec![], None).await
 }
 
 async fn handle_create_pricing(
@@ -409,7 +438,6 @@ async fn handle_delete_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream
 // --- Public catalog ---
 
 async fn handle_catalog(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let (page, page_size, _) = msg.pagination_params(20);
     let filters = vec![Filter {
         field: "status".to_string(),
         operator: FilterOp::Equal,
@@ -419,19 +447,7 @@ async fn handle_catalog(ctx: &dyn Context, msg: &Message) -> OutputStream {
         field: "name".to_string(),
         desc: false,
     }];
-    match db::paginated_list(
-        ctx,
-        PRODUCTS_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
-        Ok(result) => ok_json(&result),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_list(ctx, msg, PRODUCTS_TABLE, filters, Some(sort)).await
 }
 
 async fn handle_get_product_public(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -462,74 +478,18 @@ async fn handle_user_list_products(ctx: &dyn Context, msg: &Message) -> OutputSt
         return err_unauthorized("Not authenticated");
     }
 
-    let (page, page_size, _) = msg.pagination_params(20);
     let mut filters = vec![Filter {
         field: "created_by".to_string(),
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id),
     }];
-    let group_id = msg.query("group_id").to_string();
-    if !group_id.is_empty() {
-        filters.push(Filter {
-            field: "group_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(group_id),
-        });
-    }
-    let status = msg.query("status").to_string();
-    if !status.is_empty() {
-        filters.push(Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(status),
-        });
-    }
-    let search = msg.query("search").to_string();
-    if !search.is_empty() {
-        filters.push(Filter {
-            field: "name".to_string(),
-            operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", escape_like(&search))),
-        });
-    }
+    filters.extend(product_filters(msg));
 
-    let sort = vec![SortField {
-        field: "created_at".to_string(),
-        desc: true,
-    }];
-    match db::paginated_list(
-        ctx,
-        PRODUCTS_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
-        Ok(result) => ok_json(&result),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_list(ctx, msg, PRODUCTS_TABLE, filters, None).await
 }
 
 async fn handle_user_get_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path.strip_prefix("/b/products/products/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request("Missing product ID");
-    }
-
-    match db::get(ctx, PRODUCTS_TABLE, id).await {
-        Ok(record) => {
-            if field_as_string(&record, "created_by") != user_id {
-                return err_not_found("Product not found");
-            }
-            ok_json(&record)
-        }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Product not found"),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_get_owned(ctx, msg, &USER_PRODUCT).await
 }
 
 async fn handle_user_create_product(
@@ -568,14 +528,9 @@ async fn handle_user_create_product(
         }
     }
 
-    let now = chrono::Utc::now().to_rfc3339();
     data.entry("status".to_string())
         .or_insert(serde_json::Value::String("draft".to_string()));
-    data.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(now.clone()),
-    );
-    data.insert("updated_at".to_string(), serde_json::Value::String(now));
+    stamp_created(&mut data);
     data.insert("created_by".to_string(), serde_json::Value::String(user_id));
     // Default product_template_id to the seeded "default" template's real
     // (UUIDv7) id if the caller didn't specify one. The previous fallback
@@ -605,70 +560,12 @@ async fn handle_user_update_product(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/b/products/products/")
-        .unwrap_or("")
-        .to_string();
-    if id.is_empty() {
-        return err_bad_request("Missing product ID");
-    }
-
-    // Verify ownership
-    match db::get(ctx, PRODUCTS_TABLE, &id).await {
-        Ok(record) => {
-            if field_as_string(&record, "created_by") != user_id {
-                return err_not_found("Product not found");
-            }
-        }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Product not found"),
-        Err(e) => return err_internal("Database error", e),
-    }
-
-    let raw = input.collect_to_bytes().await;
-    let mut body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-    };
-    body.remove("created_by"); // prevent ownership change
-    body.insert(
-        "updated_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-
-    match db::update(ctx, PRODUCTS_TABLE, &id, body).await {
-        Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
-    }
+    // Strip created_by to prevent ownership change.
+    crud::crud_update_owned(ctx, msg, input, &USER_PRODUCT, &["created_by"]).await
 }
 
 async fn handle_user_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/b/products/products/")
-        .unwrap_or("")
-        .to_string();
-    if id.is_empty() {
-        return err_bad_request("Missing product ID");
-    }
-
-    // Verify ownership
-    match db::get(ctx, PRODUCTS_TABLE, &id).await {
-        Ok(record) => {
-            if field_as_string(&record, "created_by") != user_id {
-                return err_not_found("Product not found");
-            }
-        }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Product not found"),
-        Err(e) => return err_internal("Database error", e),
-    }
-
-    match db::delete(ctx, PRODUCTS_TABLE, &id).await {
-        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_delete_owned(ctx, msg, &USER_PRODUCT).await
 }
 
 // --- User's own groups ---
@@ -699,23 +596,7 @@ async fn handle_user_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStre
 }
 
 async fn handle_user_get_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path.strip_prefix("/b/products/groups/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request("Missing group ID");
-    }
-
-    match db::get(ctx, GROUPS_TABLE, id).await {
-        Ok(record) => {
-            if field_as_string(&record, "user_id") != user_id {
-                return err_not_found("Group not found");
-            }
-            ok_json(&record)
-        }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Group not found"),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_get_owned(ctx, msg, &USER_GROUP).await
 }
 
 async fn handle_user_create_group(
@@ -733,10 +614,7 @@ async fn handle_user_create_group(
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
-    body.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
+    stamp_created(&mut body);
     body.insert("user_id".to_string(), serde_json::Value::String(user_id));
     // Default group_template_id to the seeded "default" template's real
     // (UUIDv7) id — same reasoning as for product_template_id above.
@@ -764,71 +642,16 @@ async fn handle_user_update_group(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/b/products/groups/")
-        .unwrap_or("")
-        .to_string();
-    if id.is_empty() {
-        return err_bad_request("Missing group ID");
-    }
-
-    // Verify ownership
-    match db::get(ctx, GROUPS_TABLE, &id).await {
-        Ok(record) => {
-            if field_as_string(&record, "user_id") != user_id {
-                return err_not_found("Group not found");
-            }
-        }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Group not found"),
-        Err(e) => return err_internal("Database error", e),
-    }
-
-    let raw = input.collect_to_bytes().await;
-    let mut body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-    };
-    body.remove("user_id"); // prevent ownership change
-
-    match db::update(ctx, GROUPS_TABLE, &id, body).await {
-        Ok(record) => ok_json(&record),
-        Err(e) => err_internal("Database error", e),
-    }
+    // Strip user_id to prevent ownership change.
+    crud::crud_update_owned(ctx, msg, input, &USER_GROUP, &["user_id"]).await
 }
 
 async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/b/products/groups/")
-        .unwrap_or("")
-        .to_string();
-    if id.is_empty() {
-        return err_bad_request("Missing group ID");
-    }
-
-    // Verify ownership
-    match db::get(ctx, GROUPS_TABLE, &id).await {
-        Ok(record) => {
-            if field_as_string(&record, "user_id") != user_id {
-                return err_not_found("Group not found");
-            }
-        }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Group not found"),
-        Err(e) => return err_internal("Database error", e),
-    }
-
-    match db::delete(ctx, GROUPS_TABLE, &id).await {
-        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_delete_owned(ctx, msg, &USER_GROUP).await
 }
 
 // Products in a user's group
 async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
     let path = msg.path();
     // Path: /b/products/groups/{id}/products
     let rest = path.strip_prefix("/b/products/groups/").unwrap_or("");
@@ -837,39 +660,25 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
         return err_bad_request("Missing group ID");
     }
 
-    // Verify group ownership
-    match db::get(ctx, GROUPS_TABLE, group_id).await {
-        Ok(record) => {
-            if field_as_string(&record, "user_id") != user_id {
-                return err_not_found("Group not found");
-            }
-        }
-        Err(_) => return err_not_found("Group not found"),
+    if let Err(resp) = crud::verify_owner(
+        ctx,
+        GROUPS_TABLE,
+        group_id,
+        "user_id",
+        msg.user_id(),
+        "Group",
+    )
+    .await
+    {
+        return resp;
     }
 
-    let (page, page_size, _) = msg.pagination_params(20);
     let filters = vec![Filter {
         field: "group_id".to_string(),
         operator: FilterOp::Equal,
         value: serde_json::Value::String(group_id.to_string()),
     }];
-    let sort = vec![SortField {
-        field: "created_at".to_string(),
-        desc: true,
-    }];
-    match db::paginated_list(
-        ctx,
-        PRODUCTS_TABLE,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
-        Ok(result) => ok_json(&result),
-        Err(e) => err_internal("Database error", e),
-    }
+    crud::crud_list(ctx, msg, PRODUCTS_TABLE, filters, None).await
 }
 
 // User-accessible group templates (read-only)

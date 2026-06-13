@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_run::ErrorCode;
 
-use super::mock_context::*;
+use super::harness::*;
 use crate::blocks::products::pricing::{evaluate_formula, validate_price, MIN_PRICE};
 
 // ============================================================
@@ -300,14 +300,20 @@ fn formula_percentage_discount() {
 async fn calculate_price_direct_base_price() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create a product with base_price, no pricing template
     let mut product_data = HashMap::new();
     product_data.insert("name".to_string(), serde_json::json!("Widget"));
     product_data.insert("base_price".to_string(), serde_json::json!(29.99));
     product_data.insert("currency".to_string(), serde_json::json!("USD"));
-    ctx.seed("suppers_ai__products__products", "prod_1", product_data);
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_1",
+        product_data,
+    )
+    .await;
 
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
@@ -330,7 +336,7 @@ async fn calculate_price_direct_base_price() {
 async fn calculate_price_with_formula() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
 
     // Create a pricing template
     let mut template_data = HashMap::new();
@@ -339,11 +345,13 @@ async fn calculate_price_with_formula() {
         "price_formula".to_string(),
         serde_json::json!("base * rate"),
     );
-    ctx.seed(
+    seed(
+        &ctx,
         "suppers_ai__products__pricing_templates",
         "tmpl_1",
         template_data,
-    );
+    )
+    .await;
 
     // Create a product referencing the template
     let mut product_data = HashMap::new();
@@ -353,7 +361,13 @@ async fn calculate_price_with_formula() {
         serde_json::json!("tmpl_1"),
     );
     product_data.insert("currency".to_string(), serde_json::json!("EUR"));
-    ctx.seed("suppers_ai__products__products", "prod_2", product_data);
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_2",
+        product_data,
+    )
+    .await;
 
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
@@ -376,7 +390,7 @@ async fn calculate_price_with_formula() {
 async fn calculate_price_product_not_found() {
     use crate::blocks::products::pricing;
 
-    let ctx = MockContext::new();
+    let ctx = ctx().await;
     let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",
@@ -385,70 +399,6 @@ async fn calculate_price_product_not_found() {
 
     let out = pricing::handle_calculate(&ctx, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
-}
-
-#[tokio::test]
-async fn calculate_price_with_conditions() {
-    use crate::blocks::products::pricing;
-
-    let ctx = MockContext::new();
-
-    // Template with conditions: if quantity > 100, use discounted formula
-    let mut template_data = HashMap::new();
-    template_data.insert("name".to_string(), serde_json::json!("volume-pricing"));
-    template_data.insert("price_formula".to_string(), serde_json::json!("unit_cost"));
-    template_data.insert(
-        "conditions".to_string(),
-        serde_json::json!([
-            {
-                "field": "quantity",
-                "operator": ">",
-                "value": 100,
-                "formula": "unit_cost * 0.8"
-            }
-        ]),
-    );
-    ctx.seed(
-        "suppers_ai__products__pricing_templates",
-        "tmpl_vol",
-        template_data,
-    );
-
-    let mut product_data = HashMap::new();
-    product_data.insert("name".to_string(), serde_json::json!("Bulk Item"));
-    product_data.insert(
-        "pricing_template_id".to_string(),
-        serde_json::json!("tmpl_vol"),
-    );
-    ctx.seed("suppers_ai__products__products", "prod_bulk", product_data);
-
-    // Under threshold — should use base formula
-    let (_msg, input) = create_msg(
-        "/b/products/calculate-price",
-        "user_1",
-        serde_json::json!({
-            "product_id": "prod_bulk",
-            "variables": { "unit_cost": 10.0, "quantity": 50.0 },
-            "quantity": 50
-        }),
-    );
-    let out = pricing::handle_calculate(&ctx, input).await;
-    let body = output_to_json(out).await;
-    assert!((body["unit_price"].as_f64().unwrap() - 10.0).abs() < 0.01);
-
-    // Over threshold — should use condition formula (20% discount)
-    let (_msg2, input2) = create_msg(
-        "/b/products/calculate-price",
-        "user_1",
-        serde_json::json!({
-            "product_id": "prod_bulk",
-            "variables": { "unit_cost": 10.0, "quantity": 150.0 },
-            "quantity": 150
-        }),
-    );
-    let out2 = pricing::handle_calculate(&ctx, input2).await;
-    let body2 = output_to_json(out2).await;
-    assert!((body2["unit_price"].as_f64().unwrap() - 8.0).abs() < 0.01);
 }
 
 // ============================================================

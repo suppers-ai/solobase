@@ -72,10 +72,25 @@ impl TestContext {
     ///
     /// Makes a fresh `Arc<HashMap>` clone on each call — fine for tests,
     /// where the number of entries is small and mutations happen at setup time.
+    ///
+    /// Also (re)registers a real `wafer-run/config` service block backed by the
+    /// updated map, so block code that reads config through the typed client
+    /// (`wafer_core::clients::config::get`/`get_default`) sees the same values
+    /// as `config_get`. Without this, those client calls route to an
+    /// unregistered block and silently fall back to their hardcoded default.
     pub fn set_config(&mut self, key: &str, value: &str) {
         let mut map = (*self.config).clone();
         map.insert(key.to_string(), value.to_string());
         self.config = Arc::new(map);
+
+        let svc = wafer_core::service_blocks::config::EnvConfigService::new();
+        for (k, v) in self.config.iter() {
+            wafer_core::interfaces::config::service::ConfigService::set(&svc, k, v);
+        }
+        let block: Arc<dyn Block> = Arc::new(wafer_core::service_blocks::config::ConfigBlock::new(
+            Arc::new(svc),
+        ));
+        self.register_block("wafer-run/config", block);
     }
 
     /// Opt the test into WRAP enforcement on `call_block`.
@@ -164,6 +179,21 @@ impl TestContext {
         crate::blocks::vector::migrations::apply(&ctx)
             .await
             .expect("apply vector migrations in test fixture");
+        ctx
+    }
+
+    /// Build a `TestContext` with admin + products migrations applied.
+    ///
+    /// Admin migrations run first so the `suppers_ai__admin__block_settings`
+    /// tracking table exists before products' `apply_if_blessed` upserts its
+    /// `current_hash` row (the production ordering, enforced explicitly here).
+    /// Products' schema does not depend on auth, so auth migrations are
+    /// skipped.
+    pub async fn with_products() -> Self {
+        let ctx = Self::with_admin().await;
+        crate::blocks::products::migrations::apply(&ctx)
+            .await
+            .expect("apply products migrations in test fixture");
         ctx
     }
 
