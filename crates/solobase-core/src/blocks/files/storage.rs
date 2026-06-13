@@ -162,7 +162,7 @@ pub(super) const BUCKET_NAME_PATTERN: &str = "[a-z0-9]([a-z0-9-]*[a-z0-9])?";
 /// `pub(super)` so the share path uses the identical rule.
 pub(super) fn is_valid_bucket_name(name: &str) -> bool {
     let len = name.len();
-    if len < BUCKET_NAME_MIN_LEN || len > BUCKET_NAME_MAX_LEN {
+    if !(BUCKET_NAME_MIN_LEN..=BUCKET_NAME_MAX_LEN).contains(&len) {
         return false;
     }
     let bytes = name.as_bytes();
