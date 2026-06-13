@@ -715,4 +715,41 @@ mod tests {
             "is_enabled should return true after set_enabled(true)"
         );
     }
+
+    /// SEC-060 regression: the single-key getter must mask a `*_SECRET` value
+    /// even when its `sensitive` flag is 0 (the prior code masked on the flag
+    /// alone, leaking the secret here).
+    #[tokio::test]
+    async fn handle_get_masks_secret_suffix_without_flag() {
+        use crate::test_support::{admin_msg, output_json};
+
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        // Insert a *_SECRET row with the sensitive flag explicitly unset.
+        let mut data = json_map(serde_json::json!({
+            "key": "STRIPE_SECRET",
+            "value": "sk_live_supersecret",
+            "name": "Stripe secret",
+            "sensitive": 0,
+        }));
+        helpers::stamp_created(&mut data);
+        db::create(&ctx, VARIABLES_TABLE, data)
+            .await
+            .expect("seed secret var");
+
+        let msg = admin_msg("retrieve", "/admin/settings/STRIPE_SECRET");
+        let out = handle(&ctx, &msg, InputStream::empty()).await;
+        let body = output_json(out).await;
+        // `Record` serializes as `{ id, data: { value, ... } }`.
+        assert_eq!(
+            body.get("data")
+                .and_then(|d| d.get("value"))
+                .and_then(|v| v.as_str()),
+            Some(MASKED_VALUE),
+            "a *_SECRET value must be masked even with the sensitive flag unset"
+        );
+    }
 }

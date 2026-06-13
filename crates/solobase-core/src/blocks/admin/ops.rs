@@ -26,12 +26,10 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
-use super::logs::audit_log;
-use super::settings::VARIABLES_TABLE;
-use super::{ROLES_TABLE, USER_ROLES_TABLE};
-use crate::blocks::auth::USERS_TABLE;
-use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, RecordExt,
+use super::{logs::audit_log, settings::VARIABLES_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
+use crate::blocks::{
+    auth::USERS_TABLE,
+    helpers::{self, err_bad_request, err_forbidden, err_internal, err_not_found, RecordExt},
 };
 
 /// Masked placeholder shown in place of a sensitive value.
@@ -189,7 +187,11 @@ pub(super) async fn set_user_disabled(
         Err(e) => return Err(err_internal("Database error", e)),
     };
 
-    let action = if disabled { "user.disable" } else { "user.enable" };
+    let action = if disabled {
+        "user.disable"
+    } else {
+        "user.enable"
+    };
     audit_log(
         ctx,
         &admin_id,
@@ -510,5 +512,166 @@ mod tests {
         assert!(validate_url_value("https://192.168.1.1").is_err());
         assert!(validate_url_value("https://127.0.0.1").is_err());
         assert!(validate_url_value("https://example.com\r\nHost: evil").is_err());
+    }
+
+    // --- End-to-end regression tests for the security drifts this module
+    // closes. They run the ops functions against the real DatabaseBlock (via
+    // TestContext) so they exercise the same statements both surfaces now share.
+
+    use crate::test_support::{admin_msg, TestContext};
+
+    /// Assert an ops call succeeded. `OutputStream` (the `Err` arm) isn't
+    /// `Debug`, so `.expect()` can't be used directly.
+    #[track_caller]
+    fn expect_ok<T>(res: Result<T, OutputStream>) -> T {
+        match res {
+            Ok(v) => v,
+            Err(_) => panic!("expected ops call to succeed, got an error OutputStream"),
+        }
+    }
+
+    /// Set up a context with the admin schema (variables, roles, audit_logs).
+    async fn admin_ctx() -> TestContext {
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+        ctx
+    }
+
+    /// Count audit-log rows whose `action` matches.
+    async fn audit_count(ctx: &dyn Context, action: &str) -> usize {
+        let filters = vec![Filter {
+            field: "action".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(action.to_string()),
+        }];
+        db::list_all(ctx, super::super::logs::AUDIT_LOGS_TABLE, filters)
+            .await
+            .map(|r| r.len())
+            .unwrap_or(0)
+    }
+
+    /// SEC drift: the JSON variable path wrote zero audit rows. Both surfaces
+    /// now go through `create_variable` / `update_variable`, which always log.
+    #[tokio::test]
+    async fn variable_create_and_update_write_audit_rows() {
+        let ctx = admin_ctx().await;
+        let msg = admin_msg("create", "/admin/settings");
+
+        expect_ok(create_variable(&ctx, &msg, "SITE_NAME", "Acme", None, None, false).await);
+        assert_eq!(audit_count(&ctx, "variable.create").await, 1);
+
+        expect_ok(
+            update_variable(
+                &ctx,
+                &msg,
+                "SITE_NAME",
+                VariableUpdate {
+                    value: Some("Acme Two"),
+                    description: None,
+                },
+            )
+            .await,
+        );
+        assert_eq!(audit_count(&ctx, "variable.update").await, 1);
+    }
+
+    /// SEC drift: the SSR variable path ran no URL/SSRF validation. Both
+    /// surfaces now share the `_URL` check in create/update.
+    #[tokio::test]
+    async fn variable_url_keys_are_ssrf_validated_on_both_paths() {
+        let ctx = admin_ctx().await;
+        let msg = admin_msg("create", "/admin/settings");
+
+        // A private-IP URL is rejected on create.
+        assert!(create_variable(
+            &ctx,
+            &msg,
+            "WEBHOOK_URL",
+            "https://10.0.0.1/x",
+            None,
+            None,
+            false
+        )
+        .await
+        .is_err());
+        // ...and on update.
+        assert!(update_variable(
+            &ctx,
+            &msg,
+            "WEBHOOK_URL",
+            VariableUpdate {
+                value: Some("https://192.168.1.1"),
+                description: None,
+            },
+        )
+        .await
+        .is_err());
+        // A public HTTPS URL is accepted.
+        assert!(create_variable(
+            &ctx,
+            &msg,
+            "WEBHOOK_URL",
+            "https://example.com/hook",
+            None,
+            None,
+            false
+        )
+        .await
+        .is_ok());
+    }
+
+    /// A sensitive (`_SECRET` / `_KEY`) value can't be cleared to empty on
+    /// either surface (would break auth).
+    #[tokio::test]
+    async fn sensitive_key_cannot_be_cleared() {
+        let ctx = admin_ctx().await;
+        let msg = admin_msg("update", "/admin/settings");
+        assert!(update_variable(
+            &ctx,
+            &msg,
+            "JWT_SECRET",
+            VariableUpdate {
+                value: Some(""),
+                description: None,
+            },
+        )
+        .await
+        .is_err());
+    }
+
+    /// Self-disable and self-delete guards hold; a successful user mutation
+    /// writes an audit row.
+    #[tokio::test]
+    async fn user_self_mutation_guards_and_audit() {
+        let ctx = admin_ctx().await;
+        // The user mutations touch the auth `users` table.
+        crate::blocks::auth::migrations::apply(&ctx)
+            .await
+            .expect("apply auth migrations");
+        // admin_msg's user is "admin_1".
+        let msg = admin_msg("update", "/admin/users/admin_1");
+
+        // Disabling yourself is rejected (and writes no audit row).
+        assert!(set_user_disabled(&ctx, &msg, "admin_1", true)
+            .await
+            .is_err());
+        // Deleting yourself is rejected.
+        assert!(delete_user(&ctx, &msg, "admin_1").await.is_err());
+        assert_eq!(audit_count(&ctx, "user.disable").await, 0);
+
+        // Seed another user, then disable them — succeeds and logs.
+        let mut data = HashMap::new();
+        data.insert("id".to_string(), serde_json::json!("u2"));
+        data.insert("email".to_string(), serde_json::json!("u2@example.com"));
+        data.insert("display_name".to_string(), serde_json::json!("User Two"));
+        helpers::stamp_created(&mut data);
+        db::create(&ctx, USERS_TABLE, data)
+            .await
+            .expect("seed user");
+
+        expect_ok(set_user_disabled(&ctx, &msg, "u2", true).await);
+        assert_eq!(audit_count(&ctx, "user.disable").await, 1);
     }
 }
