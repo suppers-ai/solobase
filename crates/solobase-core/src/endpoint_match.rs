@@ -79,9 +79,7 @@ pub fn match_template<'p>(template: &str, path: &'p str) -> Option<Vec<(String, 
         }
 
         // Out of path segments: no match.
-        let Some(p) = p_segs.get(i) else {
-            return None;
-        };
+        let p = p_segs.get(i)?;
 
         if let Some(name) = t.strip_suffix('}').and_then(|s| s.strip_prefix('{')) {
             // Single-segment variable — reject empty segments so `/b/x//` does
