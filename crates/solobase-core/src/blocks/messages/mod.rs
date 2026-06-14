@@ -269,7 +269,12 @@ impl Block for MessagesBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         // A2A JSON-RPC endpoint — protocol-public (auth handled by the
         // JSON-RPC method handlers themselves). It does NOT pass through the
         // central router's prefix table: the shared pipeline dispatches `/a2a`

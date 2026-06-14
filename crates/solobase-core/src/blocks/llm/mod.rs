@@ -10,11 +10,9 @@ use std::sync::Arc;
 
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, HttpMethod, InputStream,
+    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
-
-use wafer_run::HttpMethod;
 
 use self::provider_admin::ProviderAdmin;
 use crate::{
@@ -59,14 +57,22 @@ const ROUTES: &[EndpointRoute<Route>] = &[
     EndpointRoute::new(HttpMethod::Get, "/b/llm/models", Route::ModelsPage),
     // Chat API
     EndpointRoute::new(HttpMethod::Post, "/b/llm/api/chat", Route::Chat),
-    EndpointRoute::new(HttpMethod::Post, "/b/llm/api/chat/stream", Route::ChatStream),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/llm/api/chat/stream",
+        Route::ChatStream,
+    ),
     // Provider CRUD (specific sub-resource first)
     EndpointRoute::new(
         HttpMethod::Post,
         "/b/llm/api/providers/{id}/discover-models",
         Route::DiscoverModels,
     ),
-    EndpointRoute::new(HttpMethod::Get, "/b/llm/api/providers", Route::ListProviders),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/llm/api/providers",
+        Route::ListProviders,
+    ),
     EndpointRoute::new(
         HttpMethod::Post,
         "/b/llm/api/providers",
@@ -491,7 +497,12 @@ impl Block for LlmBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         // Inter-block discovery endpoint: returns the configured default
         // `(provider, model)` target. Only accessible from another block (the
         // caller_id is set by `ctx.call_block`); never reachable from external

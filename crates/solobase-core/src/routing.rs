@@ -651,8 +651,8 @@ mod tests {
         // A block that owns a built-in prefix route ("/b/vector/") contributes
         // its declared endpoints to the inspector view even though the route
         // table has a single collapsed prefix entry.
-        let info = BlockInfo::new("suppers-ai/vector", "0.0.1", "http-handler@v1", "v")
-            .endpoints(vec![
+        let info =
+            BlockInfo::new("suppers-ai/vector", "0.0.1", "http-handler@v1", "v").endpoints(vec![
                 BlockEndpoint::post("/b/vector/api/query").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/vector/").auth(AuthLevel::Admin),
             ]);

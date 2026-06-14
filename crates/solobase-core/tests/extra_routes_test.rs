@@ -414,8 +414,13 @@ async fn llm_admin_ui_rejects_non_admin() {
     for path in ["/b/llm/providers", "/b/llm/models"] {
         let msg = make_msg_with_user(path, "user-1");
         let stream =
-            routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
-        assert_eq!(response_status(stream).await, 403, "{path} must reject non-admin");
+            routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+                .await;
+        assert_eq!(
+            response_status(stream).await,
+            403,
+            "{path} must reject non-admin"
+        );
     }
     assert!(ctx.calls().is_empty());
 }
@@ -435,7 +440,8 @@ async fn llm_admin_provider_crud_rejects_non_admin() {
     // DELETE /b/llm/api/providers/{id} — declared Admin, dynamic segment.
     let mut del = make_msg_with_user("/b/llm/api/providers/p-9", "user-1");
     del.set_meta("req.action", "delete");
-    let s2 = routing::route_to_block(&ctx, del, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    let s2 =
+        routing::route_to_block(&ctx, del, InputStream::empty(), &AllEnabled, &infos, &[]).await;
     assert_eq!(response_status(s2).await, 403);
 
     // POST /b/llm/api/models/{backend}/{model}/load — declared Admin.
@@ -454,23 +460,25 @@ async fn files_admin_pages_reject_non_admin_and_public_share_passes() {
     // `/b/storage/direct/{token}` Public. The files prefix is Public, so the
     // declared levels are the gate (the block dropped its inline `is_admin`).
     let ctx = RecordingContext::new();
-    let infos = vec![BlockInfo::new(
-        "suppers-ai/files",
-        "0.0.1",
-        "http-handler@v1",
-        "files",
-    )
-    .endpoints(vec![
-        BlockEndpoint::get("/b/storage/admin/buckets").auth(AuthLevel::Admin),
-        BlockEndpoint::get("/b/storage/").auth(AuthLevel::Authenticated),
-        BlockEndpoint::get("/b/storage/direct/{token}").auth(AuthLevel::Public),
-    ])];
+    let infos = vec![
+        BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "files").endpoints(vec![
+            BlockEndpoint::get("/b/storage/admin/buckets").auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/storage/").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/storage/direct/{token}").auth(AuthLevel::Public),
+        ]),
+    ];
 
     // Non-admin → 403 on admin page.
     let admin_page = make_msg_with_user("/b/storage/admin/buckets", "user-1");
-    let s1 =
-        routing::route_to_block(&ctx, admin_page, InputStream::empty(), &AllEnabled, &infos, &[])
-            .await;
+    let s1 = routing::route_to_block(
+        &ctx,
+        admin_page,
+        InputStream::empty(),
+        &AllEnabled,
+        &infos,
+        &[],
+    )
+    .await;
     assert_eq!(response_status(s1).await, 403);
 
     // Anonymous → 403 on the Authenticated bucket list.
@@ -527,9 +535,13 @@ async fn products_admin_api_rejects_non_admin() {
     for (action, path) in cases {
         let mut msg = make_msg_with_user(path, "user-1");
         msg.set_meta("req.action", *action);
-        let s =
-            routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
-        assert_eq!(response_status(s).await, 403, "{action} {path} must reject non-admin");
+        let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+        assert_eq!(
+            response_status(s).await,
+            403,
+            "{action} {path} must reject non-admin"
+        );
     }
     assert!(ctx.calls().is_empty());
 
@@ -548,19 +560,18 @@ async fn auth_ui_admin_settings_rejects_non_admin() {
     // Public — so the declared level is the sole gate (the deleted inline
     // `is_admin` check). A non-admin must be 403'd before dispatch.
     let ctx = RecordingContext::new();
-    let infos = vec![BlockInfo::new(
-        "suppers-ai/auth-ui",
-        "0.0.1",
-        "http-handler@v1",
-        "auth-ui",
-    )
-    .endpoints(vec![
-        BlockEndpoint::get("/b/auth/admin/settings").auth(AuthLevel::Admin),
-        BlockEndpoint::get("/b/auth/login").auth(AuthLevel::Public),
-    ])];
+    let infos = vec![
+        BlockInfo::new("suppers-ai/auth-ui", "0.0.1", "http-handler@v1", "auth-ui").endpoints(
+            vec![
+                BlockEndpoint::get("/b/auth/admin/settings").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/auth/login").auth(AuthLevel::Public),
+            ],
+        ),
+    ];
 
     let msg = make_msg_with_user("/b/auth/admin/settings", "user-1");
-    let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    let s =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
     assert_eq!(response_status(s).await, 403);
     assert!(ctx.calls().is_empty());
 

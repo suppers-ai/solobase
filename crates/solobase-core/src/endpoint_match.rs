@@ -180,7 +180,10 @@ pub fn dispatch_path<H: Copy>(
                 .map(|(k, v)| (k, v.to_string()))
                 .collect();
             for (name, value) in owned {
-                msg.set_meta(format!("{}{}", wafer_run::META_REQ_PARAM_PREFIX, name), value);
+                msg.set_meta(
+                    format!("{}{}", wafer_run::META_REQ_PARAM_PREFIX, name),
+                    value,
+                );
             }
             return Some(route.handler);
         }
@@ -270,7 +273,9 @@ mod tests {
     fn single_param_rejects_extra_segment() {
         // `{id}` is ONE segment — `/contexts/abc/entries` must not match the
         // get-context template (it belongs to the entries template).
-        assert!(match_template("/b/x/api/contexts/{id}", "/b/x/api/contexts/abc/entries").is_none());
+        assert!(
+            match_template("/b/x/api/contexts/{id}", "/b/x/api/contexts/abc/entries").is_none()
+        );
     }
 
     #[test]
@@ -307,7 +312,11 @@ mod tests {
 
     #[test]
     fn rest_param_binds_remaining_segments() {
-        let m = match_template("/b/storage/{bucket}/{prefix...}", "/b/storage/photos/2024/x").unwrap();
+        let m = match_template(
+            "/b/storage/{bucket}/{prefix...}",
+            "/b/storage/photos/2024/x",
+        )
+        .unwrap();
         assert_eq!(
             names(&m),
             vec![

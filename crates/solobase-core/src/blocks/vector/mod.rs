@@ -36,8 +36,16 @@ enum Route {
 const ROUTES: &[EndpointRoute<Route>] = &[
     EndpointRoute::new(HttpMethod::Get, "/b/vector/", Route::IndexListPage),
     EndpointRoute::new(HttpMethod::Get, "/b/vector/{name}/", Route::IndexDetailPage),
-    EndpointRoute::new(HttpMethod::Post, "/b/vector/api/indexes", Route::ApiCreateIndex),
-    EndpointRoute::new(HttpMethod::Get, "/b/vector/api/indexes", Route::ApiListIndexes),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/vector/api/indexes",
+        Route::ApiCreateIndex,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/vector/api/indexes",
+        Route::ApiListIndexes,
+    ),
     EndpointRoute::new(HttpMethod::Post, "/b/vector/api/upsert", Route::ApiUpsert),
     EndpointRoute::new(HttpMethod::Post, "/b/vector/api/query", Route::ApiQuery),
     EndpointRoute::new(HttpMethod::Post, "/b/vector/api/ingest", Route::ApiIngest),
@@ -121,7 +129,12 @@ impl Block for VectorBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         // Auth is enforced centrally by `route_to_block` from the declared
         // endpoint `AuthLevel` (UI pages → Admin, JSON API → Authenticated),
         // so the block holds no `user_id`/`is_admin` preamble. The matcher

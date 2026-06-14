@@ -628,7 +628,12 @@ impl Block for LegalPagesBlock {
             .default_enabled(false)
     }
 
-    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         // Auth is enforced centrally by `route_to_block` from the declared
         // endpoint `AuthLevel` (public reads, admin everything else) — the
         // block holds no `is_admin` preamble. Dispatch matches the same
@@ -648,7 +653,9 @@ impl Block for LegalPagesBlock {
             Route::AdminPublish => pages::handle_publish(ctx, &msg, input).await,
             Route::AdminSaveSettings => pages::handle_save_settings(ctx, input).await,
             Route::ApiList => self.handle_admin_list(ctx, &msg).await,
-            Route::ApiGet => crud::crud_get(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await,
+            Route::ApiGet => {
+                crud::crud_get(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await
+            }
             Route::ApiCreate => self.handle_admin_create(ctx, &msg, input).await,
             Route::ApiPublish => self.handle_admin_publish(ctx, &msg).await,
             Route::ApiUpdate => {

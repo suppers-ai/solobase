@@ -38,8 +38,16 @@ enum Route {
 /// resolves them like the old `contains("/objects/")` guards. `{name}` and
 /// `{key}` bind into `req.param.*`.
 const ROUTES: &[EndpointRoute<Route>] = &[
-    EndpointRoute::new(HttpMethod::Get, "/b/storage/api/buckets", Route::ListBuckets),
-    EndpointRoute::new(HttpMethod::Post, "/b/storage/api/buckets", Route::CreateBucket),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/storage/api/buckets",
+        Route::ListBuckets,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/storage/api/buckets",
+        Route::CreateBucket,
+    ),
     EndpointRoute::new(HttpMethod::Get, "/b/storage/api/search", Route::Search),
     EndpointRoute::new(HttpMethod::Get, "/b/storage/api/recent", Route::Recent),
     EndpointRoute::new(

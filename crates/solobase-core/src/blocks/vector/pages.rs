@@ -77,7 +77,11 @@ struct CreateIndexBody {
     keyword_search: bool,
 }
 
-pub(super) async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+pub(super) async fn create_index(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     // Accept either JSON (programmatic clients) or URL-encoded form
     // (htmx modal). Parse via the shared helper, then map fields explicitly

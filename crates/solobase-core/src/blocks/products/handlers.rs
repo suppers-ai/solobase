@@ -10,9 +10,7 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
-use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
-
-use wafer_run::HttpMethod;
+use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
 use super::PRICING_TABLE;
 use crate::{
@@ -60,30 +58,126 @@ pub(crate) enum AdminRoute {
 /// `purchases/{id}` so the refund route wins (the old `ends_with("/refund")`
 /// guard).
 const ADMIN_ROUTES: &[EndpointRoute<AdminRoute>] = &[
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/products", AdminRoute::ListProducts),
-    EndpointRoute::new(HttpMethod::Post, "/admin/b/products/products", AdminRoute::CreateProduct),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/products/{id}", AdminRoute::GetProduct),
-    EndpointRoute::new(HttpMethod::Patch, "/admin/b/products/products/{id}", AdminRoute::UpdateProduct),
-    EndpointRoute::new(HttpMethod::Delete, "/admin/b/products/products/{id}", AdminRoute::DeleteProduct),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/groups", AdminRoute::ListGroups),
-    EndpointRoute::new(HttpMethod::Post, "/admin/b/products/groups", AdminRoute::CreateGroup),
-    EndpointRoute::new(HttpMethod::Patch, "/admin/b/products/groups/{id}", AdminRoute::UpdateGroup),
-    EndpointRoute::new(HttpMethod::Delete, "/admin/b/products/groups/{id}", AdminRoute::DeleteGroup),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/types", AdminRoute::ListTypes),
-    EndpointRoute::new(HttpMethod::Post, "/admin/b/products/types", AdminRoute::CreateType),
-    EndpointRoute::new(HttpMethod::Delete, "/admin/b/products/types/{id}", AdminRoute::DeleteType),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/pricing", AdminRoute::ListPricing),
-    EndpointRoute::new(HttpMethod::Post, "/admin/b/products/pricing", AdminRoute::CreatePricing),
-    EndpointRoute::new(HttpMethod::Patch, "/admin/b/products/pricing/{id}", AdminRoute::UpdatePricing),
-    EndpointRoute::new(HttpMethod::Delete, "/admin/b/products/pricing/{id}", AdminRoute::DeletePricing),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/variables", AdminRoute::ListVariables),
-    EndpointRoute::new(HttpMethod::Post, "/admin/b/products/variables", AdminRoute::CreateVariable),
-    EndpointRoute::new(HttpMethod::Patch, "/admin/b/products/variables/{id}", AdminRoute::UpdateVariable),
-    EndpointRoute::new(HttpMethod::Delete, "/admin/b/products/variables/{id}", AdminRoute::DeleteVariable),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/purchases", AdminRoute::ListPurchases),
-    EndpointRoute::new(HttpMethod::Patch, "/admin/b/products/purchases/{id}/refund", AdminRoute::RefundPurchase),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/purchases/{id}", AdminRoute::GetPurchase),
-    EndpointRoute::new(HttpMethod::Get, "/admin/b/products/stats", AdminRoute::Stats),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/products",
+        AdminRoute::ListProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/products",
+        AdminRoute::CreateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/products/{id}",
+        AdminRoute::GetProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/products/{id}",
+        AdminRoute::UpdateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/products/{id}",
+        AdminRoute::DeleteProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/groups",
+        AdminRoute::ListGroups,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/groups",
+        AdminRoute::CreateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/groups/{id}",
+        AdminRoute::UpdateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/groups/{id}",
+        AdminRoute::DeleteGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/types",
+        AdminRoute::ListTypes,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/types",
+        AdminRoute::CreateType,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/types/{id}",
+        AdminRoute::DeleteType,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/pricing",
+        AdminRoute::ListPricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/pricing",
+        AdminRoute::CreatePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/pricing/{id}",
+        AdminRoute::UpdatePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/pricing/{id}",
+        AdminRoute::DeletePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/variables",
+        AdminRoute::ListVariables,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/variables",
+        AdminRoute::CreateVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/variables/{id}",
+        AdminRoute::UpdateVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/variables/{id}",
+        AdminRoute::DeleteVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/purchases",
+        AdminRoute::ListPurchases,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/purchases/{id}/refund",
+        AdminRoute::RefundPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/purchases/{id}",
+        AdminRoute::GetPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/stats",
+        AdminRoute::Stats,
+    ),
 ];
 
 /// User-facing dispatch targets (normalized `/b/products/...`).
@@ -141,31 +235,103 @@ impl UserRoute {
 /// `purchases/{id}`.
 const USER_ROUTES: &[EndpointRoute<UserRoute>] = &[
     // Own products
-    EndpointRoute::new(HttpMethod::Get, "/b/products/products", UserRoute::ListProducts),
-    EndpointRoute::new(HttpMethod::Post, "/b/products/products", UserRoute::CreateProduct),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/products/{id}", UserRoute::GetProduct),
-    EndpointRoute::new(HttpMethod::Patch, "/b/products/products/{id}", UserRoute::UpdateProduct),
-    EndpointRoute::new(HttpMethod::Delete, "/b/products/products/{id}", UserRoute::DeleteProduct),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/products",
+        UserRoute::ListProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/products",
+        UserRoute::CreateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/products/{id}",
+        UserRoute::GetProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/products/products/{id}",
+        UserRoute::UpdateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/products/products/{id}",
+        UserRoute::DeleteProduct,
+    ),
     // Own groups (group-products before the generic {id})
     EndpointRoute::new(HttpMethod::Get, "/b/products/groups", UserRoute::ListGroups),
-    EndpointRoute::new(HttpMethod::Post, "/b/products/groups", UserRoute::CreateGroup),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/groups/{id}/products", UserRoute::GroupProducts),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/groups/{id}", UserRoute::GetGroup),
-    EndpointRoute::new(HttpMethod::Patch, "/b/products/groups/{id}", UserRoute::UpdateGroup),
-    EndpointRoute::new(HttpMethod::Delete, "/b/products/groups/{id}", UserRoute::DeleteGroup),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/groups",
+        UserRoute::CreateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/groups/{id}/products",
+        UserRoute::GroupProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/groups/{id}",
+        UserRoute::GetGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/products/groups/{id}",
+        UserRoute::UpdateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/products/groups/{id}",
+        UserRoute::DeleteGroup,
+    ),
     // Read-only taxonomy
     EndpointRoute::new(HttpMethod::Get, "/b/products/types", UserRoute::ListTypes),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/group-templates", UserRoute::GroupTemplates),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/group-templates",
+        UserRoute::GroupTemplates,
+    ),
     // Catalog (public)
     EndpointRoute::new(HttpMethod::Get, "/b/products/catalog", UserRoute::Catalog),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/catalog/{id}", UserRoute::CatalogItem),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/catalog/{id}",
+        UserRoute::CatalogItem,
+    ),
     // Pricing / purchases / checkout
-    EndpointRoute::new(HttpMethod::Post, "/b/products/calculate-price", UserRoute::CalculatePrice),
-    EndpointRoute::new(HttpMethod::Post, "/b/products/purchases", UserRoute::CreatePurchase),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/purchases", UserRoute::ListPurchases),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/purchases/{id}", UserRoute::GetPurchase),
-    EndpointRoute::new(HttpMethod::Post, "/b/products/checkout", UserRoute::Checkout),
-    EndpointRoute::new(HttpMethod::Get, "/b/products/subscription", UserRoute::Subscription),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/calculate-price",
+        UserRoute::CalculatePrice,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/purchases",
+        UserRoute::CreatePurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/purchases",
+        UserRoute::ListPurchases,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/purchases/{id}",
+        UserRoute::GetPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/checkout",
+        UserRoute::Checkout,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/subscription",
+        UserRoute::Subscription,
+    ),
 ];
 
 /// Products catalog table — one row per product offering.

@@ -205,8 +205,12 @@ impl Block for AuthUiBlock {
             // the tier; the handler no longer re-checks `is_admin`. (The
             // auth-ui prefix route is Public, so this declared level is the
             // gate for the admin settings surface.)
-            BlockEndpoint::get("/b/auth/admin/settings").summary("Auth settings page").auth(AuthLevel::Admin),
-            BlockEndpoint::post("/b/auth/admin/settings").summary("Save auth settings").auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/auth/admin/settings")
+                .summary("Auth settings page")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/auth/admin/settings")
+                .summary("Save auth settings")
+                .auth(AuthLevel::Admin),
             // SSR pages
             BlockEndpoint::get("/b/auth/login").summary("Login page"),
             BlockEndpoint::get("/b/auth/signup").summary("Signup page"),
@@ -310,10 +314,14 @@ impl Block for AuthUiBlock {
             ("create", "/auth/api/api-keys") => {
                 api::api_keys::handle_create(ctx, &msg, input).await
             }
-            ("update", p) if endpoint_match::match_template("/auth/api/api-keys/{id}", p).is_some() => {
+            ("update", p)
+                if endpoint_match::match_template("/auth/api/api-keys/{id}", p).is_some() =>
+            {
                 api::api_keys::handle_revoke(ctx, &msg).await
             }
-            ("delete", p) if endpoint_match::match_template("/auth/api/api-keys/{id}", p).is_some() => {
+            ("delete", p)
+                if endpoint_match::match_template("/auth/api/api-keys/{id}", p).is_some() =>
+            {
                 api::api_keys::handle_delete(ctx, &msg).await
             }
             // Email verification
