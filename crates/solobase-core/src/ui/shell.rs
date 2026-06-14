@@ -142,7 +142,7 @@ mod tests {
         NavItem {
             label: label.to_string(),
             href: href.to_string(),
-            icon: "circle",
+            icon: crate::ui::icons::package,
             external: false,
         }
     }

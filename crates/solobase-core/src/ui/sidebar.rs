@@ -4,7 +4,13 @@ use maud::Markup;
 
 use super::icons;
 
-/// Map icon name strings to icon functions.
+/// Resolve a *user-supplied* icon-name string (stored in the DB by the
+/// userportal admin-button editor, chosen from a fixed `ICON_OPTIONS`
+/// dropdown) to its icon markup. The compile-time sidebar nav no longer
+/// goes through here — `NavItem.icon` is a typed `fn() -> Markup`, so a
+/// misspelled icon in `nav_groups.rs` is a build error rather than a silent
+/// fallback. This resolver survives only for the genuinely-dynamic case
+/// where the name comes from user input at runtime.
 pub fn nav_icon(name: &str) -> Markup {
     match name {
         "layout-dashboard" | "dashboard" => icons::layout_dashboard(),
@@ -79,7 +85,7 @@ pub fn sidebar_grouped(
                                           target=[item.external.then_some("_blank")]
                                           rel=[item.external.then_some("noopener noreferrer")] {
                                             span .sidebar__nav-icon {
-                                                (nav_icon(item.icon))
+                                                ((item.icon)())
                                             }
                                             span .sidebar__nav-label { (item.label) }
                                         }
@@ -172,7 +178,7 @@ mod tests {
         NavItem {
             label: label.to_string(),
             href: href.to_string(),
-            icon: "circle",
+            icon: icons::package,
             external: false,
         }
     }

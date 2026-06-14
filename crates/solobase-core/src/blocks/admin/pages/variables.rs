@@ -23,20 +23,20 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
             }
         }
 
-        div .tabs {
-            a .tab .(if active_tab == "blocks" { "active" } else { "" })
-                href="/b/admin/settings/variables"
-                hx-get="/b/admin/settings/variables"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::package()) " By Block" }
-            a .tab .(if active_tab == "all" { "active" } else { "" })
-                href="/b/admin/settings/variables?tab=all"
-                hx-get="/b/admin/settings/variables?tab=all"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::file_text()) " All Variables" }
-        }
+        (components::tab_navigation(vec![
+            components::Tab {
+                active: active_tab == "blocks",
+                href: "/b/admin/settings/variables",
+                label: "By Block",
+                icon: Some(icons::package()),
+            },
+            components::Tab {
+                active: active_tab == "all",
+                href: "/b/admin/settings/variables?tab=all",
+                label: "All Variables",
+                icon: Some(icons::file_text()),
+            },
+        ]))
 
         div #variables-content {
             @if active_tab == "all" {

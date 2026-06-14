@@ -12,28 +12,40 @@ use super::icons;
 // Tab Navigation
 // ---------------------------------------------------------------------------
 
-/// A tab definition.
-pub struct Tab {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub href: String,
-    pub icon: Option<&'static str>,
+/// One tab in a [`tab_navigation`] bar.
+///
+/// `icon` is pre-rendered [`Markup`] (e.g. `icons::users()`) so each call site
+/// references the icon function directly — no name-string lookup, no silent
+/// fallback. `href` is borrowed; the same URL feeds both the `href` and the
+/// `hx-get` so the htmx swap and a no-JS click navigate identically.
+pub struct Tab<'a> {
+    /// Whether this tab is the active one (renders the `active` class).
+    pub active: bool,
+    /// Destination URL — used for both `href` and `hx-get`.
+    pub href: &'a str,
+    /// Visible label.
+    pub label: &'a str,
+    /// Optional leading icon markup.
+    pub icon: Option<Markup>,
 }
 
-/// Render a tab navigation bar.
-pub fn tab_navigation(tabs: &[Tab], active_id: &str) -> Markup {
+/// Render an htmx tab bar: each tab swaps `#content` and pushes its URL.
+///
+/// This is the single place the admin pages' tab strips are defined, so the
+/// `hx-target` / `hx-push-url` behavior lives in one spot.
+pub fn tab_navigation(tabs: Vec<Tab<'_>>) -> Markup {
     html! {
         div .tabs {
             @for tab in tabs {
                 a .tab
-                    .(if tab.id == active_id { "active" } else { "" })
+                    .(if tab.active { "active" } else { "" })
                     href=(tab.href)
                     hx-get=(tab.href)
                     hx-target="#content"
                     hx-push-url="true"
                 {
-                    @if let Some(icon_name) = tab.icon {
-                        span .nav-icon { (super::sidebar::nav_icon(icon_name)) }
+                    @if let Some(icon) = tab.icon {
+                        (icon) " "
                     }
                     (tab.label)
                 }

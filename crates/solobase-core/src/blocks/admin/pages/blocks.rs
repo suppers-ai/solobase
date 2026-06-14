@@ -7,7 +7,7 @@ use crate::{
     blocks::admin::BLOCK_SETTINGS_TABLE as BLOCK_SETTINGS,
     ui::{
         self,
-        components::empty_state,
+        components::{empty_state, tab_navigation, Tab},
         icons,
         shell::Topbar,
         templates::{list_page, PageHeader},
@@ -97,32 +97,32 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let tabs_and_body = html! {
-        div .tabs {
-            a .tab .(if active_tab == "features" { "active" } else { "" })
-                href="/b/admin/blocks"
-                hx-get="/b/admin/blocks"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::package()) " Features" }
-            a .tab .(if active_tab == "services" { "active" } else { "" })
-                href="/b/admin/blocks?tab=services"
-                hx-get="/b/admin/blocks?tab=services"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::server()) " Services" }
-            a .tab .(if active_tab == "infrastructure" { "active" } else { "" })
-                href="/b/admin/blocks?tab=infrastructure"
-                hx-get="/b/admin/blocks?tab=infrastructure"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::settings()) " Infrastructure" }
-            a .tab .(if active_tab == "custom" { "active" } else { "" })
-                href="/b/admin/blocks?tab=custom"
-                hx-get="/b/admin/blocks?tab=custom"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::package()) " Custom" }
-        }
+        (tab_navigation(vec![
+            Tab {
+                active: active_tab == "features",
+                href: "/b/admin/blocks",
+                label: "Features",
+                icon: Some(icons::package()),
+            },
+            Tab {
+                active: active_tab == "services",
+                href: "/b/admin/blocks?tab=services",
+                label: "Services",
+                icon: Some(icons::server()),
+            },
+            Tab {
+                active: active_tab == "infrastructure",
+                href: "/b/admin/blocks?tab=infrastructure",
+                label: "Infrastructure",
+                icon: Some(icons::settings()),
+            },
+            Tab {
+                active: active_tab == "custom",
+                href: "/b/admin/blocks?tab=custom",
+                label: "Custom",
+                icon: Some(icons::package()),
+            },
+        ]))
 
         div #blocks-tab-content {
             @if active_tab == "custom" {

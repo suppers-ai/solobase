@@ -182,25 +182,26 @@ fn group_label(group_key: &str) -> (String, String) {
 }
 
 fn right_pane_tabs(selected: Option<&str>, tab: Tab) -> Markup {
+    use crate::ui::components::{tab_navigation, Tab as NavTab};
     let table_qs = selected
         .map(|t| format!("&table={}", pct_encode(t)))
         .unwrap_or_default();
-    html! {
-        nav .tabs {
-            a .tab .(if tab == Tab::Schema { "active" } else { "" })
-                href={"/b/admin/database?tab=schema" (table_qs)}
-                hx-get={"/b/admin/database?tab=schema" (table_qs)}
-                hx-target="#content"
-                hx-push-url="true"
-            { "Schema" }
-            a .tab .(if tab == Tab::Sql { "active" } else { "" })
-                href={"/b/admin/database?tab=sql" (table_qs)}
-                hx-get={"/b/admin/database?tab=sql" (table_qs)}
-                hx-target="#content"
-                hx-push-url="true"
-            { "SQL editor" }
-        }
-    }
+    let schema_href = format!("/b/admin/database?tab=schema{table_qs}");
+    let sql_href = format!("/b/admin/database?tab=sql{table_qs}");
+    tab_navigation(vec![
+        NavTab {
+            active: tab == Tab::Schema,
+            href: &schema_href,
+            label: "Schema",
+            icon: None,
+        },
+        NavTab {
+            active: tab == Tab::Sql,
+            href: &sql_href,
+            label: "SQL editor",
+            icon: None,
+        },
+    ])
 }
 
 async fn schema_panel(ctx: &dyn Context, table: Option<&str>) -> Markup {
