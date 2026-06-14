@@ -449,6 +449,37 @@ async fn llm_admin_provider_crud_rejects_non_admin() {
 }
 
 #[tokio::test]
+async fn auth_ui_admin_settings_rejects_non_admin() {
+    // `/b/auth/admin/settings` is declared `Admin` while the auth-ui prefix is
+    // Public — so the declared level is the sole gate (the deleted inline
+    // `is_admin` check). A non-admin must be 403'd before dispatch.
+    let ctx = RecordingContext::new();
+    let infos = vec![BlockInfo::new(
+        "suppers-ai/auth-ui",
+        "0.0.1",
+        "http-handler@v1",
+        "auth-ui",
+    )
+    .endpoints(vec![
+        BlockEndpoint::get("/b/auth/admin/settings").auth(AuthLevel::Admin),
+        BlockEndpoint::get("/b/auth/login").auth(AuthLevel::Public),
+    ])];
+
+    let msg = make_msg_with_user("/b/auth/admin/settings", "user-1");
+    let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s).await, 403);
+    assert!(ctx.calls().is_empty());
+
+    // The public login page still dispatches anonymously.
+    let ctx2 = RecordingContext::new();
+    let login = make_msg("/b/auth/login");
+    let s2 =
+        routing::route_to_block(&ctx2, login, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s2).await, 200);
+    assert_eq!(ctx2.calls(), vec!["suppers-ai/auth-ui".to_string()]);
+}
+
+#[tokio::test]
 async fn llm_chat_allows_authenticated_non_admin() {
     let ctx = RecordingContext::new();
     let infos = llm_infos();
