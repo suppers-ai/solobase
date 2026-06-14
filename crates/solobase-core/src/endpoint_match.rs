@@ -193,23 +193,54 @@ pub fn dispatch_path<H: Copy>(
 /// declared endpoint [`AuthLevel`]s. Used by the central router to enforce the
 /// declared level before dispatch.
 ///
-/// Returns the [`AuthLevel`] of the first declared endpoint whose method+path
-/// template matches `(action, path)`, or `None` when no declared endpoint
-/// covers the request (the caller then falls back to the coarse prefix tier).
+/// Returns the **strictest** [`AuthLevel`] (`Public < Authenticated < Admin`)
+/// among ALL declared endpoints whose method+path template matches `(action,
+/// path)`, or `None` when no declared endpoint covers the request (the caller
+/// then falls back to the coarse prefix tier).
+///
+/// Strictest-match — not first-match — is deliberate and load-bearing for
+/// security: a path can be covered by more than one template (e.g.
+/// `/b/storage/admin/` matches both the generic `/b/storage/{bucket}/` and the
+/// specific `/b/storage/admin/`). If this returned the *first* match, a
+/// permissive generic endpoint declared before a stricter specific one would
+/// silently weaken it — letting an authenticated non-admin reach an admin page
+/// purely because of endpoint declaration order. Taking the max means
+/// declaration order can never lower the required auth level; the worst a
+/// mis-ordered declaration can do is over-protect, which fails safe. This
+/// mirrors the `RouteAccess::max` discipline the router already applies between
+/// the prefix tier and the declared level.
 pub fn endpoint_auth(
     endpoints: &[wafer_run::BlockEndpoint],
     action: &str,
     path: &str,
 ) -> Option<AuthLevel> {
+    let mut strictest: Option<AuthLevel> = None;
     for ep in endpoints {
         if action_for_method(ep.method) != action {
             continue;
         }
         if match_template(&normalize_template(&ep.path), path).is_some() {
-            return Some(ep.auth);
+            strictest = Some(match strictest {
+                Some(cur) if auth_rank(cur) >= auth_rank(ep.auth) => cur,
+                _ => ep.auth,
+            });
         }
     }
-    None
+    strictest
+}
+
+/// Strictness rank for an [`AuthLevel`] (`Public < Authenticated < Admin`).
+///
+/// `AuthLevel` is defined upstream (wafer-block) without an `Ord` derive, so
+/// this is the local ordering used by [`endpoint_auth`] to pick the strictest
+/// matching endpoint. The numbers are an internal detail — only their relative
+/// order matters.
+fn auth_rank(level: AuthLevel) -> u8 {
+    match level {
+        AuthLevel::Public => 0,
+        AuthLevel::Authenticated => 1,
+        AuthLevel::Admin => 2,
+    }
 }
 
 /// Normalize a declared endpoint template to the matcher's `{rest...}` syntax.
@@ -400,6 +431,46 @@ mod tests {
         assert_eq!(
             endpoint_auth(&eps, "retrieve", "/b/legalpages/api/documents"),
             None
+        );
+    }
+
+    #[test]
+    fn endpoint_auth_takes_strictest_match_regardless_of_order() {
+        use wafer_run::BlockEndpoint;
+        // `/b/storage/admin/` matches BOTH the generic `{bucket}/`
+        // (Authenticated) and the specific `admin/` (Admin). The generic is
+        // declared FIRST — first-match would resolve to Authenticated and let a
+        // non-admin through. Strictest-match must resolve to Admin.
+        let eps = vec![
+            BlockEndpoint::get("/b/storage/{bucket}/").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/storage/admin/").auth(AuthLevel::Admin),
+        ];
+        assert_eq!(
+            endpoint_auth(&eps, "retrieve", "/b/storage/admin/"),
+            Some(AuthLevel::Admin),
+            "a stricter specific endpoint must win over a permissive generic one \
+             declared earlier"
+        );
+        // A genuine bucket name still resolves to the generic Authenticated tier.
+        assert_eq!(
+            endpoint_auth(&eps, "retrieve", "/b/storage/photos/"),
+            Some(AuthLevel::Authenticated)
+        );
+    }
+
+    #[test]
+    fn endpoint_auth_strictest_independent_of_declaration_order() {
+        use wafer_run::BlockEndpoint;
+        // Same as above but with the Admin endpoint declared FIRST — the result
+        // must be identical (Admin), proving order-independence in both
+        // directions.
+        let eps = vec![
+            BlockEndpoint::get("/b/storage/admin/").auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/storage/{bucket}/").auth(AuthLevel::Authenticated),
+        ];
+        assert_eq!(
+            endpoint_auth(&eps, "retrieve", "/b/storage/admin/"),
+            Some(AuthLevel::Admin)
         );
     }
 

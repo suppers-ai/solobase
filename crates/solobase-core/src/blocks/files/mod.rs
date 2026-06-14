@@ -85,6 +85,17 @@ impl Block for FilesBlock {
                 // Admin SSR pages — declared `Admin` so the central router
                 // enforces the tier (the block dropped its inline `is_admin`
                 // check for `/b/storage/admin/*`).
+                //
+                // The overview is served by `handle()` for BOTH the canonical
+                // slash form (`/b/storage/admin/`, the `admin_url`) and the
+                // bare no-slash form (`/b/storage/admin`) via its
+                // `"" | "/" => overview` dispatch arm. The central router's
+                // matcher is trailing-slash-significant, so BOTH must be
+                // declared `Admin` — declaring only the slash form would leave
+                // the no-slash form governed solely by the Public `/b/storage/`
+                // prefix tier, letting an anonymous request reach the storage
+                // admin overview.
+                BlockEndpoint::get("/b/storage/admin").summary("Storage admin overview").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/storage/admin/").summary("Storage admin overview").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/storage/admin/buckets").summary("All buckets (admin)").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/storage/admin/shares").summary("All shares (admin)").auth(AuthLevel::Admin),

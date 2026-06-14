@@ -598,3 +598,125 @@ async fn llm_chat_allows_authenticated_non_admin() {
     assert_eq!(response_status(stream).await, 200);
     assert_eq!(ctx.calls(), vec!["suppers-ai/llm".to_string()]);
 }
+
+// ---------------------------------------------------------------------------
+// No-trailing-slash admin-overview regression guards (S4-U).
+//
+// These drive `route_to_block` with the **real** `blocks::all_block_infos()`
+// (not a hand-copied fixture) so the test can never drift from what the blocks
+// actually declare in `info()`. That drift is exactly why the original
+// regression slipped through: the existing products/files central-enforcement
+// tests above hand-copied the SLASH-only declaration, so they never exercised
+// the no-slash form the block's `"" | "/" => overview` dispatch arm serves.
+//
+// The bug class: a block answers BOTH `/b/x/admin` and `/b/x/admin/` for its
+// admin overview, the central matcher is trailing-slash-significant, and the
+// `/b/x` prefix tier is Public — so if `info()` declares only the slash form,
+// the no-slash form falls back to Public and an anonymous request reaches the
+// admin overview. Both forms must be declared `Admin` and enforced centrally.
+// ---------------------------------------------------------------------------
+
+/// The exact endpoints the named block declares in `info()`, pulled from the
+/// production registry (`blocks::all_block_infos()`) rather than re-typed here.
+fn real_block_info(name: &str) -> BlockInfo {
+    solobase_core::blocks::all_block_infos()
+        .into_iter()
+        .find(|i| i.name == name)
+        .unwrap_or_else(|| panic!("block {name} not in all_block_infos()"))
+}
+
+/// Assert that every variant of an admin overview path is gated `Admin`
+/// centrally (403 before dispatch) for both anonymous and authenticated
+/// non-admin callers, driving the block's REAL declared endpoints.
+async fn assert_admin_overview_gated(block_name: &str, paths: &[&str]) {
+    let infos = vec![real_block_info(block_name)];
+
+    // Anonymous.
+    for path in paths {
+        let ctx = RecordingContext::new();
+        let msg = make_msg(path);
+        let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+        assert_eq!(
+            response_status(s).await,
+            403,
+            "anonymous {path} ({block_name}) must be rejected (admin overview)"
+        );
+        assert!(
+            ctx.calls().is_empty(),
+            "{path} must NOT dispatch to {block_name}"
+        );
+    }
+
+    // Authenticated non-admin.
+    for path in paths {
+        let ctx = RecordingContext::new();
+        let msg = make_msg_with_user(path, "user-1");
+        let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+        assert_eq!(
+            response_status(s).await,
+            403,
+            "non-admin {path} ({block_name}) must be rejected"
+        );
+        assert!(ctx.calls().is_empty());
+    }
+}
+
+#[cfg(feature = "block-products")]
+#[tokio::test]
+async fn products_admin_overview_rejects_unauthorized_with_and_without_trailing_slash() {
+    assert_admin_overview_gated(
+        "suppers-ai/products",
+        &["/b/products/admin", "/b/products/admin/"],
+    )
+    .await;
+}
+
+#[cfg(feature = "block-files")]
+#[tokio::test]
+async fn files_admin_overview_rejects_unauthorized_with_and_without_trailing_slash() {
+    assert_admin_overview_gated(
+        "suppers-ai/files",
+        &["/b/storage/admin", "/b/storage/admin/"],
+    )
+    .await;
+}
+
+#[cfg(feature = "block-products")]
+#[tokio::test]
+async fn products_admin_overview_allows_admin_both_forms() {
+    // The admin still reaches the overview on both forms (the fix gates, it does
+    // not 404 the no-slash convenience path).
+    let infos = vec![real_block_info("suppers-ai/products")];
+    for path in ["/b/products/admin", "/b/products/admin/"] {
+        let ctx = RecordingContext::new();
+        let msg = make_msg_with_admin(path, "admin-1");
+        let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+        assert_eq!(
+            response_status(s).await,
+            200,
+            "admin {path} should dispatch"
+        );
+        assert_eq!(ctx.calls(), vec!["suppers-ai/products".to_string()]);
+    }
+}
+
+#[cfg(feature = "block-files")]
+#[tokio::test]
+async fn files_admin_overview_allows_admin_both_forms() {
+    let infos = vec![real_block_info("suppers-ai/files")];
+    for path in ["/b/storage/admin", "/b/storage/admin/"] {
+        let ctx = RecordingContext::new();
+        let msg = make_msg_with_admin(path, "admin-1");
+        let s = routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+        assert_eq!(
+            response_status(s).await,
+            200,
+            "admin {path} should dispatch"
+        );
+        assert_eq!(ctx.calls(), vec!["suppers-ai/files".to_string()]);
+    }
+}

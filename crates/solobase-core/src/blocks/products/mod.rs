@@ -126,7 +126,19 @@ impl Block for ProductsBlock {
             // user-facing purchase/checkout/subscription routes are
             // `Authenticated`.
             .endpoints(vec![
-                // SSR admin pages
+                // SSR admin pages.
+                //
+                // The overview is served by `handle()` for BOTH the canonical
+                // slash form (`/b/products/admin/`, the `admin_url`) and the
+                // bare no-slash form (`/b/products/admin`) via its
+                // `"" | "/" => overview` dispatch arm. The central router's
+                // matcher is trailing-slash-significant, so BOTH forms must be
+                // declared `Admin` — declaring only the slash form would leave
+                // the no-slash form governed solely by the Public `/b/products`
+                // prefix tier, letting an anonymous request reach the admin
+                // overview (the dispatch table and the declared surface must
+                // agree on every path the block actually answers).
+                BlockEndpoint::get("/b/products/admin").summary("Overview").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/products/admin/").summary("Overview").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/products/admin/manage").summary("Manage products").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/products/admin/groups").summary("Manage groups").auth(AuthLevel::Admin),
