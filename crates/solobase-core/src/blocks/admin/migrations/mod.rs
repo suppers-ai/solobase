@@ -44,6 +44,24 @@ pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     .await
 }
 
+/// The admin migration SQL files for the given `db_type`, in apply order —
+/// the same constants [`apply`] feeds the gated runner. `"postgres"`
+/// (case-insensitive) selects the postgres dialect; everything else selects
+/// SQLite, matching [`crate::migration_helper::db_backend`].
+///
+/// Exposed so the native CLI can create the admin tables *before* the wafer
+/// exists (it seeds the JWT secret + block_settings pre-build), via
+/// [`crate::migration_helper::apply_ddl_via_service`]. Cloudflare and browser
+/// don't need this — their seeders run after the gated `apply` has already
+/// created the tables at `init_block(admin)`.
+pub fn ddl_files(db_type: &str) -> &'static [&'static str] {
+    if db_type.eq_ignore_ascii_case("postgres") {
+        &[SQL_001_POSTGRES, SQL_002_POSTGRES, SQL_003_POSTGRES]
+    } else {
+        &[SQL_001_SQLITE, SQL_002_SQLITE, SQL_003_SQLITE]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
