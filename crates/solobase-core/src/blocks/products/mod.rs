@@ -16,10 +16,7 @@ pub(crate) use handlers::{
 pub(crate) use pricing::TABLE as PRICING_TABLE;
 pub(crate) use repo::purchases::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
 pub(crate) use variables::TABLE as VARIABLES_TABLE;
-use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream, InputType,
-    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
-};
+use wafer_run::{BlockEndpoint, BlockInfo, ConfigVar, InputType, InstanceMode};
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::err_not_found;
@@ -71,28 +68,12 @@ pub(crate) fn config_vars() -> Vec<ConfigVar> {
     ]
 }
 
-pub struct ProductsBlock {
-    limiter: UserRateLimiter,
-}
-
-impl Default for ProductsBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ProductsBlock {
-    pub fn new() -> Self {
-        Self {
-            limiter: UserRateLimiter::new(),
-        }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for ProductsBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Products, groups, pricing, purchases, subscriptions (`suppers-ai/products`).
+    pub struct ProductsBlock;
+    fields: { limiter: UserRateLimiter },
+    name: "suppers-ai/products",
+    info: |_this| {
         use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
@@ -188,14 +169,8 @@ impl Block for ProductsBlock {
             .config_keys(config_vars())
             .admin_url("/b/products/admin/")
             .can_disable(true)
-    }
-
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        mut msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
@@ -241,7 +216,7 @@ impl Block for ProductsBlock {
         // would need platform-side middleware to inject headers after the
         // handler returns. Limits are still enforced, just not surfaced.
         if let RateLimitOutcome::Limited(out) =
-            check_user_rate_limit(&self.limiter, ctx, &msg).await
+            check_user_rate_limit(&this.limiter, ctx, &msg).await
         {
             return out;
         }
@@ -270,29 +245,20 @@ impl Block for ProductsBlock {
         }
 
         err_not_found("not found")
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if event.event_type == LifecycleType::Init {
-            // Apply block-owned schema migrations. Migration 002 seeds the
-            // default group/product templates (the static FK-parent rows the
-            // groups/products tables require) via idempotent INSERTs, so there
-            // is no longer a per-request runtime existence-check + seed here —
-            // the hash-gate short-circuits in memory once applied.
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("products migrations: {e}"),
-                )
-            })?;
-        }
-        Ok(())
-    }
+    },
+    lifecycle: |_this, ctx, event| {
+        // Apply block-owned schema migrations. Migration 002 seeds the default
+        // group/product templates (the static FK-parent rows the
+        // groups/products tables require) via idempotent INSERTs, so there is
+        // no per-request runtime existence-check + seed — the hash-gate
+        // short-circuits in memory once applied.
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/products",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/products", ProductsBlock);

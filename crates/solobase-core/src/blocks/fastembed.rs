@@ -26,8 +26,7 @@ use std::sync::{Arc, OnceLock};
 use wafer_block_fastembed::FastembedService;
 use wafer_core::interfaces::vector::handler::handle_embedding_message;
 use wafer_run::{
-    context::Context, Block, BlockInfo, InputStream, InstanceMode, LifecycleEvent, Message,
-    OutputStream, WaferError,
+    context::Context, Block, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
 };
 
 use crate::blocks::helpers::err_internal;
@@ -78,8 +77,15 @@ impl Default for FastembedBlock {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl FastembedBlock {
+    /// The block's registered name. Mirrors the `BLOCK_NAME` const the
+    /// `solobase_feature_block!` macro generates for the zero-arg feature
+    /// blocks, so the `(feature, name, constructor)` manifest in
+    /// [`crate::blocks`] can reference `FastembedBlock::BLOCK_NAME` uniformly.
+    pub const BLOCK_NAME: &'static str = "suppers-ai/fastembed";
+}
+
+#[wafer_block::wafer_async_trait]
 impl Block for FastembedBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo::new(
@@ -88,6 +94,10 @@ impl Block for FastembedBlock {
             "embedding@v1",
             "Native ONNX text embedding via fastembed-rs",
         )
+        // Singleton: the wrapped `FastembedService` lazily loads one ONNX
+        // model and caches it in the `OnceLock` for the block's lifetime —
+        // a per-node/per-flow instance would reload the model needlessly.
+        // Kept deliberately in lockstep with `TransformersEmbedBlock`.
         .instance_mode(InstanceMode::Singleton)
         .category(wafer_run::BlockCategory::Service)
     }
@@ -98,17 +108,10 @@ impl Block for FastembedBlock {
             Ok(s) => s,
             Err(e) => return err_internal("fastembed service unavailable", e),
         };
+        // Op validation (EMBEDDING_EMBED / EMBEDDING_COUNT_TOKENS, plus an
+        // `Unimplemented` terminal for anything else) lives in
+        // `handle_embedding_message`. Both embedding wrappers delegate the
+        // whole message here — neither carries its own `ServiceOp` check.
         handle_embedding_message(svc, &msg, &body).await
     }
-
-    async fn lifecycle(
-        &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        Ok(())
-    }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/fastembed", FastembedBlock);

@@ -4,10 +4,7 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
-use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, HttpMethod, InputStream, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
-};
+use wafer_run::{BlockEndpoint, BlockInfo, HttpMethod, InstanceMode};
 
 use crate::{
     blocks::helpers::err_not_found,
@@ -88,24 +85,11 @@ const ROUTES: &[EndpointRoute<Route>] = &[
     ),
 ];
 
-pub struct MessagesBlock;
-
-impl MessagesBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for MessagesBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for MessagesBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Unified message and context system (`suppers-ai/messages`).
+    pub struct MessagesBlock;
+    name: "suppers-ai/messages",
+    info: |_this| {
         use wafer_block::types::ResourceGrant;
         use wafer_run::{AuthLevel, CollectionSchema};
 
@@ -267,14 +251,8 @@ impl Block for MessagesBlock {
         ])
         .can_disable(true)
         .default_enabled(true)
-    }
-
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        mut msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    },
+    handle: |_this, ctx, msg, input| {
         // A2A JSON-RPC endpoint — protocol-public (auth handled by the
         // JSON-RPC method handlers themselves). It does NOT pass through the
         // central router's prefix table: the shared pipeline dispatches `/a2a`
@@ -305,24 +283,15 @@ impl Block for MessagesBlock {
             Route::GetEntry => rest::get_entry(ctx, &msg).await,
             Route::DeleteEntry => rest::delete_entry(ctx, &msg).await,
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("messages migrations: {e}"),
-                )
-            })?;
-        }
-        Ok(())
-    }
+    },
+    lifecycle: |_this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/messages",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/messages", MessagesBlock);

@@ -119,6 +119,28 @@ impl TestContext {
         self
     }
 
+    /// Apply one block's migrations into this fixture through the same gated
+    /// path the runtime uses ([`crate::migration_helper::apply_migrations`]),
+    /// sourcing the SQL from the block's single-source `SQLITE_MIGRATIONS` /
+    /// `POSTGRES_MIGRATIONS` consts.
+    ///
+    /// Replaces the per-block `migrations::apply()` wrappers (deleted when the
+    /// `solobase_feature_block!` macro folded each block's `lifecycle(Init)`
+    /// into `migration_helper::lifecycle_init`). Test-fixture setup is an
+    /// explicit exception to the no-raw-migration-runner rule; it mirrors the
+    /// production gate exactly so fixtures exercise the real schema.
+    async fn apply_block_migrations(
+        &self,
+        block_name: &str,
+        sqlite: &[(&str, &str)],
+        postgres: &[&str],
+    ) {
+        let sqlite_sql: Vec<&str> = sqlite.iter().map(|(_, sql)| *sql).collect();
+        crate::migration_helper::apply_migrations(self, block_name, &sqlite_sql, postgres)
+            .await
+            .unwrap_or_else(|e| panic!("apply {block_name} migrations in test fixture: {e}"));
+    }
+
     /// Build a `TestContext` with admin + auth block migrations applied.
     ///
     /// Convenience constructor for tests that need the
@@ -128,16 +150,16 @@ impl TestContext {
     /// Admin migrations run first so that the
     /// `suppers_ai__admin__block_settings` tracking table exists before
     /// auth's `apply_if_blessed` upserts its `current_hash` row. In
-    /// production this ordering is guaranteed by `register_all_static_blocks`
+    /// production this ordering is guaranteed by `register_feature_blocks`
     /// (admin is registered first); here we enforce it explicitly.
     pub async fn with_auth() -> Self {
-        let ctx = Self::new().await;
-        crate::blocks::admin::migrations::apply(&ctx)
-            .await
-            .expect("apply admin migrations in test fixture");
-        crate::blocks::auth::migrations::apply(&ctx)
-            .await
-            .expect("apply auth migrations in test fixture");
+        let ctx = Self::with_admin().await;
+        ctx.apply_block_migrations(
+            "suppers-ai/auth",
+            crate::blocks::auth::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::auth::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 
@@ -149,9 +171,12 @@ impl TestContext {
     /// upsert its tracking row.
     pub async fn with_admin() -> Self {
         let ctx = Self::new().await;
-        crate::blocks::admin::migrations::apply(&ctx)
-            .await
-            .expect("apply admin migrations in test fixture");
+        ctx.apply_block_migrations(
+            "suppers-ai/admin",
+            crate::blocks::admin::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::admin::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 
@@ -159,9 +184,12 @@ impl TestContext {
     #[cfg(feature = "block-files")]
     pub async fn with_files() -> Self {
         let ctx = Self::with_auth().await;
-        crate::blocks::files::migrations::apply(&ctx)
-            .await
-            .expect("apply files migrations in test fixture");
+        ctx.apply_block_migrations(
+            "suppers-ai/files",
+            crate::blocks::files::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::files::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 
@@ -169,9 +197,12 @@ impl TestContext {
     #[cfg(feature = "block-userportal")]
     pub async fn with_userportal() -> Self {
         let ctx = Self::with_auth().await;
-        crate::blocks::userportal::migrations::apply(&ctx)
-            .await
-            .expect("apply userportal migrations in test fixture");
+        ctx.apply_block_migrations(
+            "suppers-ai/userportal",
+            crate::blocks::userportal::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::userportal::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 
@@ -179,9 +210,12 @@ impl TestContext {
     #[cfg(feature = "block-vector")]
     pub async fn with_vector() -> Self {
         let ctx = Self::with_auth().await;
-        crate::blocks::vector::migrations::apply(&ctx)
-            .await
-            .expect("apply vector migrations in test fixture");
+        ctx.apply_block_migrations(
+            "suppers-ai/vector",
+            crate::blocks::vector::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::vector::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 
@@ -195,9 +229,12 @@ impl TestContext {
     #[cfg(feature = "block-products")]
     pub async fn with_products() -> Self {
         let ctx = Self::with_admin().await;
-        crate::blocks::products::migrations::apply(&ctx)
-            .await
-            .expect("apply products migrations in test fixture");
+        ctx.apply_block_migrations(
+            "suppers-ai/products",
+            crate::blocks::products::migrations::SQLITE_MIGRATIONS,
+            crate::blocks::products::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await;
         ctx
     }
 

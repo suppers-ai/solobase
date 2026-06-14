@@ -1,23 +1,19 @@
-//! Messages block migrations. Backend dispatch + apply gating live in
-//! [`crate::migration_helper::apply_migrations`].
-
-use wafer_run::context::Context;
-
-use crate::migration_helper;
+//! Messages block migrations. The block's `lifecycle(Init)` runs these via
+//! [`crate::migration_helper::lifecycle_init`], which dispatches the dialect +
+//! gates the apply through [`crate::migration_helper::apply_migrations`].
 
 const SQL_001_SQLITE: &str = include_str!("001_messages_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_messages_schema.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `apply()` below and the
-/// Cloudflare-build D1 migration registry (`crate::migrations`).
+/// pairs. Single source for both the runtime `lifecycle_init` apply and the
+/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[("001_messages_schema", SQL_001_SQLITE)];
 
-pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
-    migration_helper::apply_migrations(ctx, "suppers-ai/messages", &sqlite, &[SQL_001_POSTGRES])
-        .await
-}
+/// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`] one
+/// for one. Selected at runtime by `apply_migrations` when the deployment's
+/// `SOLOBASE_SHARED__DATABASE__BACKEND` is `postgres`.
+pub(crate) const POSTGRES_MIGRATIONS: &[&str] = &[SQL_001_POSTGRES];
 
 #[cfg(test)]
 mod tests {

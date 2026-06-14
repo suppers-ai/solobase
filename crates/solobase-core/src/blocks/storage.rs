@@ -250,8 +250,7 @@ fn rewrite_request_body(
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[wafer_block::wafer_async_trait]
 impl Block for SolobaseStorageBlock {
     fn info(&self) -> BlockInfo {
         self.inner.info()

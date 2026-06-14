@@ -24,8 +24,7 @@ pub mod pages;
 pub mod redirect;
 
 use wafer_run::{
-    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, ConfigVar, InputStream,
-    InputType, InstanceMode, LifecycleEvent, Message, OutputStream, WaferError,
+    AuthLevel, BlockEndpoint, BlockInfo, ConfigVar, InputType, InstanceMode,
 };
 
 use super::rate_limit::{
@@ -157,28 +156,14 @@ pub(crate) fn config_vars() -> Vec<ConfigVar> {
     ]
 }
 
-pub struct AuthUiBlock {
-    limiter: UserRateLimiter,
-}
-
-impl Default for AuthUiBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AuthUiBlock {
-    pub fn new() -> Self {
-        Self {
-            limiter: UserRateLimiter::new(),
-        }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for AuthUiBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Solobase auth HTTP surface — SSR pages + JSON API + OAuth + bootstrap
+    /// (`suppers-ai/auth-ui`). The auth *service* primitive lives in the
+    /// framework `suppers-ai/auth` block.
+    pub struct AuthUiBlock;
+    fields: { limiter: UserRateLimiter },
+    name: "suppers-ai/auth-ui",
+    info: |_this| {
         BlockInfo::new(
             AUTH_UI_BLOCK_ID,
             "0.0.1",
@@ -245,9 +230,8 @@ impl Block for AuthUiBlock {
         ])
         .config_keys(config_vars())
         .admin_url("/b/auth/admin/settings")
-    }
-
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         let action = msg.action().to_string();
         // Normalize: /b/auth/... → /auth/...
         let raw_path = msg.path().to_string();
@@ -264,7 +248,7 @@ impl Block for AuthUiBlock {
         // X-RateLimit-* response headers needs a streaming-middleware shape we
         // don't have yet. Tracked as a single follow-up, not a per-route TODO.
         if let Some(RateLimitOutcome::Limited(r)) = check_route_limits(
-            &self.limiter,
+            &this.limiter,
             ctx,
             &msg,
             action.as_str(),
@@ -345,18 +329,8 @@ impl Block for AuthUiBlock {
             ("create", "/auth/api/bootstrap") => api::bootstrap::handle(ctx, input).await,
             _ => err_not_found("not found"),
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        Ok(())
-    }
+    },
+    // No `lifecycle`: auth-ui owns no schema (auth tables belong to the
+    // framework `suppers-ai/auth` block), so the `Block` no-op default
+    // applies.
 }
-
-// PR 5 Task 7: framework AuthBlock now owns `suppers-ai/auth` (the auth
-// service primitive); auth-ui owns the `/b/auth/*` HTTP surface.
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/auth-ui", AuthUiBlock);

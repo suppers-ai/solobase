@@ -2,8 +2,8 @@ use maud::html;
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, CollectionSchema, InputStream, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, BlockEndpoint, BlockInfo, CollectionSchema, InputStream, InstanceMode,
+    Message, OutputStream,
 };
 
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
@@ -17,24 +17,11 @@ mod pages;
 
 const TABLE: &str = "suppers_ai__userportal__buttons";
 
-pub struct UserPortalBlock;
-
-impl UserPortalBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for UserPortalBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for UserPortalBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// User-facing portal dashboard + admin button config (`suppers-ai/userportal`).
+    pub struct UserPortalBlock;
+    name: "suppers-ai/userportal",
+    info: |_this| {
         use wafer_run::AuthLevel;
 
         BlockInfo::new(
@@ -76,14 +63,13 @@ impl Block for UserPortalBlock {
         .admin_url("/b/userportal/admin/settings")
         .can_disable(true)
         .default_enabled(false)
-    }
-
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
         if !path.starts_with("/b/userportal") {
-            return self.handle_config(ctx).await;
+            return this.handle_config(ctx).await;
         }
 
         let sub = path
@@ -96,7 +82,7 @@ impl Block for UserPortalBlock {
         // check is needed; the normalized `sub` path is still passed
         // explicitly to the admin sub-dispatcher (no `req.resource` rewrite).
         if sub.starts_with("/admin/") {
-            return self.handle_admin(ctx, msg, input, &action, &sub).await;
+            return this.handle_admin(ctx, msg, input, &action, &sub).await;
         }
 
         match (action.as_str(), sub.as_str()) {
@@ -108,27 +94,21 @@ impl Block for UserPortalBlock {
             ("delete", s) if s.starts_with("/sessions/") => {
                 pages::sessions::handle_revoke(ctx, &msg, s).await
             }
-            ("retrieve", "/config") => self.handle_config(ctx).await,
-            ("retrieve", "/internal/list-buttons") => self.handle_list_buttons(ctx).await,
+            ("retrieve", "/config") => this.handle_config(ctx).await,
+            ("retrieve", "/internal/list-buttons") => this.handle_list_buttons(ctx).await,
             _ => err_not_found("not found"),
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("userportal migrations: {e}"),
-                )
-            })?;
-        }
-        Ok(())
-    }
+    },
+    lifecycle: |_this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/userportal",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+    },
 }
 
 impl UserPortalBlock {
@@ -373,7 +353,7 @@ mod cross_block_tests {
         .await
         .expect("seed second button");
 
-        let block = UserPortalBlock;
+        let block = UserPortalBlock::new();
         let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
         let resp = block
             .handle(&ctx, msg, wafer_run::InputStream::empty())
@@ -392,7 +372,7 @@ mod cross_block_tests {
     #[tokio::test]
     async fn list_buttons_action_returns_empty_array_when_none_configured() {
         let ctx = TestContext::new().await;
-        let block = UserPortalBlock;
+        let block = UserPortalBlock::new();
         let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
         let resp = block
             .handle(&ctx, msg, wafer_run::InputStream::empty())
@@ -401,6 +381,3 @@ mod cross_block_tests {
         assert_eq!(parsed.as_array().unwrap().len(), 0);
     }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/userportal", UserPortalBlock);

@@ -212,7 +212,7 @@ async fn userportal_sessions_page_renders_row_after_login() {
 
     let _ = invoke_login(&ctx, "diana@example.com", "diana-password").await;
 
-    let block = UserPortalBlock;
+    let block = UserPortalBlock::new();
     let mut msg = Message::new("http.request");
     msg.set_meta("req.action", "retrieve");
     msg.set_meta("req.resource", "/b/userportal/sessions");

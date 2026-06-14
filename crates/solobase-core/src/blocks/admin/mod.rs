@@ -24,30 +24,16 @@ pub const ADMIN_BLOCK_ID: &str = "suppers-ai/admin";
 pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ErrorCode, InputStream, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, BlockEndpoint, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
 };
 
 use crate::blocks::helpers::{err_not_found, ok_json};
 
-pub struct AdminBlock;
-
-impl AdminBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for AdminBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for AdminBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Admin panel: users, database, IAM, logs, settings (`suppers-ai/admin`).
+    pub struct AdminBlock;
+    name: "suppers-ai/admin",
+    info: |_this| {
         use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings")
@@ -127,14 +113,8 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/logs").summary("Audit logs API").auth(AuthLevel::Admin),
             ])
-    }
-
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        mut msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    },
+    handle: |_this, ctx, msg, input| {
         use route::AdminRoute;
 
         let path_owned = msg.path().to_string();
@@ -254,25 +234,24 @@ impl Block for AdminBlock {
 
             AdminRoute::NotFound => err_not_found("not found"),
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            if let Err(e) = migrations::apply(ctx).await {
-                return Err(WaferError::new(
-                    ErrorCode::Internal,
-                    format!("admin migrations: {e}"),
-                ));
-            }
+    },
+    lifecycle: |_this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/admin",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await?;
+        // Seed default roles/permissions + shared/default variables after the
+        // schema is in place, only on Init.
+        if matches!(event.event_type, wafer_run::LifecycleType::Init) {
             iam::seed_defaults(ctx).await;
             settings::seed_defaults(ctx).await;
         }
         Ok(())
-    }
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -337,9 +316,6 @@ async fn handle_delete_wrap_grant(
     msg.set_meta("req.query.subtab", "database");
     pages::permissions_page(ctx, &msg).await
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/admin", AdminBlock);
 
 // ---------------------------------------------------------------------------
 // Tests

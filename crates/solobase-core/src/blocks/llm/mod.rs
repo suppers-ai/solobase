@@ -386,8 +386,7 @@ impl LlmBlock {
 // Block trait implementation
 // ---------------------------------------------------------------------------
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[wafer_block::wafer_async_trait]
 impl Block for LlmBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::AuthLevel;
@@ -551,16 +550,19 @@ impl Block for LlmBlock {
         ctx: &dyn Context,
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        // Schema migrations first — must run before any row-level work below,
+        // otherwise the legacy-row copy + reload would hit ensure_table
+        // fallback paths instead of the indexed table. `lifecycle_init`
+        // no-ops on non-Init events.
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/llm",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await?;
         if matches!(event.event_type, LifecycleType::Init) {
-            // Schema migrations first — must run before any row-level work
-            // below, otherwise the legacy-row copy + reload would hit
-            // ensure_table fallback paths instead of the indexed table.
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("llm migrations: {e}"),
-                )
-            })?;
             // One-shot row copy from `suppers_ai__provider_llm__providers`.
             // Idempotent: if the legacy table is gone, returns immediately.
             // Any per-row failure is logged, not fatal — admins can inspect

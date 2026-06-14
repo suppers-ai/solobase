@@ -15,29 +15,21 @@
 
 pub(in crate::blocks::llm) mod legacy_providers;
 
-use wafer_run::context::Context;
-
-use crate::migration_helper;
-
-const LLM_BLOCK_NAME: &str = "suppers-ai/llm";
-
 const SQL_001_SQLITE: &str = include_str!("001_llm_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_llm_schema.postgres.sql");
 
-/// Apply LLM schema migrations through the shared migration-state gate.
-/// Idempotent across cold starts: once the gate stamps a `current_hash`
-/// row in `block_settings`, subsequent boots short-circuit before issuing
-/// any DDL. Schema changes require a `--run-migrations` redeploy (see
-/// `migration-state-workflow` in user memory).
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `apply()` below and the
-/// Cloudflare-build D1 migration registry (`crate::migrations`).
+/// pairs. Single source for both the runtime `lifecycle_init` apply and the
+/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
+///
+/// Application is gated by the shared migration-state gate
+/// ([`crate::migration_helper::apply_if_blessed`]): idempotent across cold
+/// starts, and schema changes require a `--run-migrations` redeploy (see
+/// `migration-state-workflow` in user memory).
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[("001_llm_schema", SQL_001_SQLITE)];
 
-pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
-    migration_helper::apply_migrations(ctx, LLM_BLOCK_NAME, &sqlite, &[SQL_001_POSTGRES]).await
-}
+/// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`].
+pub(crate) const POSTGRES_MIGRATIONS: &[&str] = &[SQL_001_POSTGRES];
 
 #[cfg(test)]
 mod tests {

@@ -212,8 +212,7 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
     ]
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[wafer_block::wafer_async_trait]
 impl AuthService for AuthServiceImpl {
     /// Apply auth migrations and run the bootstrap admin step. Invoked by the
     /// framework `AuthBlock::lifecycle(Init)` (wafer-run #41/#45) once at
@@ -229,9 +228,23 @@ impl AuthService for AuthServiceImpl {
         // same shared snapshots.
         let _ = self.state.ctx.set(ctx.clone_arc());
 
-        super::migrations::apply(ctx)
-            .await
-            .map_err(|e| AuthError::Internal(format!("auth migrations: {e}")))?;
+        // Auth's migrations run here (not in a `Block::lifecycle`) because the
+        // service `init` needs an `AuthError` return shape, not the
+        // `WaferError` that `migration_helper::lifecycle_init` produces — so
+        // this calls the shared `apply_migrations` directly with the block's
+        // single-source migration consts.
+        let sqlite: Vec<&str> = super::migrations::SQLITE_MIGRATIONS
+            .iter()
+            .map(|(_, sql)| *sql)
+            .collect();
+        crate::migration_helper::apply_migrations(
+            ctx,
+            "suppers-ai/auth",
+            &sqlite,
+            super::migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+        .map_err(|e| AuthError::Internal(format!("auth migrations: {e}")))?;
         let cfg = super::config::AuthConfig::from_ctx(ctx).await;
         super::bootstrap::run(ctx, &cfg)
             .await

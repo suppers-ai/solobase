@@ -17,7 +17,7 @@
 
 use sha2::{Digest, Sha256};
 use wafer_core::clients::{config, database as db};
-use wafer_run::context::Context;
+use wafer_run::{context::Context, ErrorCode, LifecycleEvent, LifecycleType, WaferError};
 use wafer_sql_utils::Backend;
 
 use crate::{
@@ -103,6 +103,46 @@ pub async fn apply_migrations(
     };
     let sql = files.join("\n");
     apply_if_blessed(ctx, block_name, &sql).await
+}
+
+/// `lifecycle(Init)` body shared by every solobase feature block: on the
+/// [`Init`](LifecycleType::Init) event, apply the block's migrations and wrap
+/// any failure in a [`WaferError`] tagged with the block name. Non-`Init`
+/// events are a no-op.
+///
+/// Folds the three things every block's `lifecycle` open-coded around its
+/// migrations:
+///
+/// 1. `if matches!(event.event_type, LifecycleType::Init) { … }`,
+/// 2. deriving the SQLite `&[&str]` from the block's `SQLITE_MIGRATIONS`
+///    `(basename, content)` pairs — the S3-S single schema source that also
+///    feeds the Cloudflare D1 registry,
+/// 3. mapping the `apply_migrations` `Err(String)` onto
+///    `WaferError::new(ErrorCode::Internal, "<block> migrations: …")`.
+///
+/// `sqlite_migrations` is the block's `migrations::SQLITE_MIGRATIONS`
+/// (`(basename, content)`); only the content half is executed (the basename is
+/// for the D1 filename). `postgres_files` is the matching ordered list of
+/// PostgreSQL-dialect scripts. The active dialect is selected inside
+/// [`apply_migrations`] from `SOLOBASE_SHARED__DATABASE__BACKEND`.
+///
+/// Blocks with extra `Init` work (admin's seed steps, llm's legacy-provider
+/// copy + reload) call this first, then run their extra steps; blocks with no
+/// migrations at all (the embedding wrappers) simply omit `lifecycle`.
+pub async fn lifecycle_init(
+    ctx: &dyn Context,
+    event: &LifecycleEvent,
+    block_name: &str,
+    sqlite_migrations: &[(&str, &str)],
+    postgres_files: &[&str],
+) -> Result<(), WaferError> {
+    if !matches!(event.event_type, LifecycleType::Init) {
+        return Ok(());
+    }
+    let sqlite: Vec<&str> = sqlite_migrations.iter().map(|(_, sql)| *sql).collect();
+    apply_migrations(ctx, block_name, &sqlite, postgres_files)
+        .await
+        .map_err(|e| WaferError::new(ErrorCode::Internal, format!("{block_name} migrations: {e}")))
 }
 
 /// Apply `sql` against `db::ddl` iff the operator has blessed it or

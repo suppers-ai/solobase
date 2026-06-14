@@ -4,10 +4,7 @@ pub mod pages;
 pub mod pages_ui;
 pub mod service;
 
-use wafer_run::{
-    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, HttpMethod, InputStream,
-    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
-};
+use wafer_run::{AuthLevel, BlockEndpoint, BlockInfo, HttpMethod, InstanceMode};
 
 use crate::endpoint_match::{self, EndpointRoute};
 
@@ -63,24 +60,11 @@ const ROUTES: &[EndpointRoute<Route>] = &[
     ),
 ];
 
-pub struct VectorBlock;
-
-impl VectorBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for VectorBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for VectorBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Vector search, RAG ingestion, and embedding generation (`suppers-ai/vector`).
+    pub struct VectorBlock;
+    name: "suppers-ai/vector",
+    info: |_this| {
         BlockInfo::new(
             "suppers-ai/vector",
             "0.0.1",
@@ -127,14 +111,8 @@ impl Block for VectorBlock {
         ])
         .can_disable(true)
         .default_enabled(true)
-    }
-
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        mut msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    },
+    handle: |_this, ctx, msg, input| {
         // Auth is enforced centrally by `route_to_block` from the declared
         // endpoint `AuthLevel` (UI pages → Admin, JSON API → Authenticated),
         // so the block holds no `user_id`/`is_admin` preamble. The matcher
@@ -158,24 +136,15 @@ impl Block for VectorBlock {
             Route::ApiStats => pages::stats(ctx).await,
             Route::ApiDeleteSingle => pages::delete_single(ctx, &msg).await,
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("vector migrations: {e}"),
-                )
-            })?;
-        }
-        Ok(())
-    }
+    },
+    lifecycle: |_this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/vector",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/vector", VectorBlock);

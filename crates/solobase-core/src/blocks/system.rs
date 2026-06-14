@@ -1,31 +1,15 @@
-use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
-    Message, OutputStream, WaferError,
-};
+use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
 use crate::{
     blocks::helpers::{err_not_found, ok_json, ResponseBuilder},
     ui,
 };
 
-pub struct SystemBlock;
-
-impl SystemBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for SystemBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for SystemBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// System health checks and embedded static assets (`suppers-ai/system`).
+    pub struct SystemBlock;
+    name: "suppers-ai/system",
+    info: |_this| {
         BlockInfo::new("suppers-ai/system", "0.0.1", "http-handler@v1", "System health and embedded static assets")
             .instance_mode(InstanceMode::Singleton)
             .category(wafer_run::BlockCategory::Infrastructure)
@@ -42,9 +26,8 @@ impl Block for SystemBlock {
                 BlockEndpoint::get("/b/static/solobase-logo-long-{hash}.png").summary("Embedded Solobase wordmark logo"),
                 BlockEndpoint::get("/b/static/favicon-{hash}.ico").summary("Embedded Solobase favicon"),
             ])
-    }
-
-    async fn handle(&self, _ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
+    },
+    handle: |_this, _ctx, msg, _input| {
         let path = msg.path();
 
         if path == "/health" {
@@ -110,23 +93,14 @@ impl Block for SystemBlock {
         }
 
         err_not_found("not found")
-    }
-
-    async fn lifecycle(
-        &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        Ok(())
-    }
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/system", SystemBlock);
 
 #[cfg(test)]
 mod tests {
-    use wafer_run::META_RESP_CONTENT_TYPE;
+    use wafer_run::{
+        context::Context, Block, InputStream, Message, OutputStream, META_RESP_CONTENT_TYPE,
+    };
 
     use super::*;
     use crate::ui::assets;
@@ -156,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn system_handle_serves_llm_chat_js() {
-        let block = SystemBlock;
+        let block = SystemBlock::new();
         let url = assets::llm_chat_js_url();
         let mut msg = Message::new(format!("retrieve:{url}"));
         msg.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
@@ -183,7 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn system_handle_serves_files_browser_js() {
-        let block = SystemBlock;
+        let block = SystemBlock::new();
         let url = assets::files_browser_js_url();
         let mut msg = Message::new(format!("retrieve:{url}"));
         msg.set_meta(wafer_run::META_REQ_ACTION, "retrieve");

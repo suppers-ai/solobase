@@ -6,9 +6,8 @@ use maud::{html, Markup, PreEscaped};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, HttpMethod,
-    InputStream, InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream,
-    WaferError,
+    context::Context, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, HttpMethod, InputStream,
+    InputType, InstanceMode, Message, OutputStream,
 };
 
 use crate::{
@@ -157,20 +156,6 @@ pub(crate) fn config_vars() -> Vec<ConfigVar> {
         .name("Footer Text")
         .optional(),
     ]
-}
-
-pub struct LegalPagesBlock;
-
-impl LegalPagesBlock {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for LegalPagesBlock {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 pub(crate) const COLLECTION: &str = "suppers_ai__legalpages__documents";
@@ -587,10 +572,11 @@ fn safe_url(url: pulldown_cmark::CowStr<'_>) -> pulldown_cmark::CowStr<'_> {
 // Block trait implementation
 // ---------------------------------------------------------------------------
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for LegalPagesBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Legal pages management with versioning and publishing (`suppers-ai/legalpages`).
+    pub struct LegalPagesBlock;
+    name: "suppers-ai/legalpages",
+    info: |_this| {
         use wafer_run::AuthLevel;
 
         BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "Legal pages management with versioning and publishing")
@@ -626,14 +612,8 @@ impl Block for LegalPagesBlock {
             .admin_url("/b/legalpages/admin")
             .can_disable(true)
             .default_enabled(false)
-    }
-
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        mut msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         // Auth is enforced centrally by `route_to_block` from the declared
         // endpoint `AuthLevel` (public reads, admin everything else) — the
         // block holds no `is_admin` preamble. Dispatch matches the same
@@ -642,8 +622,8 @@ impl Block for LegalPagesBlock {
             return ui::not_found_response(&msg);
         };
         match route {
-            Route::PublicTerms => self.handle_get_public(ctx, "terms").await,
-            Route::PublicPrivacy => self.handle_get_public(ctx, "privacy").await,
+            Route::PublicTerms => this.handle_get_public(ctx, "terms").await,
+            Route::PublicPrivacy => this.handle_get_public(ctx, "privacy").await,
             Route::EditorPrivacy => pages::editor_page(ctx, &msg, "privacy").await,
             Route::EditorTerms => pages::editor_page(ctx, &msg, "terms").await,
             Route::SettingsPage => pages::settings_page(ctx, &msg).await,
@@ -652,12 +632,12 @@ impl Block for LegalPagesBlock {
             Route::AdminRenderPreview => pages::handle_render_preview(ctx, input).await,
             Route::AdminPublish => pages::handle_publish(ctx, &msg, input).await,
             Route::AdminSaveSettings => pages::handle_save_settings(ctx, input).await,
-            Route::ApiList => self.handle_admin_list(ctx, &msg).await,
+            Route::ApiList => this.handle_admin_list(ctx, &msg).await,
             Route::ApiGet => {
                 crud::crud_get(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await
             }
-            Route::ApiCreate => self.handle_admin_create(ctx, &msg, input).await,
-            Route::ApiPublish => self.handle_admin_publish(ctx, &msg).await,
+            Route::ApiCreate => this.handle_admin_create(ctx, &msg, input).await,
+            Route::ApiPublish => this.handle_admin_publish(ctx, &msg).await,
             Route::ApiUpdate => {
                 crud::crud_update(ctx, &msg, input, COLLECTION, API_DOC_PREFIX, "Document").await
             }
@@ -665,28 +645,23 @@ impl Block for LegalPagesBlock {
                 crud::crud_delete(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await
             }
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("legalpages migrations: {e}"),
-                )
-            })?;
-            self.seed_defaults(ctx).await;
+    },
+    lifecycle: |this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/legalpages",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await?;
+        // Seed the default draft documents after migrations, only on Init.
+        if matches!(event.event_type, wafer_run::LifecycleType::Init) {
+            this.seed_defaults(ctx).await;
         }
         Ok(())
-    }
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/legalpages", LegalPagesBlock);
 
 #[cfg(test)]
 mod tests {

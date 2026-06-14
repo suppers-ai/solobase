@@ -4,6 +4,8 @@ pub mod auth_ui;
 pub mod crud;
 pub mod email;
 pub mod errors;
+#[macro_use]
+pub mod feature_block;
 // `native-embedding` always implies `block-fastembed` (see Cargo.toml), so
 // the native build still gets this module. wafer-site / wasm32 builds with
 // neither feature drop the ONNX-runtime dep entirely.
@@ -41,64 +43,111 @@ pub mod userportal;
 #[cfg(feature = "block-vector")]
 pub mod vector;
 
-/// Return `BlockInfo` for every solobase block.
+/// The single `(feature-cfg, name, constructor)` manifest of solobase feature
+/// blocks whose constructors take **no arguments** (every `suppers-ai/*` block
+/// except the three special cases below).
 ///
-/// This is the single canonical source of truth for both native and wasm32.
-/// Previously, native used `linkme`/`STATIC_BLOCK_REGISTRATIONS` iteration
-/// and wasm32 had a separate manual list — see audit finding #13.
+/// This macro is the one place enumerating that block set. It generates, from
+/// the same entries:
 ///
-/// The two lists had diverged: the native linkme sweep also picked up
-/// `wafer-run/*` framework blocks (cors, inspector, etc.) that were never
-/// relevant to `collect_all_config_vars`, and the wasm32 list included the
-/// framework `AuthBlock` whose config vars are declared via
-/// `shared_config_vars()` → `auth_config_vars()` rather than
-/// `BlockInfo::config_keys`, making it redundant there too. This function
-/// enumerates only the solobase feature blocks, consistently on both targets.
+/// - [`all_block_infos`] — `.info()` over every entry (config-var discovery,
+///   inspector route granularity, the route/auth policy table);
+/// - [`register_feature_blocks`] — `register_block(name, Arc::new(Ctor::new()))`
+///   over every entry, called from `SolobaseBuilder::build` on **both** native
+///   and wasm32.
 ///
-/// Used by `collect_all_config_vars()` to discover declared config
-/// variables before block registration runs.
-pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
-    use wafer_run::Block as _;
+/// Replaces the three formerly hand-synced lists (per-block `register_static_block!`
+/// linkme sites on native, the `register_all_static_blocks` wasm32 list, and
+/// the `all_block_infos` push list) — audit findings #12/#13. A block is now
+/// added in exactly one place.
+///
+/// Each entry's `cfg` gates the block on its `block-*` Cargo feature; the
+/// dual-target blocks compile with no `cfg` (always on). `fastembed` carries
+/// `feature = "block-fastembed"`, which is never enabled on wasm32 (it pulls
+/// ONNX Runtime — see the `pub mod fastembed` cfg above), so the same gate
+/// covers "native-only" without a redundant `not(target_arch = "wasm32")`.
+///
+/// Special cases stay **out** of the manifest and are registered explicitly by
+/// `SolobaseBuilder::build`, because their constructors are not zero-argument:
+/// `suppers-ai/llm` (`Arc<dyn ProviderAdmin>`, via [`register_llm`]),
+/// `suppers-ai/auth` (framework `AuthBlock` wrapping `AuthServiceImpl`, via
+/// [`register_auth`]), and `suppers-ai/transformers-embed` (wasm32-only,
+/// injected `Arc<dyn EmbeddingService>`). `llm`'s `BlockInfo` is still added to
+/// [`all_block_infos`] below via a `NoopProviderAdmin` handle (info is
+/// declarative and never drives the provider surface).
+macro_rules! feature_block_manifest {
+    ( $( $(#[$cfg:meta])? $ctor:path ),+ $(,)? ) => {
+        /// `BlockInfo` for every zero-arg solobase feature block, plus the
+        /// `suppers-ai/llm` block (constructed with a `NoopProviderAdmin`).
+        ///
+        /// Used by `collect_all_config_vars()` to discover declared config
+        /// variables, by the inspector route table, and by the routing/auth
+        /// policy, before block registration runs.
+        pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
+            use wafer_run::Block as _;
+            #[allow(unused_mut)]
+            let mut infos: Vec<wafer_run::BlockInfo> = Vec::new();
+            $(
+                $(#[$cfg])?
+                infos.push(<$ctor>::new().info());
+            )+
 
-    // `unused_mut` fires when every optional feature is off and no later
-    // `.push(...)` exists to mutate the vec.
-    #[allow(unused_mut)]
-    let mut infos: Vec<wafer_run::BlockInfo> = vec![
-        admin::AdminBlock::new().info(),
-        auth_ui::AuthUiBlock::default().info(),
-        email::EmailBlock::new().info(),
-        system::SystemBlock::new().info(),
-    ];
+            // `suppers-ai/llm` is registered separately (its ctor takes
+            // `Arc<dyn ProviderAdmin>`), but its declarative `info()` belongs
+            // in the discovery set. A no-op provider-admin handle suffices.
+            #[cfg(feature = "block-llm")]
+            infos.push(
+                llm::LlmBlock::new(std::sync::Arc::new(llm::provider_admin::NoopProviderAdmin))
+                    .info(),
+            );
 
+            infos
+        }
+
+        /// Register every zero-arg solobase feature block on the runtime.
+        ///
+        /// Called from `SolobaseBuilder::build` on **both** native and wasm32 —
+        /// there is no longer a native (linkme) / wasm32 (manual list) split.
+        /// The `suppers-ai/llm`, `suppers-ai/auth`, and (wasm32)
+        /// `suppers-ai/transformers-embed` blocks are registered explicitly by
+        /// the builder afterwards (non-zero-arg constructors).
+        pub fn register_feature_blocks(
+            wafer: &mut wafer_run::Wafer,
+        ) -> Result<(), wafer_run::RuntimeError> {
+            use std::sync::Arc;
+            $(
+                $(#[$cfg])?
+                wafer.register_block(
+                    <$ctor>::BLOCK_NAME,
+                    Arc::new(<$ctor>::new()),
+                )?;
+            )+
+            Ok(())
+        }
+    };
+}
+
+feature_block_manifest! {
+    admin::AdminBlock,
+    auth_ui::AuthUiBlock,
+    email::EmailBlock,
+    system::SystemBlock,
     #[cfg(feature = "block-files")]
-    infos.push(files::FilesBlock::new().info());
+    files::FilesBlock,
     #[cfg(feature = "block-legalpages")]
-    infos.push(legalpages::LegalPagesBlock::new().info());
+    legalpages::LegalPagesBlock,
     #[cfg(feature = "block-messages")]
-    infos.push(messages::MessagesBlock::new().info());
+    messages::MessagesBlock,
     #[cfg(feature = "block-products")]
-    infos.push(products::ProductsBlock::new().info());
+    products::ProductsBlock,
     #[cfg(feature = "block-userportal")]
-    infos.push(userportal::UserPortalBlock::new().info());
+    userportal::UserPortalBlock,
     #[cfg(feature = "block-vector")]
-    infos.push(vector::VectorBlock::new().info());
-
-    // fastembed is native-only: it requires ONNX Runtime which is not
-    // available on wasm32.
+    vector::VectorBlock,
+    // Native-only: fastembed pulls ONNX Runtime; `block-fastembed` is never
+    // enabled on wasm32, so this gate doubles as "not wasm32".
     #[cfg(feature = "block-fastembed")]
-    infos.push(fastembed::FastembedBlock::new().info());
-
-    // LlmBlock cannot self-register because its constructor takes
-    // Arc<dyn ProviderAdmin>. A no-op provider-admin handle is enough here
-    // since info() is declarative and never drives the provider surface.
-    #[cfg(feature = "block-llm")]
-    {
-        use std::sync::Arc;
-        let provider_admin = Arc::new(llm::provider_admin::NoopProviderAdmin);
-        infos.push(llm::LlmBlock::new(provider_admin).info());
-    }
-
-    infos
+    fastembed::FastembedBlock,
 }
 
 /// Collect every compiled block's ordered SQLite migration scripts for the
@@ -160,9 +209,9 @@ pub fn all_sqlite_migrations() -> Vec<(String, &'static str)> {
 
 /// Register the LLM feature block with the WAFER runtime.
 ///
-/// LlmBlock cannot self-register via `register_static_block!` because its
-/// constructor takes `Arc<dyn ProviderAdmin>`. Call this after the LLM
-/// service router is registered in `SolobaseBuilder::build()`.
+/// LlmBlock is not in the feature-block manifest because its constructor takes
+/// `Arc<dyn ProviderAdmin>`. Call this after the LLM service router is
+/// registered in `SolobaseBuilder::build()`.
 ///
 /// `provider_admin` is the provider-management seam: the concrete
 /// `ProviderLlmService` on native (`feature = "llm"`) or a `NoopProviderAdmin`
@@ -182,10 +231,10 @@ pub fn register_llm(
 /// Register the framework `suppers-ai/auth` block — wafer-core's `AuthBlock`
 /// wrapping solobase's `AuthServiceImpl`.
 ///
-/// Cannot self-register via `register_static_block!` because the framework
-/// `AuthBlock::new` takes `Arc<dyn AuthService>`. Call this from
-/// `SolobaseBuilder::build` (native) or `register_all_static_blocks` (wasm32)
-/// to install both the block and the service.
+/// Cannot self-register via the feature-block manifest because the framework
+/// `AuthBlock::new` takes `Arc<dyn AuthService>`. Called explicitly from
+/// `SolobaseBuilder::build` (both targets) to install both the block and the
+/// service.
 ///
 /// The `AuthServiceImpl`'s context cell starts empty here; it gets populated
 /// when the runtime fires the framework AuthBlock's `lifecycle(Init)` event,
@@ -196,79 +245,6 @@ pub fn register_auth(wafer: &mut wafer_run::Wafer) -> Result<(), wafer_run::Runt
     let state = auth::service::BlockState::new();
     let svc = Arc::new(auth::service::AuthServiceImpl::new(state));
     wafer_core::service_blocks::auth::register_with(wafer, svc)
-}
-
-/// Register every solobase feature block on wasm32 builds.
-///
-/// On native, each block self-registers via `register_static_block!` (gated
-/// `cfg(not(target_arch = "wasm32"))` because linkme's distributed_slice
-/// only emits on ELF/Mach-O/PE — see `wafer_run::builder::WaferBuilder::build`).
-/// On wasm32 that path is a no-op, so the runtime starts with zero
-/// `suppers-ai/*` blocks and the SolobaseRouter dispatches into a void —
-/// every feature route returns `block 'suppers-ai/<name>' not found`.
-///
-/// This helper mirrors the linkme manifest so wasm builds get the same
-/// block set. Keep this list in sync with the `register_static_block!`
-/// invocations across `crate::blocks::*` and with the `all_block_infos`
-/// wasm32 fallback above.
-///
-/// Excludes `suppers-ai/fastembed` (native-only, requires
-/// `feature = "native-embedding"`). `suppers-ai/llm` IS registered here when
-/// `block-llm` is on: the block now holds `Arc<dyn ProviderAdmin>`, so the
-/// wasm32 build installs it with a `NoopProviderAdmin` (the browser's
-/// `BrowserLlmService` on the shared router serves chat; provider CRUD /
-/// discovery are admin-only and degrade to no-ops).
-#[cfg(target_arch = "wasm32")]
-pub fn register_all_static_blocks(
-    wafer: &mut wafer_run::Wafer,
-) -> Result<(), wafer_run::RuntimeError> {
-    use std::sync::Arc;
-
-    wafer.register_block("suppers-ai/admin", Arc::new(admin::AdminBlock::new()))?;
-    // Framework `suppers-ai/auth` is registered unconditionally by
-    // `SolobaseBuilder::build` (after this fn returns) — don't duplicate
-    // here, the second register_block would fail with "block already
-    // registered" and abort the wasm boot.
-    wafer.register_block(
-        "suppers-ai/auth-ui",
-        Arc::new(auth_ui::AuthUiBlock::default()),
-    )?;
-    wafer.register_block("suppers-ai/email", Arc::new(email::EmailBlock::new()))?;
-    wafer.register_block("suppers-ai/system", Arc::new(system::SystemBlock::new()))?;
-
-    #[cfg(feature = "block-files")]
-    wafer.register_block("suppers-ai/files", Arc::new(files::FilesBlock::new()))?;
-    #[cfg(feature = "block-legalpages")]
-    wafer.register_block(
-        "suppers-ai/legalpages",
-        Arc::new(legalpages::LegalPagesBlock::new()),
-    )?;
-    #[cfg(feature = "block-messages")]
-    wafer.register_block(
-        "suppers-ai/messages",
-        Arc::new(messages::MessagesBlock::new()),
-    )?;
-    #[cfg(feature = "block-products")]
-    wafer.register_block(
-        "suppers-ai/products",
-        Arc::new(products::ProductsBlock::new()),
-    )?;
-    #[cfg(feature = "block-userportal")]
-    wafer.register_block(
-        "suppers-ai/userportal",
-        Arc::new(userportal::UserPortalBlock::new()),
-    )?;
-    #[cfg(feature = "block-vector")]
-    wafer.register_block("suppers-ai/vector", Arc::new(vector::VectorBlock::new()))?;
-
-    // The LLM block runs on wasm32 against a browser-supplied `LlmService`
-    // (registered on the router via `SolobaseBuilder::llm_service`). Provider
-    // CRUD / discovery have no browser surface, so a `NoopProviderAdmin`
-    // stands in for the native HTTP `ProviderLlmService`.
-    #[cfg(feature = "block-llm")]
-    register_llm(wafer, Arc::new(llm::provider_admin::NoopProviderAdmin))?;
-
-    Ok(())
 }
 
 #[cfg(test)]
