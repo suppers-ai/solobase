@@ -5,9 +5,9 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use super::ops;
-use crate::blocks::{
-    auth::USERS_TABLE as COLLECTION,
-    helpers::{err_bad_request, err_internal, err_not_found, ok_json},
+use crate::{
+    blocks::auth::USERS_TABLE as COLLECTION,
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
 };
 
 /// `path` is the normalized `/admin/users[...]` sub-path passed explicitly by

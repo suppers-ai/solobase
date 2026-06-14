@@ -5,8 +5,9 @@ use wafer_run::{context::Context, Message, OutputStream};
 use wafer_sql_utils::query;
 
 use crate::{
-    blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, helpers::RecordExt},
+    blocks::admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
     ui::{components, icons},
+    util::RecordExt,
 };
 
 /// Render JUST the network monitoring body. The parent `settings_page`

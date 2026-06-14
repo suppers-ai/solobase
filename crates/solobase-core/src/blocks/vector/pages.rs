@@ -52,8 +52,9 @@ use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
     service::{self, REGISTRY_TABLE, TABLE_PREFIX},
 };
-use crate::blocks::helpers::{
-    err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json, path_param,
+use crate::{
+    http::{err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json},
+    util::path_param,
 };
 
 // Per-route dispatch now lives in `VectorBlock::handle` via the shared
@@ -87,7 +88,7 @@ pub(super) async fn create_index(
     // (htmx modal). Parse via the shared helper, then map fields explicitly
     // — `keyword_search` is a checkbox, which arrives as the string "on"
     // when checked and absent otherwise.
-    let parsed = crate::blocks::helpers::parse_body_value(&raw);
+    let parsed = crate::util::parse_body_value(&raw);
     let body = CreateIndexBody {
         name: parsed
             .get("name")
@@ -101,7 +102,7 @@ pub(super) async fn create_index(
             .map(String::from),
         dimensions: parsed
             .get("dimensions")
-            .and_then(crate::blocks::helpers::json_as_u64)
+            .and_then(crate::util::json_as_u64)
             .and_then(|n| u32::try_from(n).ok()),
         metric: parsed
             .get("metric")
@@ -191,7 +192,7 @@ pub(super) async fn create_index(
             Err(e) => return err_internal("Failed to refresh", e),
         };
         let trigger = r#"{"showToast":{"message":"Index created","type":"success"},"closeModal":{"id":"create-vector-index"}}"#;
-        return crate::blocks::helpers::ResponseBuilder::new()
+        return crate::http::ResponseBuilder::new()
             .set_header("HX-Trigger", trigger)
             .body(
                 body_html.into_string().into_bytes(),

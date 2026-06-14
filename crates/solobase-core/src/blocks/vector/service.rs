@@ -10,7 +10,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, WaferError};
 use wafer_sql_utils::introspect;
 
-use crate::blocks::helpers::RecordExt;
+use crate::util::RecordExt;
 
 /// Per-row data fed to the vector index list table renderer.
 ///

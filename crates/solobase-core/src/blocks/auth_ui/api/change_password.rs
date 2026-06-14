@@ -3,13 +3,15 @@
 use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::{
-    auth::{
-        repo::{local_credentials, tokens},
-        USERS_TABLE,
+use crate::{
+    blocks::{
+        auth::{
+            repo::{local_credentials, tokens},
+            USERS_TABLE,
+        },
+        errors::{error_response, ErrorCode},
     },
-    errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, err_not_found, ok_json},
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {

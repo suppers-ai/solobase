@@ -14,9 +14,9 @@ use wafer_block::db::{Filter, SortField};
 use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
-use super::helpers::{
-    err_bad_request, err_internal, err_not_found, err_unauthorized, field_as_string, ok_json,
-    stamp_created, stamp_updated,
+use crate::{
+    http::{err_bad_request, err_internal, err_not_found, err_unauthorized, ok_json},
+    util::{field_as_string, stamp_created, stamp_updated},
 };
 
 /// Extract the record id that follows `path_prefix` in the request path.
@@ -25,7 +25,7 @@ use super::helpers::{
 /// `req.param.id` (set by `endpoint_match::dispatch` when the block uses the
 /// shared matcher) and falls back to stripping `path_prefix` off the resource
 /// path for callers/tests that build the message by hand. Mirrors
-/// [`crate::blocks::helpers::path_param`] but keeps the trailing-segment
+/// [`crate::util::path_param`] but keeps the trailing-segment
 /// behaviour of the old prefix-strip for the fallback.
 fn id_from_path<'m>(msg: &'m Message, path_prefix: &str) -> &'m str {
     let var = msg.var("id");

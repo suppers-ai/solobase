@@ -2,7 +2,7 @@ use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
 
-use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
+use crate::http::{err_internal, err_not_found, ok_json};
 
 /// Audit log entries (admin-initiated mutations).
 pub(crate) const AUDIT_LOGS_TABLE: &str = "suppers_ai__admin__audit_logs";
@@ -136,7 +136,7 @@ pub async fn audit_log(
     data.insert("action".to_string(), serde_json::json!(action));
     data.insert("resource".to_string(), serde_json::json!(resource));
     data.insert("ip_address".to_string(), serde_json::json!(ip_address));
-    crate::blocks::helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, AUDIT_LOGS_TABLE, data).await {
         tracing::warn!(action, resource, "audit_log write failed: {}", e.message);

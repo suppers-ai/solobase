@@ -24,7 +24,7 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, OutputStream};
 pub use wafer_run::{ConfigVar, InputType};
 
-use crate::blocks::helpers::{err_bad_request, ok_json};
+use crate::http::{err_bad_request, ok_json};
 
 /// One titled group of settings within a form (e.g. "Stripe", "OAuth Providers").
 pub struct SettingsSection<'a> {

@@ -17,8 +17,8 @@ use wafer_run::{
 };
 
 use crate::{
-    blocks::helpers::ResponseBuilder,
     features::FeatureConfig,
+    http::ResponseBuilder,
     routing::{self, ExtraRoute},
 };
 
@@ -117,7 +117,7 @@ pub async fn handle_request(
     let path = msg.path().to_string();
     let client_ip = msg.remote_addr().to_string();
     let user_id = msg.user_id().to_string();
-    let start_ms = crate::blocks::helpers::now_millis();
+    let start_ms = crate::util::now_millis();
 
     // 3. Route to block.
     let mut stream =
@@ -186,8 +186,8 @@ pub async fn handle_request(
     // `now_millis()` reads wall clock — saturating_sub guards against clock
     // skew on suspend/resume from regressing the subtraction, and try_into
     // clamps the unlikely case of an absurdly large delta to `i64::MAX`.
-    let duration_ms = i64::try_from(crate::blocks::helpers::now_millis().saturating_sub(start_ms))
-        .unwrap_or(i64::MAX);
+    let duration_ms =
+        i64::try_from(crate::util::now_millis().saturating_sub(start_ms)).unwrap_or(i64::MAX);
 
     // Skip logging static asset requests to reduce noise (one request_logs
     // write per CSS/JS/font/logo fetch otherwise). The prefix is the shared
@@ -206,7 +206,7 @@ pub async fn handle_request(
         );
         data.insert("client_ip".to_string(), serde_json::json!(client_ip));
         data.insert("user_id".to_string(), serde_json::json!(user_id));
-        crate::blocks::helpers::stamp_created(&mut data);
+        crate::util::stamp_created(&mut data);
 
         // Best-effort: don't fail the request if logging fails
         let _ = db::create(ctx, crate::blocks::admin::REQUEST_LOGS_TABLE, data).await;

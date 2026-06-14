@@ -7,7 +7,7 @@
 //! `start.rs` / `callback.rs` read these fields instead of matching on the
 //! provider name. Adding a provider is a single table row.
 
-use crate::blocks::helpers::urlencode;
+use crate::util::urlencode;
 
 /// Authorization-header scheme for the userinfo request. Providers differ only
 /// in the scheme word.

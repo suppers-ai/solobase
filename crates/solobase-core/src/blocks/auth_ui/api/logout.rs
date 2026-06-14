@@ -3,17 +3,15 @@
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::{
-            helpers::build_auth_cookie,
-            repo::{
-                jwt_blocklist::{self, NewBlocklistEntry},
-                tokens,
-            },
+    blocks::auth::{
+        helpers::build_auth_cookie,
+        repo::{
+            jwt_blocklist::{self, NewBlocklistEntry},
+            tokens,
         },
-        helpers::ResponseBuilder,
     },
     crypto::{META_AUTH_EXP, META_AUTH_JTI},
+    http::ResponseBuilder,
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {

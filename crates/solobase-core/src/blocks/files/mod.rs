@@ -19,7 +19,7 @@ pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
 use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
 use super::rate_limit::{check_user_rate_limit_with, RateLimit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::err_not_found;
+use crate::http::err_not_found;
 
 crate::solobase_feature_block! {
     /// File storage: buckets, objects, shares, quotas (`suppers-ai/files`).
@@ -126,7 +126,7 @@ crate::solobase_feature_block! {
         // Require authentication for all non-public endpoints
         let user_id = msg.user_id().to_string();
         if user_id.is_empty() {
-            return crate::blocks::helpers::err_unauthorized("Authentication required");
+            return crate::http::err_unauthorized("Authentication required");
         }
 
         // Per-user rate limiting. `create` (upload) gets its own bucket;

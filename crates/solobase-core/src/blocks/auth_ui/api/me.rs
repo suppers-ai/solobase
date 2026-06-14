@@ -4,10 +4,12 @@ use std::collections::HashMap;
 
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::{
-    auth::{helpers::get_user_roles, repo::users},
-    errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, err_not_found, ok_json},
+use crate::{
+    blocks::{
+        auth::{helpers::get_user_roles, repo::users},
+        errors::{error_response, ErrorCode},
+    },
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
 };
 
 pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {

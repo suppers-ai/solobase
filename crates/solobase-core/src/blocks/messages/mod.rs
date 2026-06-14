@@ -7,8 +7,8 @@ pub mod service;
 use wafer_run::{BlockEndpoint, BlockInfo, HttpMethod, InstanceMode};
 
 use crate::{
-    blocks::helpers::err_not_found,
     endpoint_match::{self, EndpointRoute},
+    http::err_not_found,
 };
 
 /// In-block dispatch targets, one per declared HTTP endpoint.

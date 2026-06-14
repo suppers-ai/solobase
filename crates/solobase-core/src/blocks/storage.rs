@@ -30,10 +30,8 @@ use wafer_run::{
     OutputStream, ResourceGrant, ResourceType, WaferError,
 };
 
-use super::{
-    admin::STORAGE_ACCESS_LOGS_TABLE,
-    helpers::{json_map, now_millis},
-};
+use super::admin::STORAGE_ACCESS_LOGS_TABLE;
+use crate::util::{json_map, now_millis};
 
 /// A storage block that enforces per-block path isolation and WRAP-based
 /// cross-block access control.

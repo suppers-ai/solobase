@@ -10,8 +10,9 @@ use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
-    blocks::helpers::{err_internal, path_param, RecordExt},
+    http::err_internal,
     ui::{self, shell::Crumb},
+    util::{path_param, RecordExt},
 };
 
 pub fn entry_card(record: &db::Record) -> Markup {

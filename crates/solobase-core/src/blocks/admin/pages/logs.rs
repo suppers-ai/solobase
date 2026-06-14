@@ -5,10 +5,7 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{
-        admin::{AUDIT_LOGS_TABLE as AUDIT_LOGS, REQUEST_LOGS_TABLE as REQUEST_LOGS},
-        helpers::RecordExt,
-    },
+    blocks::admin::{AUDIT_LOGS_TABLE as AUDIT_LOGS, REQUEST_LOGS_TABLE as REQUEST_LOGS},
     ui::{
         components::{self, pagination},
         icons,
@@ -16,6 +13,7 @@ use crate::{
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
     },
+    util::RecordExt,
 };
 
 pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

@@ -5,9 +5,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use super::{ACCESS_LOGS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
-use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
-};
+use crate::http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
 
 pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -111,7 +109,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         .expires_in_hours
         .map(|h| (now + chrono::Duration::hours(h)).to_rfc3339());
 
-    let mut data = helpers::json_map(serde_json::json!({
+    let mut data = crate::util::json_map(serde_json::json!({
         "token": token,
         "bucket": body.bucket,
         "key": body.key,
@@ -153,7 +151,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
             .get("created_by")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if owner != msg.user_id() && !helpers::is_admin(&msg) {
+        if owner != msg.user_id() && !crate::util::is_admin(&msg) {
             return err_forbidden("Cannot delete another user's share");
         }
     }

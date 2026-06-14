@@ -27,8 +27,9 @@ use super::{
     schema::{config_to_row, row_to_config, TABLE as PROVIDERS_TABLE},
     LlmBlock, DEFAULT_PROVIDER,
 };
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, ok_json, path_param,
+use crate::{
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
+    util::path_param,
 };
 
 /// Legacy default provider block name that must be replaced with the first
@@ -537,7 +538,7 @@ pub(super) async fn create_provider(
     }
 
     let mut data = config_to_row(&cfg);
-    helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
 
     let record = match db::create(ctx, PROVIDERS_TABLE, data).await {
         Ok(r) => r,
@@ -609,7 +610,7 @@ pub(super) async fn update_provider(
     }
 
     let mut data = config_to_row(&cfg);
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     let record = match db::update(ctx, PROVIDERS_TABLE, &id, data).await {
         Ok(r) => r,
@@ -801,7 +802,7 @@ pub(super) async fn discover_models(
     cfg.models = models.into_iter().map(|m| m.model_id).collect();
 
     let mut data = config_to_row(&cfg);
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, PROVIDERS_TABLE, &id, data).await {
         return err_internal("Database error", e);
     }
@@ -1291,7 +1292,7 @@ mod tests {
             .with_key_var("SUPPERS_AI__LLM__TEST_MISSING_KEY"),
         ] {
             let mut data = config_to_row(&cfg);
-            helpers::stamp_created(&mut data);
+            crate::util::stamp_created(&mut data);
             db::create(&ctx, PROVIDERS_TABLE, data)
                 .await
                 .expect("create provider row");

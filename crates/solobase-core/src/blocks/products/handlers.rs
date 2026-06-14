@@ -14,14 +14,12 @@ use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, O
 
 use super::PRICING_TABLE;
 use crate::{
-    blocks::{
-        crud,
-        helpers::{
-            err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
-            field_as_string, ok_json, stamp_created, RecordExt,
-        },
-    },
+    blocks::crud,
     endpoint_match::{self, EndpointRoute},
+    http::{
+        err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    },
+    util::{field_as_string, stamp_created, RecordExt},
 };
 
 /// Admin JSON-API dispatch targets (normalized `/admin/b/products/...`).

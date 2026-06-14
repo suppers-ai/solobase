@@ -15,11 +15,8 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{
-        admin::database::{
-            introspect_columns, introspect_table_summaries, validate_readonly_query, TableSummary,
-        },
-        helpers::{now_millis, parse_form_body, url_path_encode as pct_encode},
+    blocks::admin::database::{
+        introspect_columns, introspect_table_summaries, validate_readonly_query, TableSummary,
     },
     ui::{
         html_response, icons,
@@ -27,6 +24,7 @@ use crate::{
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
     },
+    util::{now_millis, parse_form_body, url_path_encode as pct_encode},
 };
 
 /// Tab the right pane is showing.

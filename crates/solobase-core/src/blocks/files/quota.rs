@@ -3,7 +3,7 @@ use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, OutputStream};
 
 use super::{models::QuotaConfig, OBJECTS_TABLE};
-use crate::blocks::helpers::{err_bad_request, RecordExt};
+use crate::{http::err_bad_request, util::RecordExt};
 
 /// Per-user quota override table. Stores explicit byte/file caps that
 /// override the block defaults for individual users.

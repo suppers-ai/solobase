@@ -17,7 +17,7 @@
 //! audit-log write, and the database mutation; the callers keep only their
 //! response shape (a JSON record vs. an htmx fragment + toast). Guard/validation
 //! failures are returned as a ready-to-emit [`OutputStream`] error via the
-//! shared `helpers::err_*` constructors, so both surfaces report failures
+//! shared `crate::http::err_*` constructors, so both surfaces report failures
 //! identically.
 
 use std::collections::HashMap;
@@ -27,9 +27,10 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
 use super::{logs::audit_log, settings::VARIABLES_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
-use crate::blocks::{
-    auth::USERS_TABLE,
-    helpers::{self, err_bad_request, err_forbidden, err_internal, err_not_found, RecordExt},
+use crate::{
+    blocks::auth::USERS_TABLE,
+    http::{err_bad_request, err_forbidden, err_internal, err_not_found},
+    util::RecordExt,
 };
 
 /// Masked placeholder shown in place of a sensitive value.
@@ -176,7 +177,7 @@ pub(super) async fn set_user_disabled(
 
     let mut data = HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(disabled));
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     let record = match db::update(ctx, USERS_TABLE, user_id, data).await {
         Ok(mut record) => {
@@ -257,7 +258,7 @@ pub(super) async fn update_user_fields(
             data.insert(key.to_string(), val.clone());
         }
     }
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     let record = match db::update(ctx, USERS_TABLE, user_id, data).await {
         Ok(mut record) => {
@@ -297,13 +298,13 @@ pub(super) async fn create_role(
     }
     let admin_id = msg.user_id().to_string();
 
-    let mut data = helpers::json_map(serde_json::json!({
+    let mut data = crate::util::json_map(serde_json::json!({
         "name": name,
         "description": description.unwrap_or_default(),
         "permissions": permissions.unwrap_or_default(),
         "is_system": false,
     }));
-    helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
 
     let record = match db::create(ctx, ROLES_TABLE, data).await {
         Ok(record) => record,
@@ -385,7 +386,7 @@ pub(super) async fn create_variable(
         }
     }
 
-    let mut data = helpers::json_map(serde_json::json!({
+    let mut data = crate::util::json_map(serde_json::json!({
         "key": key,
         "value": value,
         "name": name.filter(|n| !n.is_empty()).unwrap_or(key),
@@ -393,7 +394,7 @@ pub(super) async fn create_variable(
         "sensitive": if sensitive { 1 } else { 0 },
         "updated_by": msg.user_id(),
     }));
-    helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
 
     let record = match db::create(ctx, VARIABLES_TABLE, data).await {
         Ok(record) => record,
@@ -464,7 +465,7 @@ pub(super) async fn update_variable(
         data.insert("description".to_string(), serde_json::json!(description));
     }
     data.insert("updated_by".to_string(), serde_json::json!(msg.user_id()));
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     let record = match db::upsert(
         ctx,
@@ -745,7 +746,7 @@ mod tests {
         data.insert("id".to_string(), serde_json::json!("u2"));
         data.insert("email".to_string(), serde_json::json!("u2@example.com"));
         data.insert("display_name".to_string(), serde_json::json!("User Two"));
-        helpers::stamp_created(&mut data);
+        crate::util::stamp_created(&mut data);
         db::create(&ctx, USERS_TABLE, data)
             .await
             .expect("seed user");

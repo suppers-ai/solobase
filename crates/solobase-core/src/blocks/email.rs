@@ -17,7 +17,10 @@ use wafer_run::{
 };
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
-use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json, urlencode};
+use crate::{
+    http::{err_bad_request, err_not_found, ok_json},
+    util::urlencode,
+};
 
 /// Default per-caller rate limit: 100 emails per hour.
 const DEFAULT_RATE_LIMIT_MAX: u32 = 100;

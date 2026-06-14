@@ -5,9 +5,12 @@ use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{repo, PRODUCTS_TABLE};
-use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
-    err_unauthorized, hex_encode, ok_json,
+use crate::{
+    http::{
+        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
+        err_unauthorized, ok_json,
+    },
+    util::hex_encode,
 };
 
 pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -130,12 +133,12 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     // form keys.
     let stripe_body = format!(
         "payment_method_types[]=card&line_items[0][price_data][currency]={}&line_items[0][price_data][unit_amount]={}&line_items[0][price_data][product_data][name]=Order {}&line_items[0][quantity]=1&mode=payment&success_url={}&cancel_url={}&metadata[purchase_id]={}",
-        super::super::helpers::url_path_encode(&currency),
+        crate::util::url_path_encode(&currency),
         total_cents,
-        super::super::helpers::url_path_encode(&body.purchase_id),
-        super::super::helpers::url_path_encode(&success_url),
-        super::super::helpers::url_path_encode(&cancel_url),
-        super::super::helpers::url_path_encode(&body.purchase_id),
+        crate::util::url_path_encode(&body.purchase_id),
+        crate::util::url_path_encode(&success_url),
+        crate::util::url_path_encode(&cancel_url),
+        crate::util::url_path_encode(&body.purchase_id),
     );
 
     let mut headers = HashMap::new();
@@ -764,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_urlencoding() {
-        use super::super::super::helpers::url_path_encode;
+        use crate::util::url_path_encode;
         assert_eq!(url_path_encode("hello"), "hello");
         assert_eq!(url_path_encode("hello world"), "hello%20world");
         assert_eq!(url_path_encode("a+b=c&d"), "a%2Bb%3Dc%26d");

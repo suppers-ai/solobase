@@ -13,17 +13,17 @@
 
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use crate::blocks::{
-    auth::{
+use crate::{
+    blocks::auth::{
         bootstrap,
         helpers::issue_tokens_and_cookie,
         repo::{bootstrap_tokens, users},
         service::hash_token,
     },
-    helpers::{
-        err_bad_request, err_internal, err_internal_no_cause, err_unauthorized, parse_form_body,
-        ResponseBuilder,
+    http::{
+        err_bad_request, err_internal, err_internal_no_cause, err_unauthorized, ResponseBuilder,
     },
+    util::parse_form_body,
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {

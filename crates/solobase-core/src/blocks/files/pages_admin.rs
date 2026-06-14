@@ -7,8 +7,8 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::{
-    blocks::helpers::RecordExt,
     ui::{self, components, icons, shell::Crumb},
+    util::RecordExt,
 };
 
 /// Tabs navigation across the storage-admin sub-pages

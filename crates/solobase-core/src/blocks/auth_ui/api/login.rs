@@ -3,14 +3,17 @@
 use wafer_core::clients::{config, crypto, database as db};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use crate::blocks::{
-    auth::{
-        helpers::{ensure_admin_role, issue_tokens_and_cookie},
-        repo::{local_credentials, users},
-        DUMMY_HASH, USERS_TABLE,
+use crate::{
+    blocks::{
+        auth::{
+            helpers::{ensure_admin_role, issue_tokens_and_cookie},
+            repo::{local_credentials, users},
+            DUMMY_HASH, USERS_TABLE,
+        },
+        errors::{error_response, ErrorCode},
     },
-    errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, json_map, ResponseBuilder},
+    http::{err_bad_request, err_internal, ResponseBuilder},
+    util::json_map,
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -90,7 +93,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         };
 
     // Update last login
-    let upd = json_map(serde_json::json!({"last_login_at": crate::blocks::helpers::now_rfc3339()}));
+    let upd = json_map(serde_json::json!({"last_login_at": crate::util::now_rfc3339()}));
     if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, upd).await {
         tracing::warn!("Failed to update last login time: {e}");
     }

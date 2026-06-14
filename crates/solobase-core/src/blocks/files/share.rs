@@ -3,12 +3,13 @@ use std::time::Duration;
 use wafer_core::clients::{crypto, database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
-use crate::blocks::{
-    helpers::{
+use crate::{
+    blocks::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
+    http::{
         err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
-        json_map, now_rfc3339, RecordExt, ResponseBuilder,
+        ResponseBuilder,
     },
-    rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
+    util::{json_map, now_rfc3339, RecordExt},
 };
 
 /// Public share-link table — one row per generated token.

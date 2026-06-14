@@ -17,7 +17,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, WaferError};
 
 use super::COLLECTION;
-use crate::blocks::helpers::{self, json_map};
+use crate::util::json_map;
 
 /// Inputs for [`publish_document`].
 pub(super) struct PublishRequest<'a> {
@@ -62,7 +62,7 @@ pub(super) async fn publish_document(
         latest_version(ctx, req.doc_type).await + 1
     };
 
-    let now = helpers::now_rfc3339();
+    let now = crate::util::now_rfc3339();
     let record = if req.doc_id.is_empty() {
         let mut data = json_map(serde_json::json!({
             "doc_type": req.doc_type,
@@ -192,7 +192,7 @@ mod tests {
         status: &str,
         version: i64,
     ) -> db::Record {
-        let now = helpers::now_rfc3339();
+        let now = crate::util::now_rfc3339();
         let data = json_map(serde_json::json!({
             "doc_type": doc_type,
             "title": title,

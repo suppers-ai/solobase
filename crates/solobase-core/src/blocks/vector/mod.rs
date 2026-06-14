@@ -118,7 +118,7 @@ crate::solobase_feature_block! {
         // so the block holds no `user_id`/`is_admin` preamble. The matcher
         // binds `{name}`/`{index}`/`{id}` into `req.param.*`.
         let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
-            return crate::blocks::helpers::err_not_found("not found");
+            return crate::http::err_not_found("not found");
         };
         match route {
             Route::IndexListPage => pages_ui::index_list_page(ctx, &msg).await,

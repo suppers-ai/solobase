@@ -27,7 +27,7 @@ use wafer_run::{
     context::Context, BlockEndpoint, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
 };
 
-use crate::blocks::helpers::{err_not_found, ok_json};
+use crate::http::{err_not_found, ok_json};
 
 crate::solobase_feature_block! {
     /// Admin panel: users, database, IAM, logs, settings (`suppers-ai/admin`).
@@ -261,7 +261,7 @@ crate::solobase_feature_block! {
 /// Build a 308 Permanent Redirect to `target`. Preserves method + body
 /// per RFC 7538, so POST/PUT htmx requests redirect correctly.
 fn redirect_308(target: &str) -> OutputStream {
-    crate::blocks::helpers::ResponseBuilder::new()
+    crate::http::ResponseBuilder::new()
         .status(308)
         .set_header("Location", target)
         .body(Vec::new(), "text/plain")
@@ -273,7 +273,7 @@ fn redirect_308(target: &str) -> OutputStream {
 
 use wafer_core::clients::database as db;
 
-use crate::blocks::helpers::parse_form_body;
+use crate::util::parse_form_body;
 
 async fn handle_create_wrap_grant(
     ctx: &dyn Context,

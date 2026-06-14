@@ -6,20 +6,20 @@ use std::collections::HashMap;
 use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, Message, OutputStream};
 
-use crate::blocks::{
-    auth::{
-        helpers::{
-            email_domain_allowed, ensure_admin_role, initial_role_for, issue_tokens_and_cookie,
-            signup_allowed,
+use crate::{
+    blocks::{
+        auth::{
+            helpers::{
+                email_domain_allowed, ensure_admin_role, initial_role_for, issue_tokens_and_cookie,
+                signup_allowed,
+            },
+            repo::{oauth_pkce, provider_links, users},
+            USERS_TABLE,
         },
-        repo::{oauth_pkce, provider_links, users},
-        USERS_TABLE,
+        auth_ui::redirect::is_safe_local_redirect,
     },
-    auth_ui::redirect::is_safe_local_redirect,
-    helpers::{
-        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map,
-        ResponseBuilder,
-    },
+    http::{err_bad_request, err_forbidden, err_internal, err_internal_no_cause, ResponseBuilder},
+    util::json_map,
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -109,7 +109,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     // Update last_login_at on the users row (best-effort).
     let upd = json_map(serde_json::json!({
-        "last_login_at": crate::blocks::helpers::now_rfc3339()
+        "last_login_at": crate::util::now_rfc3339()
     }));
     if let Err(e) = db::update(ctx, USERS_TABLE, &user_id, upd).await {
         tracing::warn!("Failed to update last_login_at: {e}");
@@ -282,7 +282,7 @@ async fn fetch_user_info(
             // a parse failure is rare and the raw body typically contains
             // the upstream email / provider IDs that we don't want to drop
             // into the error log surface.
-            let body_hash = crate::blocks::helpers::sha256_hex(&info_resp.body);
+            let body_hash = crate::util::sha256_hex(&info_resp.body);
             return Err(err_internal(
                 "Failed to parse OAuth user info",
                 format!(
@@ -456,7 +456,7 @@ async fn resolve_user(
                         let role_data = json_map(serde_json::json!({
                             "user_id": u.id,
                             "role": role,
-                            "assigned_at": crate::blocks::helpers::now_rfc3339()
+                            "assigned_at": crate::util::now_rfc3339()
                         }));
                         if let Err(e) =
                             db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data).await
@@ -779,8 +779,8 @@ mod security_regression_tests {
         .await
         .expect("seed user");
         // Flip the real `disabled` flag (the value the fixed check reads).
-        let mut upd = crate::blocks::helpers::json_map(serde_json::json!({ "disabled": true }));
-        crate::blocks::helpers::stamp_updated(&mut upd);
+        let mut upd = crate::util::json_map(serde_json::json!({ "disabled": true }));
+        crate::util::stamp_updated(&mut upd);
         wafer_core::clients::database::update(
             &ctx,
             crate::blocks::auth::USERS_TABLE,

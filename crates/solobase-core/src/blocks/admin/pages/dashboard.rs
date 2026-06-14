@@ -8,14 +8,13 @@ use wafer_sql_utils::{aggregate, query};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{
-        admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, auth::USERS_TABLE as USERS, helpers::RecordExt,
-    },
+    blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, auth::USERS_TABLE as USERS},
     ui::{
         shell::Topbar,
         templates::{dashboard_page, PageHeader, StatTile},
         SiteConfig, UserInfo,
     },
+    util::RecordExt,
 };
 
 /// Render a 30-day column bar chart card. `data` is ordered

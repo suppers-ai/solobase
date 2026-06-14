@@ -1,7 +1,7 @@
 use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
 use crate::{
-    blocks::helpers::{err_not_found, ok_json, ResponseBuilder},
+    http::{err_not_found, ok_json, ResponseBuilder},
     ui,
 };
 

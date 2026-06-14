@@ -4,7 +4,7 @@
 use wafer_core::clients::config;
 use wafer_run::{context::Context, OutputStream};
 
-use crate::blocks::helpers::ok_json;
+use crate::http::ok_json;
 
 pub async fn handle(ctx: &dyn Context) -> OutputStream {
     let mut providers = Vec::new();

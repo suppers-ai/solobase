@@ -5,9 +5,11 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use super::{repo, PRODUCTS_TABLE};
-use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
-    RecordExt,
+use crate::{
+    http::{
+        err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    },
+    util::RecordExt,
 };
 
 pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -308,7 +310,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.str_field("user_id");
-    if purchase_user != msg.user_id() && !helpers::is_admin(msg) {
+    if purchase_user != msg.user_id() && !crate::util::is_admin(msg) {
         return err_forbidden("Access denied");
     }
 
