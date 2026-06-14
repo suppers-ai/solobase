@@ -153,16 +153,34 @@ impl<H: Copy> EndpointRoute<H> {
 pub fn dispatch<H: Copy>(msg: &mut Message, table: &[EndpointRoute<H>]) -> Option<H> {
     let action = msg.action().to_string();
     let path = msg.path().to_string();
+    dispatch_path(msg, &action, &path, table)
+}
+
+/// Like [`dispatch`], but matches against an explicitly supplied `action` +
+/// `path` rather than reading them from the message.
+///
+/// Used by blocks that mount their sub-handlers under a normalized sub-path
+/// (e.g. the products admin/user split): the caller passes the normalized path
+/// as an explicit argument instead of mutating `req.resource` in place, and
+/// extracted `{name}` vars still land in `req.param.*` so the sub-handlers'
+/// id readers work unchanged.
+pub fn dispatch_path<H: Copy>(
+    msg: &mut Message,
+    action: &str,
+    path: &str,
+    table: &[EndpointRoute<H>],
+) -> Option<H> {
     for route in table {
         if action_for_method(route.method) != action {
             continue;
         }
-        if let Some(params) = match_template(route.template, &path) {
-            for (name, value) in params {
-                msg.set_meta(
-                    format!("{}{}", wafer_run::META_REQ_PARAM_PREFIX, name),
-                    value.to_string(),
-                );
+        if let Some(params) = match_template(route.template, path) {
+            let owned: Vec<(String, String)> = params
+                .into_iter()
+                .map(|(k, v)| (k, v.to_string()))
+                .collect();
+            for (name, value) in owned {
+                msg.set_meta(format!("{}{}", wafer_run::META_REQ_PARAM_PREFIX, name), value);
             }
             return Some(route.handler);
         }

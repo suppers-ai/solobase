@@ -281,14 +281,21 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream
 }
 
 pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    // Strip the known prefixes so a stray slash, query string, or extra
-    // segment can't slip through the rsplit fallback.
-    let id = path
-        .strip_prefix("/admin/b/products/purchases/")
-        .or_else(|| path.strip_prefix("/b/products/purchases/"))
-        .unwrap_or("")
-        .trim_matches('/');
+    // Prefer the router-populated `{id}` path var (set by the endpoint
+    // matcher), falling back to stripping the known prefixes for hand-built
+    // test messages.
+    let id = {
+        let var = msg.var("id");
+        if !var.is_empty() {
+            var
+        } else {
+            msg.path()
+                .strip_prefix("/admin/b/products/purchases/")
+                .or_else(|| msg.path().strip_prefix("/b/products/purchases/"))
+                .unwrap_or("")
+                .trim_matches('/')
+        }
+    };
     if id.is_empty() {
         return err_bad_request("Missing purchase ID");
     }
@@ -317,13 +324,20 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let path = msg.path();
-    // /admin/b/products/purchases/{id}/refund
-    let id = path
-        .strip_prefix("/admin/b/products/purchases/")
-        .and_then(|s| s.strip_suffix("/refund"))
-        .unwrap_or("")
-        .to_string();
+    // `/admin/b/products/purchases/{id}/refund` — prefer the matcher-bound
+    // `{id}`, falling back to prefix/suffix stripping for hand-built tests.
+    let id = {
+        let var = msg.var("id");
+        if !var.is_empty() {
+            var.to_string()
+        } else {
+            msg.path()
+                .strip_prefix("/admin/b/products/purchases/")
+                .and_then(|s| s.strip_suffix("/refund"))
+                .unwrap_or("")
+                .to_string()
+        }
+    };
     if id.is_empty() {
         return err_bad_request("Missing purchase ID");
     }

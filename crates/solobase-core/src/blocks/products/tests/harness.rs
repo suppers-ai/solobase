@@ -105,6 +105,30 @@ pub fn admin_create_msg(path: &str, body: serde_json::Value) -> (Message, InputS
     (msg, input)
 }
 
+/// Dispatch an admin request the way `ProductsBlock::handle` does, but for
+/// tests that build the message with the normalized `/admin/b/products/...`
+/// path already in `req.resource`: the normalized sub-path is now an explicit
+/// argument (no `req.resource` rewrite), so here it equals `msg.path()`.
+pub async fn dispatch_admin(
+    ctx: &TestContext,
+    mut msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    let norm = msg.path().to_string();
+    super::super::handlers::handle_admin(ctx, &mut msg, &norm, input).await
+}
+
+/// Dispatch a user request the same way (normalized `/b/products/...` path is
+/// already in `req.resource` for these tests).
+pub async fn dispatch_user(
+    ctx: &TestContext,
+    mut msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    let norm = msg.path().to_string();
+    super::super::handlers::handle_user(ctx, &mut msg, &norm, input).await
+}
+
 /// Collect an `OutputStream`'s body and decode it as JSON.
 /// Returns `Value::Null` if the stream did not terminate with `Complete`.
 pub async fn output_to_json(out: OutputStream) -> serde_json::Value {

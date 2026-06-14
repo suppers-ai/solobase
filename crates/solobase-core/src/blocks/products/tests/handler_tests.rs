@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use wafer_run::ErrorCode;
 
 use super::harness::*;
-use crate::blocks::products::handlers;
 
 // ============================================================
 // Admin Product CRUD
@@ -22,7 +21,7 @@ async fn admin_create_product() {
         }),
     );
 
-    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    let out = dispatch_admin(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     assert!(body["id"].as_str().is_some());
     assert_eq!(body["data"]["name"], "Cloud Hosting");
@@ -41,17 +40,17 @@ async fn admin_list_products() {
             "name": "Product A", "base_price": 10
         }),
     );
-    handlers::handle_admin(&ctx, &msg1, input1).await;
+    dispatch_admin(&ctx, msg1, input1).await;
     let (msg2, input2) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Product B", "base_price": 20
         }),
     );
-    handlers::handle_admin(&ctx, &msg2, input2).await;
+    dispatch_admin(&ctx, msg2, input2).await;
 
     let (list_msg, list_input) = admin_get_msg("/admin/b/products/products");
-    let out = handlers::handle_admin(&ctx, &list_msg, list_input).await;
+    let out = dispatch_admin(&ctx, list_msg, list_input).await;
     let body = output_to_json(out).await;
     assert!(body["records"].as_array().unwrap().len() >= 2);
 }
@@ -66,14 +65,14 @@ async fn admin_get_product() {
             "name": "Widget", "base_price": 5.0
         }),
     );
-    let create_out = handlers::handle_admin(&ctx, &create_msg_data, create_input).await;
+    let create_out = dispatch_admin(&ctx, create_msg_data, create_input).await;
     let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     let (get_msg_data, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
-    let out = handlers::handle_admin(&ctx, &get_msg_data, get_input).await;
+    let out = dispatch_admin(&ctx, get_msg_data, get_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Widget");
 }
@@ -88,7 +87,7 @@ async fn admin_update_product() {
             "name": "Old Name", "base_price": 10
         }),
     );
-    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let create_out = dispatch_admin(&ctx, create, create_input).await;
     let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -103,7 +102,7 @@ async fn admin_update_product() {
         }),
     );
     update.set_meta("auth.user_roles", "admin");
-    let out = handlers::handle_admin(&ctx, &update, update_input).await;
+    let out = dispatch_admin(&ctx, update, update_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "New Name");
 }
@@ -118,7 +117,7 @@ async fn admin_delete_product() {
             "name": "To Delete"
         }),
     );
-    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let create_out = dispatch_admin(&ctx, create, create_input).await;
     let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -126,13 +125,13 @@ async fn admin_delete_product() {
 
     let (mut del, del_input) = delete_msg(&format!("/admin/b/products/products/{}", id), "admin_1");
     del.set_meta("auth.user_roles", "admin");
-    let out = handlers::handle_admin(&ctx, &del, del_input).await;
+    let out = dispatch_admin(&ctx, del, del_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["deleted"], true);
 
     // Verify it's gone
     let (get, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
-    let out = handlers::handle_admin(&ctx, &get, get_input).await;
+    let out = dispatch_admin(&ctx, get, get_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -150,13 +149,13 @@ async fn admin_create_and_list_groups() {
             "name": "Electronics"
         }),
     );
-    let out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let out = dispatch_admin(&ctx, create, create_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Electronics");
     assert_eq!(body["data"]["user_id"], "admin_1");
 
     let (list, list_input) = admin_get_msg("/admin/b/products/groups");
-    let list_out = handlers::handle_admin(&ctx, &list, list_input).await;
+    let list_out = dispatch_admin(&ctx, list, list_input).await;
     let list_body = output_to_json(list_out).await;
     assert_eq!(list_body["records"].as_array().unwrap().len(), 1);
 }
@@ -175,10 +174,10 @@ async fn admin_create_and_list_types() {
             "name": "subscription", "display_name": "Subscription"
         }),
     );
-    handlers::handle_admin(&ctx, &create, create_input).await;
+    dispatch_admin(&ctx, create, create_input).await;
 
     let (list, list_input) = admin_get_msg("/admin/b/products/types");
-    let out = handlers::handle_admin(&ctx, &list, list_input).await;
+    let out = dispatch_admin(&ctx, list, list_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
@@ -199,7 +198,7 @@ async fn admin_pricing_template_crud() {
             "price_formula": "base * quantity * 0.9"
         }),
     );
-    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let create_out = dispatch_admin(&ctx, create, create_input).await;
     let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -215,7 +214,7 @@ async fn admin_pricing_template_crud() {
         }),
     );
     update.set_meta("auth.user_roles", "admin");
-    let update_out = handlers::handle_admin(&ctx, &update, update_input).await;
+    let update_out = dispatch_admin(&ctx, update, update_input).await;
     let update_body = output_to_json(update_out).await;
     assert_eq!(
         update_body["data"]["price_formula"],
@@ -225,7 +224,7 @@ async fn admin_pricing_template_crud() {
     // Delete
     let (mut del, del_input) = delete_msg(&format!("/admin/b/products/pricing/{}", id), "admin_1");
     del.set_meta("auth.user_roles", "admin");
-    let del_out = handlers::handle_admin(&ctx, &del, del_input).await;
+    let del_out = dispatch_admin(&ctx, del, del_input).await;
     assert_eq!(output_to_json(del_out).await["deleted"], true);
 }
 
@@ -262,7 +261,7 @@ async fn admin_stats() {
     .await;
 
     let (msg, input) = admin_get_msg("/admin/b/products/stats");
-    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    let out = dispatch_admin(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["total_products"].as_i64().unwrap(), 2);
     assert_eq!(body["active_products"].as_i64().unwrap(), 1);
@@ -290,7 +289,7 @@ async fn user_create_product_in_own_group() {
             "name": "My Store"
         }),
     );
-    let group_out = handlers::handle_user(&ctx, &create_group, cg_input).await;
+    let group_out = dispatch_user(&ctx, create_group, cg_input).await;
     let group_id = output_to_json(group_out).await["id"]
         .as_str()
         .unwrap()
@@ -306,7 +305,7 @@ async fn user_create_product_in_own_group() {
             "group_id": group_id
         }),
     );
-    let out = handlers::handle_user(&ctx, &create_prod, cp_input).await;
+    let out = dispatch_user(&ctx, create_prod, cp_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Widget");
     assert_eq!(body["data"]["created_by"], "user_1");
@@ -324,7 +323,7 @@ async fn user_cannot_create_product_in_other_users_group() {
             "name": "User1 Store"
         }),
     );
-    let group_out = handlers::handle_user(&ctx, &create_group, cg_input).await;
+    let group_out = dispatch_user(&ctx, create_group, cg_input).await;
     let group_id = output_to_json(group_out).await["id"]
         .as_str()
         .unwrap()
@@ -339,7 +338,7 @@ async fn user_cannot_create_product_in_other_users_group() {
             "group_id": group_id
         }),
     );
-    let out = handlers::handle_user(&ctx, &create_prod, cp_input).await;
+    let out = dispatch_user(&ctx, create_prod, cp_input).await;
     assert!(output_is_error(out, ErrorCode::InvalidArgument).await);
 }
 
@@ -355,7 +354,7 @@ async fn user_cannot_see_other_users_products() {
             "name": "Private Product"
         }),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -363,7 +362,7 @@ async fn user_cannot_see_other_users_products() {
 
     // user_2 tries to get it
     let (get, get_input) = get_msg(&format!("/b/products/products/{}", prod_id), "user_2");
-    let out = handlers::handle_user(&ctx, &get, get_input).await;
+    let out = dispatch_user(&ctx, get, get_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -378,7 +377,7 @@ async fn user_cannot_update_other_users_products() {
             "name": "My Product"
         }),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -391,7 +390,7 @@ async fn user_cannot_update_other_users_products() {
             "name": "Hijacked!"
         }),
     );
-    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let out = dispatch_user(&ctx, update, update_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -406,14 +405,14 @@ async fn user_cannot_delete_other_users_products() {
             "name": "My Product"
         }),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     let (del, del_input) = delete_msg(&format!("/b/products/products/{}", prod_id), "user_2");
-    let out = handlers::handle_user(&ctx, &del, del_input).await;
+    let out = dispatch_user(&ctx, del, del_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -427,7 +426,7 @@ async fn user_list_only_own_products() {
         "user_1",
         serde_json::json!({"name": "U1 Product"}),
     );
-    handlers::handle_user(&ctx, &c1, c1_input).await;
+    dispatch_user(&ctx, c1, c1_input).await;
 
     // user_2 creates a product
     let (c2, c2_input) = create_msg(
@@ -435,11 +434,11 @@ async fn user_list_only_own_products() {
         "user_2",
         serde_json::json!({"name": "U2 Product"}),
     );
-    handlers::handle_user(&ctx, &c2, c2_input).await;
+    dispatch_user(&ctx, c2, c2_input).await;
 
     // user_1 lists — should only see their own
     let (list, list_input) = get_msg("/b/products/products", "user_1");
-    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let out = dispatch_user(&ctx, list, list_input).await;
     let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
@@ -455,7 +454,7 @@ async fn user_update_prevents_ownership_change() {
         "user_1",
         serde_json::json!({"name": "Mine"}),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -470,7 +469,7 @@ async fn user_update_prevents_ownership_change() {
             "created_by": "attacker"
         }),
     );
-    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let out = dispatch_user(&ctx, update, update_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["created_by"], "user_1");
 }
@@ -488,17 +487,17 @@ async fn user_list_only_own_groups() {
         "user_1",
         serde_json::json!({"name": "U1 Group"}),
     );
-    handlers::handle_user(&ctx, &g1, g1_input).await;
+    dispatch_user(&ctx, g1, g1_input).await;
 
     let (g2, g2_input) = create_msg(
         "/b/products/groups",
         "user_2",
         serde_json::json!({"name": "U2 Group"}),
     );
-    handlers::handle_user(&ctx, &g2, g2_input).await;
+    dispatch_user(&ctx, g2, g2_input).await;
 
     let (list, list_input) = get_msg("/b/products/groups", "user_1");
-    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let out = dispatch_user(&ctx, list, list_input).await;
     let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
@@ -514,7 +513,7 @@ async fn user_cannot_update_other_users_group() {
         "user_1",
         serde_json::json!({"name": "My Group"}),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let group_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -527,7 +526,7 @@ async fn user_cannot_update_other_users_group() {
             "name": "Stolen"
         }),
     );
-    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let out = dispatch_user(&ctx, update, update_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -540,7 +539,7 @@ async fn user_group_update_prevents_ownership_change() {
         "user_1",
         serde_json::json!({"name": "My Group"}),
     );
-    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let create_out = dispatch_user(&ctx, create, create_input).await;
     let group_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
@@ -554,7 +553,7 @@ async fn user_group_update_prevents_ownership_change() {
             "user_id": "attacker"
         }),
     );
-    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let out = dispatch_user(&ctx, update, update_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["user_id"], "user_1");
 }
@@ -578,7 +577,7 @@ async fn catalog_only_shows_active_products() {
     seed(&ctx, "suppers_ai__products__products", "p_draft", d2).await;
 
     let (msg, input) = get_msg("/b/products/catalog", "");
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
@@ -595,7 +594,7 @@ async fn catalog_get_hides_non_active() {
     seed(&ctx, "suppers_ai__products__products", "p_hidden", d).await;
 
     let (msg, input) = get_msg("/b/products/catalog/p_hidden", "");
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -613,7 +612,7 @@ async fn user_group_products_list() {
         "user_1",
         serde_json::json!({"name": "Store"}),
     );
-    let gr = handlers::handle_user(&ctx, &cg, cg_input).await;
+    let gr = dispatch_user(&ctx, cg, cg_input).await;
     let gid = output_to_json(gr).await["id"].as_str().unwrap().to_string();
 
     // Create product in group
@@ -625,11 +624,11 @@ async fn user_group_products_list() {
             "group_id": gid
         }),
     );
-    handlers::handle_user(&ctx, &cp, cp_input).await;
+    dispatch_user(&ctx, cp, cp_input).await;
 
     // List products in group
     let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_1");
-    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let out = dispatch_user(&ctx, list, list_input).await;
     let body = output_to_json(out).await;
     assert!(body["records"].as_array().unwrap().len() >= 1);
 }
@@ -643,12 +642,12 @@ async fn user_cannot_list_other_users_group_products() {
         "user_1",
         serde_json::json!({"name": "Private"}),
     );
-    let gr = handlers::handle_user(&ctx, &cg, cg_input).await;
+    let gr = dispatch_user(&ctx, cg, cg_input).await;
     let gid = output_to_json(gr).await["id"].as_str().unwrap().to_string();
 
     // user_2 tries to list user_1's group products
     let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
-    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let out = dispatch_user(&ctx, list, list_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -665,11 +664,11 @@ async fn user_products_rejected_when_disabled() {
         "user_1",
         serde_json::json!({"name": "Test"}),
     );
-    let out = handlers::handle_user(&ctx, &create, create_input).await;
+    let out = dispatch_user(&ctx, create, create_input).await;
     assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 
     let (list, list_input) = get_msg("/b/products/products", "user_1");
-    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let out = dispatch_user(&ctx, list, list_input).await;
     assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 
     let (group, group_input) = create_msg(
@@ -677,7 +676,7 @@ async fn user_products_rejected_when_disabled() {
         "user_1",
         serde_json::json!({"name": "Group"}),
     );
-    let out = handlers::handle_user(&ctx, &group, group_input).await;
+    let out = dispatch_user(&ctx, group, group_input).await;
     assert!(output_is_error(out, ErrorCode::PermissionDenied).await);
 }
 
@@ -691,7 +690,7 @@ async fn catalog_still_works_when_user_products_disabled() {
     seed(&ctx, "suppers_ai__products__products", "p1", d).await;
 
     let (msg, input) = get_msg("/b/products/catalog", "");
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
@@ -704,7 +703,7 @@ async fn catalog_still_works_when_user_products_disabled() {
 async fn unknown_admin_route() {
     let ctx = ctx().await;
     let (msg, input) = admin_get_msg("/admin/b/products/nonexistent");
-    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    let out = dispatch_admin(&ctx, msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -712,7 +711,7 @@ async fn unknown_admin_route() {
 async fn unknown_user_route() {
     let ctx = ctx().await;
     let (msg, input) = get_msg("/b/products/nonexistent", "user_1");
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
 
@@ -763,7 +762,7 @@ async fn manage_products_uses_data_table_with_mobile_labels() {
         "/admin/b/products/products",
         serde_json::json!({ "name": "Widget", "base_price": 5 }),
     );
-    handlers::handle_admin(&ctx, &c, c_input).await;
+    dispatch_admin(&ctx, c, c_input).await;
 
     let (msg, _input) = admin_get_msg("/b/products/admin/manage");
     let html = output_to_html(super::super::pages::manage_products(&ctx, &msg).await).await;

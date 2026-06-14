@@ -449,6 +449,52 @@ async fn llm_admin_provider_crud_rejects_non_admin() {
 }
 
 #[tokio::test]
+async fn products_admin_api_rejects_non_admin() {
+    // The products prefix (`/b/products`) is Public, and the block dropped its
+    // in-handler `is_admin` preambles, so every admin API path must be a
+    // declared `Admin` endpoint or it would fall back to Public. Spot-check a
+    // representative set across resources (incl. dynamic `{id}` and the nested
+    // refund route), plus the SSR admin page.
+    let ctx = RecordingContext::new();
+    let infos = vec![BlockInfo::new(
+        "suppers-ai/products",
+        "0.0.1",
+        "http-handler@v1",
+        "products",
+    )
+    .endpoints(vec![
+        BlockEndpoint::get("/b/products/admin/").auth(AuthLevel::Admin),
+        BlockEndpoint::get("/b/products/api/admin/groups").auth(AuthLevel::Admin),
+        BlockEndpoint::delete("/b/products/api/admin/products/{id}").auth(AuthLevel::Admin),
+        BlockEndpoint::patch("/b/products/api/admin/purchases/{id}/refund").auth(AuthLevel::Admin),
+        BlockEndpoint::get("/b/products/catalog").auth(AuthLevel::Public),
+    ])];
+
+    let cases: &[(&str, &str)] = &[
+        ("retrieve", "/b/products/admin/"),
+        ("retrieve", "/b/products/api/admin/groups"),
+        ("delete", "/b/products/api/admin/products/p-1"),
+        ("update", "/b/products/api/admin/purchases/o-9/refund"),
+    ];
+    for (action, path) in cases {
+        let mut msg = make_msg_with_user(path, "user-1");
+        msg.set_meta("req.action", *action);
+        let s =
+            routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+        assert_eq!(response_status(s).await, 403, "{action} {path} must reject non-admin");
+    }
+    assert!(ctx.calls().is_empty());
+
+    // The public catalog still dispatches anonymously.
+    let ctx2 = RecordingContext::new();
+    let cat = make_msg("/b/products/catalog");
+    let s2 =
+        routing::route_to_block(&ctx2, cat, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s2).await, 200);
+    assert_eq!(ctx2.calls(), vec!["suppers-ai/products".to_string()]);
+}
+
+#[tokio::test]
 async fn auth_ui_admin_settings_rejects_non_admin() {
     // `/b/auth/admin/settings` is declared `Admin` while the auth-ui prefix is
     // Public — so the declared level is the sole gate (the deleted inline
