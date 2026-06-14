@@ -22,7 +22,7 @@ use wafer_run::{
 };
 
 use super::rate_limit::{check_user_rate_limit_with, RateLimit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::{self, err_not_found};
+use crate::blocks::helpers::err_not_found;
 
 pub struct FilesBlock {
     limiter: UserRateLimiter,
@@ -82,13 +82,30 @@ impl Block for FilesBlock {
                 BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}").summary("Delete file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/direct/{token}").summary("Access shared file"),
                 BlockEndpoint::get("/b/cloudstorage/").summary("Shares + quota page").auth(AuthLevel::Authenticated),
+                // Admin SSR pages — declared `Admin` so the central router
+                // enforces the tier (the block dropped its inline `is_admin`
+                // check for `/b/storage/admin/*`).
+                //
+                // The overview is served by `handle()` for BOTH the canonical
+                // slash form (`/b/storage/admin/`, the `admin_url`) and the
+                // bare no-slash form (`/b/storage/admin`) via its
+                // `"" | "/" => overview` dispatch arm. The central router's
+                // matcher is trailing-slash-significant, so BOTH must be
+                // declared `Admin` — declaring only the slash form would leave
+                // the no-slash form governed solely by the Public `/b/storage/`
+                // prefix tier, letting an anonymous request reach the storage
+                // admin overview.
+                BlockEndpoint::get("/b/storage/admin").summary("Storage admin overview").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/storage/admin/").summary("Storage admin overview").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/storage/admin/buckets").summary("All buckets (admin)").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/storage/admin/shares").summary("All shares (admin)").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/storage/admin/quotas").summary("Quotas (admin)").auth(AuthLevel::Admin),
             ])
             .admin_url("/b/storage/admin/")
             .can_disable(true)
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        let mut msg = msg;
         let path = msg.path().to_string();
 
         // Admin-block delegation: when the Admin block routes a request for
@@ -105,12 +122,10 @@ impl Block for FilesBlock {
             return cloud::handle(ctx, msg, input).await;
         }
 
-        // Admin SSR pages at /b/storage/admin/...
+        // Admin SSR pages at /b/storage/admin/... — Admin tier enforced
+        // centrally from the declared `/b/storage/admin/*` endpoints (no
+        // inline `is_admin` re-check).
         if path.starts_with("/b/storage/admin") && msg.action() == "retrieve" {
-            let is_admin = helpers::is_admin(&msg);
-            if !is_admin {
-                return crate::ui::forbidden_response(&msg);
-            }
             let sub = path.strip_prefix("/b/storage/admin").unwrap_or("/");
             return match sub {
                 "" | "/" => pages_admin::overview(ctx, &msg).await,
@@ -121,19 +136,10 @@ impl Block for FilesBlock {
             };
         }
 
-        // Normalize: /b/storage/... → /storage/..., /b/cloudstorage/... stays as-is
-        let normalized = if let Some(rest) = path.strip_prefix("/b/storage") {
-            format!("/storage{rest}")
-        } else {
-            path.clone()
-        };
-        if normalized != path {
-            msg.set_meta("req.resource", &normalized);
-        }
-
         // Direct share access (public, no auth required) — still rate-limited
         // per remote IP inside the handler to stop token enumeration / DOS.
-        if normalized.starts_with("/storage/direct/") {
+        // Matches the REAL on-the-wire path (no `req.resource` rewrite).
+        if path.starts_with("/b/storage/direct/") {
             return share::handle_direct_access(ctx, &msg, &self.limiter).await;
         }
 
@@ -194,16 +200,16 @@ impl Block for FilesBlock {
             return pages_user::cloudstorage_page(ctx, &msg).await;
         }
 
-        // Cloud storage routes (/b/cloudstorage/...)
-        if normalized.starts_with("/b/cloudstorage") {
+        // Cloud storage routes (/b/cloudstorage/...) — `cloud::handle` matches
+        // the real on-the-wire path directly.
+        if path.starts_with("/b/cloudstorage") {
             return cloud::handle(ctx, msg, input).await;
         }
 
-        // User storage API routes (/b/storage/api/... → /storage/api/...)
-        if normalized.starts_with("/storage/api/") || normalized == "/storage/api" {
-            // Normalize for sub-module: /storage/api/buckets → /storage/buckets
-            let api_path = normalized.replacen("/storage/api", "/storage", 1);
-            msg.set_meta("req.resource", &api_path);
+        // User storage API routes (/b/storage/api/...) — `storage::handle`
+        // matches the real on-the-wire suffixes directly (the previous
+        // double `req.resource` rewrite is gone).
+        if path.starts_with("/b/storage/api/") || path == "/b/storage/api" {
             return storage::handle(ctx, msg, input).await;
         }
 

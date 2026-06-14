@@ -28,7 +28,7 @@ use super::{
     LlmBlock, DEFAULT_PROVIDER,
 };
 use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, path_param,
+    self, err_bad_request, err_internal, err_not_found, ok_json, path_param,
 };
 
 /// Legacy default provider block name that must be replaced with the first
@@ -469,11 +469,8 @@ async fn resolve_provider_key(ctx: &dyn Context, cfg: &mut ProviderConfig) {
 pub(super) async fn list_providers(
     _block: &LlmBlock,
     ctx: &dyn Context,
-    msg: &Message,
+    _msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let records = match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
         Ok(r) => r,
         Err(e) => return err_internal("Database error", e),
@@ -494,12 +491,9 @@ pub(super) async fn list_providers(
 pub(super) async fn create_provider(
     block: &LlmBlock,
     ctx: &dyn Context,
-    msg: &Message,
+    _msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let raw = input.collect_to_bytes().await;
     let body: ProviderBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -564,9 +558,6 @@ pub(super) async fn update_provider(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
@@ -641,9 +632,6 @@ pub(super) async fn delete_provider(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
@@ -734,9 +722,6 @@ pub(super) async fn load_model(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let (backend_id, model_id) = extract_model_path(msg);
     if backend_id.is_empty() || model_id.is_empty() {
         return err_bad_request("Missing backend_id or model_id");
@@ -760,9 +745,6 @@ pub(super) async fn unload_model(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let (backend_id, model_id) = extract_model_path(msg);
     if backend_id.is_empty() || model_id.is_empty() {
         return err_bad_request("Missing backend_id or model_id");
@@ -785,9 +767,6 @@ pub(super) async fn discover_models(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return err_forbidden("admin role required");
-    }
     let id = path_param(msg, "id", PROVIDERS_PREFIX).to_string();
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
@@ -987,83 +966,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_provider_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("create", "/b/llm/api/providers");
-        let input = InputStream::from_bytes(b"{}".to_vec());
-
-        let out = create_provider(&block, &ctx, &msg, input).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn update_provider_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("update", "/b/llm/api/providers/abc");
-        let input = InputStream::from_bytes(b"{}".to_vec());
-
-        let out = update_provider(&block, &ctx, &msg, input).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn delete_provider_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("delete", "/b/llm/api/providers/abc");
-
-        let out = delete_provider(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn list_providers_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("retrieve", "/b/llm/api/providers");
-
-        let out = list_providers(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn discover_models_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("create", "/b/llm/api/providers/abc/discover-models");
-
-        let out = discover_models(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn create_provider_returns_bad_request_on_invalid_json() {
         let block = stub_block();
         let ctx = PanicCtx;
@@ -1217,36 +1119,6 @@ mod tests {
     // These cover the paths that don't need a live `wafer-run/llm`
     // dispatch: admin-guard denial for `load`/`unload`, bad-request on
     // missing path vars, and the path-extraction helper.
-
-    #[tokio::test]
-    async fn load_model_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("create", "/b/llm/api/models/openai/gpt-4o/load");
-
-        let out = load_model(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn unload_model_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("create", "/b/llm/api/models/openai/gpt-4o/unload");
-
-        let out = unload_model(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
 
     #[tokio::test]
     async fn load_model_requires_path_vars() {

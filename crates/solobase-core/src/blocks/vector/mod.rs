@@ -5,11 +5,63 @@ pub mod pages_ui;
 pub mod service;
 
 use wafer_run::{
-    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, AuthLevel, Block, BlockEndpoint, BlockInfo, HttpMethod, InputStream,
+    InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
-use crate::blocks::helpers;
+use crate::endpoint_match::{self, EndpointRoute};
+
+/// In-block dispatch targets. UI pages and the JSON API now share ONE matcher
+/// table; the per-route access tier comes from the declared endpoint
+/// `AuthLevel` and is enforced centrally (UI → Admin, API → Authenticated).
+#[derive(Clone, Copy)]
+enum Route {
+    IndexListPage,
+    IndexDetailPage,
+    ApiCreateIndex,
+    ApiListIndexes,
+    ApiDeleteIndex,
+    ApiUpsert,
+    ApiQuery,
+    ApiIngest,
+    ApiEmbed,
+    ApiStats,
+    ApiDeleteSingle,
+}
+
+/// Method + path-template dispatch table, mirroring `info().endpoints`. The
+/// specific `api/indexes/{name}` delete precedes the generic
+/// `api/{index}/{id}` delete so index-deletes win (the old ordering
+/// invariant). The matcher binds `{name}`/`{index}`/`{id}` into `req.param.*`.
+const ROUTES: &[EndpointRoute<Route>] = &[
+    EndpointRoute::new(HttpMethod::Get, "/b/vector/", Route::IndexListPage),
+    EndpointRoute::new(HttpMethod::Get, "/b/vector/{name}/", Route::IndexDetailPage),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/vector/api/indexes",
+        Route::ApiCreateIndex,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/vector/api/indexes",
+        Route::ApiListIndexes,
+    ),
+    EndpointRoute::new(HttpMethod::Post, "/b/vector/api/upsert", Route::ApiUpsert),
+    EndpointRoute::new(HttpMethod::Post, "/b/vector/api/query", Route::ApiQuery),
+    EndpointRoute::new(HttpMethod::Post, "/b/vector/api/ingest", Route::ApiIngest),
+    EndpointRoute::new(HttpMethod::Post, "/b/vector/api/embed", Route::ApiEmbed),
+    EndpointRoute::new(HttpMethod::Get, "/b/vector/api/stats", Route::ApiStats),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/vector/api/indexes/{name}",
+        Route::ApiDeleteIndex,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/vector/api/{index}/{id}",
+        Route::ApiDeleteSingle,
+    ),
+];
 
 pub struct VectorBlock;
 
@@ -77,46 +129,35 @@ impl Block for VectorBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        // All endpoints require authentication. Task 15 fills in the indexes
-        // CRUD routes; remaining routes (upsert, query, ingest, embed, stats,
-        // delete-vector) still resolve to `Unimplemented` in `pages::route`.
-        let user_id = msg.user_id().to_string();
-        if user_id.is_empty() {
-            return helpers::err_unauthorized("authentication required");
-        }
-
-        // UI pages — admin-only. The JSON dispatch in `pages::route` handles
-        // all `/b/vector/api/...` paths; UI routes live alongside on the
-        // bare base path and on `/b/vector/{name}/`.
-        let action = msg.action();
-        let path = msg.path();
-        if action == "retrieve" {
-            let is_ui = path == "/b/vector/"
-                || path == "/b/vector"
-                || (path.starts_with("/b/vector/")
-                    && !path.starts_with("/b/vector/api/")
-                    && path != "/b/vector/api"
-                    && path != "/b/vector/api/");
-            if is_ui {
-                if !helpers::is_admin(&msg) {
-                    return crate::ui::forbidden_response(&msg);
-                }
-                if path == "/b/vector/" || path == "/b/vector" {
-                    return pages_ui::index_list_page(ctx, &msg).await;
-                }
-                // /b/vector/{name}[/...] → detail page. Strip the prefix and
-                // any trailing slashes; reject empty segments to avoid
-                // routing `/b/vector//` or similar.
-                let rest = path.trim_start_matches("/b/vector/").trim_matches('/');
-                if rest.is_empty() || rest.contains('/') {
-                    return crate::blocks::helpers::err_not_found("not found");
-                }
-                return pages_ui::index_detail_page(ctx, &msg, rest).await;
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
+        // Auth is enforced centrally by `route_to_block` from the declared
+        // endpoint `AuthLevel` (UI pages → Admin, JSON API → Authenticated),
+        // so the block holds no `user_id`/`is_admin` preamble. The matcher
+        // binds `{name}`/`{index}`/`{id}` into `req.param.*`.
+        let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
+            return crate::blocks::helpers::err_not_found("not found");
+        };
+        match route {
+            Route::IndexListPage => pages_ui::index_list_page(ctx, &msg).await,
+            Route::IndexDetailPage => {
+                let name = msg.var("name").to_string();
+                pages_ui::index_detail_page(ctx, &msg, &name).await
             }
+            Route::ApiCreateIndex => pages::create_index(ctx, &msg, input).await,
+            Route::ApiListIndexes => pages::list_indexes(ctx).await,
+            Route::ApiDeleteIndex => pages::delete_index(ctx, &msg).await,
+            Route::ApiUpsert => pages::upsert(ctx, input).await,
+            Route::ApiQuery => pages::query(ctx, input).await,
+            Route::ApiIngest => pages::ingest(ctx, input).await,
+            Route::ApiEmbed => pages::embed(ctx, input).await,
+            Route::ApiStats => pages::stats(ctx).await,
+            Route::ApiDeleteSingle => pages::delete_single(ctx, &msg).await,
         }
-
-        pages::route(ctx, &msg, input).await
     }
 
     async fn lifecycle(

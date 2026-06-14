@@ -16,9 +16,10 @@ pub(crate) use crate::admin_schema::REQUEST_LOGS_TABLE;
 /// Storage access log entries (one row per object read/write).
 pub(crate) const STORAGE_ACCESS_LOGS_TABLE: &str = "suppers_ai__admin__storage_access_logs";
 
-pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
+/// `path` is the normalized `/admin/logs` sub-path, passed explicitly (no
+/// `req.resource` rewrite).
+pub async fn handle(ctx: &dyn Context, msg: &Message, path: &str) -> OutputStream {
     let action = msg.action();
-    let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/logs") => handle_list(ctx, msg).await,

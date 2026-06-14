@@ -120,7 +120,8 @@ pub async fn handle_request(
     let start_ms = crate::blocks::helpers::now_millis();
 
     // 3. Route to block.
-    let mut stream = routing::route_to_block(ctx, msg, input, features, extra_routes).await;
+    let mut stream =
+        routing::route_to_block(ctx, msg, input, features, block_infos, extra_routes).await;
 
     // 3a. If the block declares a streaming Content-Type up front (SSE, raw
     //     byte stream), don't drain the response into memory just to grab a

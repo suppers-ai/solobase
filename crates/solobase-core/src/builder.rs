@@ -519,6 +519,7 @@ impl SolobaseBuilder {
         // on `block_settings_handle()` for why this matters.
         let feature_config: Arc<dyn FeatureConfig> = self.block_settings.clone();
         let block_infos = wafer.block_infos();
+        let routes_cfg = crate::routing::routes_config(&block_infos);
         let router = SolobaseRouterBlock::with_extra_routes(
             jwt_secret,
             feature_config,
@@ -526,7 +527,7 @@ impl SolobaseBuilder {
             self.extra_routes,
         );
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
-        wafer.add_block_config("suppers-ai/router", crate::routing::routes_config());
+        wafer.add_block_config("suppers-ai/router", routes_cfg);
 
         // 11. Auto-discover WASM blocks from cwd/blocks/**/target/block.wasm
         //     and flow JSON files from cwd/flows/**/*.json.

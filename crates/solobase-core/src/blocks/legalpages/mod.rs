@@ -6,8 +6,9 @@ use maud::{html, Markup, PreEscaped};
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, InputStream,
-    InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, Block, BlockEndpoint, BlockInfo, ConfigVar, ErrorCode, HttpMethod,
+    InputStream, InputType, InstanceMode, LifecycleEvent, LifecycleType, Message, OutputStream,
+    WaferError,
 };
 
 use crate::{
@@ -17,8 +18,115 @@ use crate::{
             self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
         },
     },
+    endpoint_match::{self, EndpointRoute},
     ui::{self, templates, SiteConfig},
 };
+
+/// In-block dispatch targets, one per declared HTTP endpoint.
+#[derive(Clone, Copy)]
+enum Route {
+    PublicTerms,
+    PublicPrivacy,
+    EditorPrivacy,
+    EditorTerms,
+    SettingsPage,
+    EndpointsPage,
+    AdminSave,
+    AdminRenderPreview,
+    AdminPublish,
+    AdminSaveSettings,
+    ApiList,
+    ApiGet,
+    ApiCreate,
+    ApiPublish,
+    ApiUpdate,
+    ApiDelete,
+}
+
+/// Method + path-template dispatch table, mirroring `info().endpoints`. The
+/// JSON `.../{id}/publish` template precedes the generic `.../{id}` so the
+/// specific publish route wins (replacing the old `ends_with("/publish")`
+/// guard). The JSON publish is a PATCH (`update`) on the wire, matching the
+/// handler's historical dispatch.
+const ROUTES: &[EndpointRoute<Route>] = &[
+    EndpointRoute::new(HttpMethod::Get, "/b/legalpages/terms", Route::PublicTerms),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/privacy",
+        Route::PublicPrivacy,
+    ),
+    EndpointRoute::new(HttpMethod::Get, "/b/legalpages/admin", Route::EditorPrivacy),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/admin/privacy",
+        Route::EditorPrivacy,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/admin/terms",
+        Route::EditorTerms,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/admin/settings",
+        Route::SettingsPage,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/admin/endpoints",
+        Route::EndpointsPage,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/legalpages/admin/save",
+        Route::AdminSave,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/legalpages/admin/render-preview",
+        Route::AdminRenderPreview,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/legalpages/admin/publish",
+        Route::AdminPublish,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/legalpages/admin/settings",
+        Route::AdminSaveSettings,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/api/documents",
+        Route::ApiList,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/legalpages/api/documents",
+        Route::ApiCreate,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/legalpages/api/documents/{id}/publish",
+        Route::ApiPublish,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/legalpages/api/documents/{id}",
+        Route::ApiGet,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/legalpages/api/documents/{id}",
+        Route::ApiUpdate,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/legalpages/api/documents/{id}",
+        Route::ApiDelete,
+    ),
+];
 
 /// The legalpages block's own declared config vars. Single source of truth for
 /// both `BlockInfo::config_keys` and the admin settings page (rendered via
@@ -490,14 +598,29 @@ impl Block for LegalPagesBlock {
             .requires(vec!["wafer-run/database".into()])
             .category(wafer_run::BlockCategory::Feature)
             .description("Legal document management with versioning and publishing. Create and manage terms of service, privacy policies, and other legal documents. Supports draft/published workflow with version tracking.")
+            // The admin SSR sub-pages and mutations are declared in full so
+            // the central router enforces their `Admin` tier from the declared
+            // `AuthLevel` — not merely from the `/b/legalpages/admin` prefix's
+            // route-table ordering, which was the sole gate before (the #1
+            // regression hazard this package closes).
             .endpoints(vec![
                 BlockEndpoint::get("/b/legalpages/terms").summary("Published terms of service"),
                 BlockEndpoint::get("/b/legalpages/privacy").summary("Published privacy policy"),
-                BlockEndpoint::get("/b/legalpages/admin").summary("Admin editor").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/admin").summary("Admin editor (privacy)").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/admin/privacy").summary("Admin editor (privacy)").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/admin/terms").summary("Admin editor (terms)").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/admin/settings").summary("Admin settings page").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/admin/endpoints").summary("Endpoints reference").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/admin/save").summary("Save draft").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/admin/render-preview").summary("Render markdown preview").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/admin/publish").summary("Publish from editor").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/admin/settings").summary("Save settings").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/legalpages/api/documents").summary("List documents").auth(AuthLevel::Admin),
                 BlockEndpoint::post("/b/legalpages/api/documents").summary("Create document").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/api/documents/{id}").summary("Get document").auth(AuthLevel::Admin),
+                BlockEndpoint::patch("/b/legalpages/api/documents/{id}/publish").summary("Publish document").auth(AuthLevel::Admin),
                 BlockEndpoint::patch("/b/legalpages/api/documents/{id}").summary("Update document").auth(AuthLevel::Admin),
-                BlockEndpoint::post("/b/legalpages/api/documents/{id}/publish").summary("Publish document").auth(AuthLevel::Admin),
+                BlockEndpoint::delete("/b/legalpages/api/documents/{id}").summary("Delete document").auth(AuthLevel::Admin),
             ])
             .config_keys(config_vars())
             .admin_url("/b/legalpages/admin")
@@ -505,55 +628,42 @@ impl Block for LegalPagesBlock {
             .default_enabled(false)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        let action = msg.action().to_string();
-        let path = msg.path().to_string();
-
-        match (action.as_str(), path.as_str()) {
-            // Public endpoints
-            ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, "terms").await,
-            ("retrieve", "/b/legalpages/privacy") => self.handle_get_public(ctx, "privacy").await,
-
-            // Admin UI pages (SSR)
-            ("retrieve", "/b/legalpages/admin") | ("retrieve", "/b/legalpages/admin/privacy") => {
-                pages::editor_page(ctx, &msg, "privacy").await
-            }
-            ("retrieve", "/b/legalpages/admin/terms") => {
-                pages::editor_page(ctx, &msg, "terms").await
-            }
-            ("retrieve", "/b/legalpages/admin/settings") => pages::settings_page(ctx, &msg).await,
-            ("retrieve", "/b/legalpages/admin/endpoints") => pages::endpoints_page(ctx, &msg).await,
-
-            // Admin UI mutations (from editor save/publish)
-            ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, &msg, input).await,
-            ("create", "/b/legalpages/admin/render-preview") => {
-                pages::handle_render_preview(ctx, input).await
-            }
-            ("create", "/b/legalpages/admin/publish") => {
-                pages::handle_publish(ctx, &msg, input).await
-            }
-            ("create", "/b/legalpages/admin/settings") => {
-                pages::handle_save_settings(ctx, input).await
-            }
-
-            // JSON API at /b/legalpages/api/documents/...
-            ("retrieve", "/b/legalpages/api/documents") => self.handle_admin_list(ctx, &msg).await,
-            ("retrieve", _) if path.starts_with(API_DOC_PREFIX) => {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
+        // Auth is enforced centrally by `route_to_block` from the declared
+        // endpoint `AuthLevel` (public reads, admin everything else) — the
+        // block holds no `is_admin` preamble. Dispatch matches the same
+        // declared templates, extracting `{id}` into `req.param.id`.
+        let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
+            return ui::not_found_response(&msg);
+        };
+        match route {
+            Route::PublicTerms => self.handle_get_public(ctx, "terms").await,
+            Route::PublicPrivacy => self.handle_get_public(ctx, "privacy").await,
+            Route::EditorPrivacy => pages::editor_page(ctx, &msg, "privacy").await,
+            Route::EditorTerms => pages::editor_page(ctx, &msg, "terms").await,
+            Route::SettingsPage => pages::settings_page(ctx, &msg).await,
+            Route::EndpointsPage => pages::endpoints_page(ctx, &msg).await,
+            Route::AdminSave => pages::handle_save(ctx, &msg, input).await,
+            Route::AdminRenderPreview => pages::handle_render_preview(ctx, input).await,
+            Route::AdminPublish => pages::handle_publish(ctx, &msg, input).await,
+            Route::AdminSaveSettings => pages::handle_save_settings(ctx, input).await,
+            Route::ApiList => self.handle_admin_list(ctx, &msg).await,
+            Route::ApiGet => {
                 crud::crud_get(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await
             }
-            ("create", "/b/legalpages/api/documents") => {
-                self.handle_admin_create(ctx, &msg, input).await
-            }
-            ("update", _) if path.starts_with(API_DOC_PREFIX) && path.ends_with("/publish") => {
-                self.handle_admin_publish(ctx, &msg).await
-            }
-            ("update", _) if path.starts_with(API_DOC_PREFIX) => {
+            Route::ApiCreate => self.handle_admin_create(ctx, &msg, input).await,
+            Route::ApiPublish => self.handle_admin_publish(ctx, &msg).await,
+            Route::ApiUpdate => {
                 crud::crud_update(ctx, &msg, input, COLLECTION, API_DOC_PREFIX, "Document").await
             }
-            ("delete", _) if path.starts_with(API_DOC_PREFIX) => {
+            Route::ApiDelete => {
                 crud::crud_delete(ctx, &msg, COLLECTION, API_DOC_PREFIX, "Document").await
             }
-            _ => ui::not_found_response(&msg),
         }
     }
 

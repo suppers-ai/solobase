@@ -100,9 +100,15 @@ pub mod block_settings {
 // `super::BLOCK_SETTINGS_TABLE` references keep resolving.
 pub use crate::admin_schema::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 
-pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+/// `path` is the normalized `/admin/settings[...]` sub-path, passed explicitly
+/// (no `req.resource` rewrite). Id-bearing leaves take the key from it.
+pub async fn handle(
+    ctx: &dyn Context,
+    msg: &Message,
+    path: &str,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
-    let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/settings/all") => handle_list_full(ctx).await,
@@ -110,11 +116,13 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         ("retrieve", _)
             if path.starts_with("/admin/settings/") || path.starts_with("/settings/") =>
         {
-            handle_get(ctx, msg).await
+            handle_get(ctx, path).await
         }
-        ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg, input).await,
+        ("update", _) if path.starts_with("/admin/settings/") => {
+            handle_set(ctx, msg, path, input).await
+        }
         ("create", "/admin/settings") => handle_create(ctx, msg, input).await,
-        ("delete", _) if path.starts_with("/admin/settings/") => handle_delete(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/settings/") => handle_delete(ctx, path).await,
         _ => err_not_found("not found"),
     }
 }
@@ -179,8 +187,7 @@ async fn handle_list(ctx: &dyn Context) -> OutputStream {
     }
 }
 
-async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_get(ctx: &dyn Context, path: &str) -> OutputStream {
     let key = path
         .strip_prefix("/admin/settings/")
         .or_else(|| path.strip_prefix("/settings/"))
@@ -215,8 +222,12 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let path = msg.path();
+async fn handle_set(
+    ctx: &dyn Context,
+    msg: &Message,
+    path: &str,
+    input: InputStream,
+) -> OutputStream {
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
     if key.is_empty() {
         return err_bad_request("Missing setting key");
@@ -290,8 +301,7 @@ async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
     }
 }
 
-async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_delete(ctx: &dyn Context, path: &str) -> OutputStream {
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
     if key.is_empty() {
         return err_bad_request("Missing setting key");
@@ -736,7 +746,8 @@ mod tests {
             .expect("seed secret var");
 
         let msg = admin_msg("retrieve", "/admin/settings/STRIPE_SECRET");
-        let out = handle(&ctx, &msg, InputStream::empty()).await;
+        let path = msg.path().to_string();
+        let out = handle(&ctx, &msg, &path, InputStream::empty()).await;
         let body = output_json(out).await;
         // `Record` serializes as `{ id, data: { value, ... } }`.
         assert_eq!(

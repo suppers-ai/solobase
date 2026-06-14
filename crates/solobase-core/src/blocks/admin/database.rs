@@ -117,9 +117,15 @@ pub(in crate::blocks::admin) async fn introspect_columns(
     (cols, row_count)
 }
 
-pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+/// `path` is the normalized `/admin/database/...` sub-path, passed explicitly
+/// (no `req.resource` rewrite). `handle_columns` extracts the table name from it.
+pub async fn handle(
+    ctx: &dyn Context,
+    msg: &Message,
+    path: &str,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
-    let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/database/info") => handle_info(ctx).await,
@@ -127,7 +133,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         ("retrieve", _)
             if path.starts_with("/admin/database/tables/") && path.ends_with("/columns") =>
         {
-            handle_columns(ctx, msg).await
+            handle_columns(ctx, path).await
         }
         ("create", "/admin/database/query") => handle_query(ctx, input).await,
         _ => err_not_found("not found"),
@@ -177,8 +183,7 @@ async fn handle_tables(ctx: &dyn Context) -> OutputStream {
     ok_json(&serde_json::json!(table_info))
 }
 
-async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_columns(ctx: &dyn Context, path: &str) -> OutputStream {
     // Extract table name from /admin/database/tables/{name}/columns
     let table_name = path
         .strip_prefix("/admin/database/tables/")

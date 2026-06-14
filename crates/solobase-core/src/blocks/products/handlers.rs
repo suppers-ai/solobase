@@ -10,16 +10,329 @@ use std::collections::HashMap;
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{config, database as db};
-use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
 use super::PRICING_TABLE;
-use crate::blocks::{
-    crud,
-    helpers::{
-        err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
-        field_as_string, ok_json, stamp_created, RecordExt,
+use crate::{
+    blocks::{
+        crud,
+        helpers::{
+            err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
+            field_as_string, ok_json, stamp_created, RecordExt,
+        },
     },
+    endpoint_match::{self, EndpointRoute},
 };
+
+/// Admin JSON-API dispatch targets (normalized `/admin/b/products/...`).
+#[derive(Clone, Copy)]
+pub(crate) enum AdminRoute {
+    ListProducts,
+    GetProduct,
+    CreateProduct,
+    UpdateProduct,
+    DeleteProduct,
+    ListGroups,
+    CreateGroup,
+    UpdateGroup,
+    DeleteGroup,
+    ListTypes,
+    CreateType,
+    DeleteType,
+    ListPricing,
+    CreatePricing,
+    UpdatePricing,
+    DeletePricing,
+    ListVariables,
+    CreateVariable,
+    UpdateVariable,
+    DeleteVariable,
+    ListPurchases,
+    RefundPurchase,
+    GetPurchase,
+    Stats,
+}
+
+/// Admin dispatch table over the normalized `/admin/b/products/...` paths.
+/// The `purchases/{id}/refund` template precedes the generic
+/// `purchases/{id}` so the refund route wins (the old `ends_with("/refund")`
+/// guard).
+const ADMIN_ROUTES: &[EndpointRoute<AdminRoute>] = &[
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/products",
+        AdminRoute::ListProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/products",
+        AdminRoute::CreateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/products/{id}",
+        AdminRoute::GetProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/products/{id}",
+        AdminRoute::UpdateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/products/{id}",
+        AdminRoute::DeleteProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/groups",
+        AdminRoute::ListGroups,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/groups",
+        AdminRoute::CreateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/groups/{id}",
+        AdminRoute::UpdateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/groups/{id}",
+        AdminRoute::DeleteGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/types",
+        AdminRoute::ListTypes,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/types",
+        AdminRoute::CreateType,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/types/{id}",
+        AdminRoute::DeleteType,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/pricing",
+        AdminRoute::ListPricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/pricing",
+        AdminRoute::CreatePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/pricing/{id}",
+        AdminRoute::UpdatePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/pricing/{id}",
+        AdminRoute::DeletePricing,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/variables",
+        AdminRoute::ListVariables,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/admin/b/products/variables",
+        AdminRoute::CreateVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/variables/{id}",
+        AdminRoute::UpdateVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/admin/b/products/variables/{id}",
+        AdminRoute::DeleteVariable,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/purchases",
+        AdminRoute::ListPurchases,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/admin/b/products/purchases/{id}/refund",
+        AdminRoute::RefundPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/purchases/{id}",
+        AdminRoute::GetPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/admin/b/products/stats",
+        AdminRoute::Stats,
+    ),
+];
+
+/// User-facing dispatch targets (normalized `/b/products/...`).
+#[derive(Clone, Copy)]
+pub(crate) enum UserRoute {
+    ListProducts,
+    GetProduct,
+    CreateProduct,
+    UpdateProduct,
+    DeleteProduct,
+    ListGroups,
+    GetGroup,
+    CreateGroup,
+    UpdateGroup,
+    DeleteGroup,
+    GroupProducts,
+    ListTypes,
+    GroupTemplates,
+    Catalog,
+    CatalogItem,
+    CalculatePrice,
+    CreatePurchase,
+    ListPurchases,
+    GetPurchase,
+    Checkout,
+    Subscription,
+}
+
+impl UserRoute {
+    /// Routes that operate on a user's OWN product/group rows and are gated on
+    /// `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS` (matching the old
+    /// `starts_with("/b/products/products"|"groups")` 403 fallback).
+    fn requires_user_products(self) -> bool {
+        matches!(
+            self,
+            UserRoute::ListProducts
+                | UserRoute::GetProduct
+                | UserRoute::CreateProduct
+                | UserRoute::UpdateProduct
+                | UserRoute::DeleteProduct
+                | UserRoute::ListGroups
+                | UserRoute::GetGroup
+                | UserRoute::CreateGroup
+                | UserRoute::UpdateGroup
+                | UserRoute::DeleteGroup
+                | UserRoute::GroupProducts
+        )
+    }
+}
+
+/// User dispatch table over the normalized `/b/products/...` paths. The
+/// `groups/{id}/products` template precedes the generic `groups/{id}` so the
+/// "products in a group" route wins (the old `ends_with("/products")` guard);
+/// `catalog` precedes `catalog/{id}`, and `purchases` precedes
+/// `purchases/{id}`.
+const USER_ROUTES: &[EndpointRoute<UserRoute>] = &[
+    // Own products
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/products",
+        UserRoute::ListProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/products",
+        UserRoute::CreateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/products/{id}",
+        UserRoute::GetProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/products/products/{id}",
+        UserRoute::UpdateProduct,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/products/products/{id}",
+        UserRoute::DeleteProduct,
+    ),
+    // Own groups (group-products before the generic {id})
+    EndpointRoute::new(HttpMethod::Get, "/b/products/groups", UserRoute::ListGroups),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/groups",
+        UserRoute::CreateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/groups/{id}/products",
+        UserRoute::GroupProducts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/groups/{id}",
+        UserRoute::GetGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/products/groups/{id}",
+        UserRoute::UpdateGroup,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/products/groups/{id}",
+        UserRoute::DeleteGroup,
+    ),
+    // Read-only taxonomy
+    EndpointRoute::new(HttpMethod::Get, "/b/products/types", UserRoute::ListTypes),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/group-templates",
+        UserRoute::GroupTemplates,
+    ),
+    // Catalog (public)
+    EndpointRoute::new(HttpMethod::Get, "/b/products/catalog", UserRoute::Catalog),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/catalog/{id}",
+        UserRoute::CatalogItem,
+    ),
+    // Pricing / purchases / checkout
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/calculate-price",
+        UserRoute::CalculatePrice,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/purchases",
+        UserRoute::CreatePurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/purchases",
+        UserRoute::ListPurchases,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/purchases/{id}",
+        UserRoute::GetPurchase,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/products/checkout",
+        UserRoute::Checkout,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/products/subscription",
+        UserRoute::Subscription,
+    ),
+];
 
 /// Products catalog table — one row per product offering.
 pub(crate) const PRODUCTS_TABLE: &str = "suppers_ai__products__products";
@@ -123,168 +436,98 @@ const USER_GROUP: crud::OwnedResource<'static> = crud::OwnedResource {
     label: "Group",
 };
 
-pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let action = msg.action();
-    let path = msg.path();
-
-    match (action, path) {
-        // Products
-        ("retrieve", "/admin/b/products/products") => handle_list_products(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/b/products/products/") => {
-            handle_get_product(ctx, msg).await
-        }
-        ("create", "/admin/b/products/products") => handle_create_product(ctx, msg, input).await,
-        ("update", _) if path.starts_with("/admin/b/products/products/") => {
-            handle_update_product(ctx, msg, input).await
-        }
-        ("delete", _) if path.starts_with("/admin/b/products/products/") => {
-            handle_delete_product(ctx, msg).await
-        }
-        // Groups
-        ("retrieve", "/admin/b/products/groups") => handle_list_groups(ctx, msg).await,
-        ("create", "/admin/b/products/groups") => handle_create_group(ctx, msg, input).await,
-        ("update", _) if path.starts_with("/admin/b/products/groups/") => {
-            handle_update_group(ctx, msg, input).await
-        }
-        ("delete", _) if path.starts_with("/admin/b/products/groups/") => {
-            handle_delete_group(ctx, msg).await
-        }
-        // Types
-        ("retrieve", "/admin/b/products/types") => handle_list_types(ctx, msg).await,
-        ("create", "/admin/b/products/types") => handle_create_type(ctx, msg, input).await,
-        ("delete", _) if path.starts_with("/admin/b/products/types/") => {
-            handle_delete_type(ctx, msg).await
-        }
-        // Pricing templates
-        ("retrieve", "/admin/b/products/pricing") => handle_list_pricing(ctx, msg).await,
-        ("create", "/admin/b/products/pricing") => handle_create_pricing(ctx, msg, input).await,
-        ("update", _) if path.starts_with("/admin/b/products/pricing/") => {
-            handle_update_pricing(ctx, msg, input).await
-        }
-        ("delete", _) if path.starts_with("/admin/b/products/pricing/") => {
-            handle_delete_pricing(ctx, msg).await
-        }
-        // Variables
-        ("retrieve", "/admin/b/products/variables") => {
-            super::variables::handle_list(ctx, msg).await
-        }
-        ("create", "/admin/b/products/variables") => {
-            super::variables::handle_create(ctx, msg, input).await
-        }
-        ("update", _) if path.starts_with("/admin/b/products/variables/") => {
-            super::variables::handle_update(ctx, msg, input).await
-        }
-        ("delete", _) if path.starts_with("/admin/b/products/variables/") => {
-            super::variables::handle_delete(ctx, msg).await
-        }
-        // Purchases (admin view)
-        ("retrieve", "/admin/b/products/purchases") => {
-            super::purchase::handle_list_admin(ctx, msg).await
-        }
-        ("retrieve", _) if path.starts_with("/admin/b/products/purchases/") => {
-            super::purchase::handle_get(ctx, msg).await
-        }
-        ("update", _)
-            if path.starts_with("/admin/b/products/purchases/") && path.ends_with("/refund") =>
-        {
-            super::purchase::handle_refund(ctx, msg, input).await
-        }
-        // Stats
-        ("retrieve", "/admin/b/products/stats") => handle_stats(ctx, msg).await,
-        _ => err_not_found("not found"),
+/// Admin JSON-API dispatch.
+///
+/// `norm` is the normalized admin sub-path (`/admin/b/products/...`), passed
+/// as an explicit argument by `ProductsBlock::handle` rather than written
+/// back onto `req.resource` (the old in-band routing mutation). The matcher
+/// binds `{id}` into `req.param.id` so the `crud::*` helpers read it.
+pub async fn handle_admin(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    norm: &str,
+    input: InputStream,
+) -> OutputStream {
+    let action = msg.action().to_string();
+    let Some(route) = endpoint_match::dispatch_path(msg, &action, norm, ADMIN_ROUTES) else {
+        return err_not_found("not found");
+    };
+    match route {
+        AdminRoute::ListProducts => handle_list_products(ctx, msg).await,
+        AdminRoute::GetProduct => handle_get_product(ctx, msg).await,
+        AdminRoute::CreateProduct => handle_create_product(ctx, msg, input).await,
+        AdminRoute::UpdateProduct => handle_update_product(ctx, msg, input).await,
+        AdminRoute::DeleteProduct => handle_delete_product(ctx, msg).await,
+        AdminRoute::ListGroups => handle_list_groups(ctx, msg).await,
+        AdminRoute::CreateGroup => handle_create_group(ctx, msg, input).await,
+        AdminRoute::UpdateGroup => handle_update_group(ctx, msg, input).await,
+        AdminRoute::DeleteGroup => handle_delete_group(ctx, msg).await,
+        AdminRoute::ListTypes => handle_list_types(ctx, msg).await,
+        AdminRoute::CreateType => handle_create_type(ctx, msg, input).await,
+        AdminRoute::DeleteType => handle_delete_type(ctx, msg).await,
+        AdminRoute::ListPricing => handle_list_pricing(ctx, msg).await,
+        AdminRoute::CreatePricing => handle_create_pricing(ctx, msg, input).await,
+        AdminRoute::UpdatePricing => handle_update_pricing(ctx, msg, input).await,
+        AdminRoute::DeletePricing => handle_delete_pricing(ctx, msg).await,
+        AdminRoute::ListVariables => super::variables::handle_list(ctx, msg).await,
+        AdminRoute::CreateVariable => super::variables::handle_create(ctx, msg, input).await,
+        AdminRoute::UpdateVariable => super::variables::handle_update(ctx, msg, input).await,
+        AdminRoute::DeleteVariable => super::variables::handle_delete(ctx, msg).await,
+        AdminRoute::ListPurchases => super::purchase::handle_list_admin(ctx, msg).await,
+        AdminRoute::RefundPurchase => super::purchase::handle_refund(ctx, msg, input).await,
+        AdminRoute::GetPurchase => super::purchase::handle_get(ctx, msg).await,
+        AdminRoute::Stats => handle_stats(ctx, msg).await,
     }
 }
 
-pub async fn handle_user(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let action = msg.action();
-    let path = msg.path();
-    let user_products = user_products_enabled(ctx).await;
+/// User-facing dispatch (own products/groups under `ALLOW_USER_PRODUCTS`, plus
+/// the public catalog, purchases, checkout, subscription).
+///
+/// `norm` is the normalized user sub-path passed explicitly by
+/// `ProductsBlock::handle`. The own-products/groups routes are gated on
+/// `ALLOW_USER_PRODUCTS` *after* matching, preserving the prior "feature
+/// disabled → 403" behaviour for those paths while leaving catalog/purchase
+/// routes always available.
+pub async fn handle_user(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    norm: &str,
+    input: InputStream,
+) -> OutputStream {
+    let action = msg.action().to_string();
+    let Some(route) = endpoint_match::dispatch_path(msg, &action, norm, USER_ROUTES) else {
+        return err_not_found("not found");
+    };
 
-    match (action, path) {
-        // User's own products (requires ALLOW_USER_PRODUCTS)
-        ("retrieve", "/b/products/products") if user_products => {
-            handle_user_list_products(ctx, msg).await
-        }
-        ("retrieve", _) if user_products && path.starts_with("/b/products/products/") => {
-            handle_user_get_product(ctx, msg).await
-        }
-        ("create", "/b/products/products") if user_products => {
-            handle_user_create_product(ctx, msg, input).await
-        }
-        ("update", _) if user_products && path.starts_with("/b/products/products/") => {
-            handle_user_update_product(ctx, msg, input).await
-        }
-        ("delete", _) if user_products && path.starts_with("/b/products/products/") => {
-            handle_user_delete_product(ctx, msg).await
-        }
-        // User's own groups (requires ALLOW_USER_PRODUCTS)
-        ("retrieve", "/b/products/groups") if user_products => {
-            handle_user_list_groups(ctx, msg).await
-        }
-        ("retrieve", _)
-            if user_products
-                && path.starts_with("/b/products/groups/")
-                && !path.ends_with("/products") =>
-        {
-            handle_user_get_group(ctx, msg).await
-        }
-        ("create", "/b/products/groups") if user_products => {
-            handle_user_create_group(ctx, msg, input).await
-        }
-        ("update", _)
-            if user_products
-                && path.starts_with("/b/products/groups/")
-                && !path.ends_with("/products") =>
-        {
-            handle_user_update_group(ctx, msg, input).await
-        }
-        ("delete", _)
-            if user_products
-                && path.starts_with("/b/products/groups/")
-                && !path.ends_with("/products") =>
-        {
-            handle_user_delete_group(ctx, msg).await
-        }
-        // Products in a group (requires ALLOW_USER_PRODUCTS)
-        ("retrieve", _)
-            if user_products
-                && path.starts_with("/b/products/groups/")
-                && path.ends_with("/products") =>
-        {
-            handle_user_group_products(ctx, msg).await
-        }
-        // Read-only: types and group templates
-        ("retrieve", "/b/products/types") => handle_list_types(ctx, msg).await,
-        ("retrieve", "/b/products/group-templates") => {
-            handle_user_list_group_templates(ctx, msg).await
-        }
-        // Catalog (public)
-        ("retrieve", "/b/products/catalog") => handle_catalog(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/b/products/catalog/") => {
-            handle_get_product_public(ctx, msg).await
-        }
-        // Pricing, purchases, checkout
-        ("create", "/b/products/calculate-price") => {
-            super::pricing::handle_calculate(ctx, input).await
-        }
-        ("create", "/b/products/purchases") => {
-            super::purchase::handle_create(ctx, msg, input).await
-        }
-        ("retrieve", "/b/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/b/products/purchases/") => {
-            super::purchase::handle_get(ctx, msg).await
-        }
-        ("create", "/b/products/checkout") => super::stripe::handle_checkout(ctx, msg, input).await,
-        // Subscription status
-        ("retrieve", "/b/products/subscription") => handle_subscription(ctx, msg).await,
-        // User products/groups disabled
-        (_, _)
-            if path.starts_with("/b/products/products")
-                || path.starts_with("/b/products/groups") =>
-        {
-            err_forbidden("user products are not enabled")
-        }
-        _ => err_not_found("not found"),
+    // Own products/groups require ALLOW_USER_PRODUCTS; reject with the same
+    // 403 the old `(_, _) if starts_with("/b/products/products"|"groups")` arm
+    // produced when the feature is off.
+    if route.requires_user_products() && !user_products_enabled(ctx).await {
+        return err_forbidden("user products are not enabled");
+    }
+
+    match route {
+        UserRoute::ListProducts => handle_user_list_products(ctx, msg).await,
+        UserRoute::GetProduct => handle_user_get_product(ctx, msg).await,
+        UserRoute::CreateProduct => handle_user_create_product(ctx, msg, input).await,
+        UserRoute::UpdateProduct => handle_user_update_product(ctx, msg, input).await,
+        UserRoute::DeleteProduct => handle_user_delete_product(ctx, msg).await,
+        UserRoute::ListGroups => handle_user_list_groups(ctx, msg).await,
+        UserRoute::GetGroup => handle_user_get_group(ctx, msg).await,
+        UserRoute::CreateGroup => handle_user_create_group(ctx, msg, input).await,
+        UserRoute::UpdateGroup => handle_user_update_group(ctx, msg, input).await,
+        UserRoute::DeleteGroup => handle_user_delete_group(ctx, msg).await,
+        UserRoute::GroupProducts => handle_user_group_products(ctx, msg).await,
+        UserRoute::ListTypes => handle_list_types(ctx, msg).await,
+        UserRoute::GroupTemplates => handle_user_list_group_templates(ctx, msg).await,
+        UserRoute::Catalog => handle_catalog(ctx, msg).await,
+        UserRoute::CatalogItem => handle_get_product_public(ctx, msg).await,
+        UserRoute::CalculatePrice => super::pricing::handle_calculate(ctx, input).await,
+        UserRoute::CreatePurchase => super::purchase::handle_create(ctx, msg, input).await,
+        UserRoute::ListPurchases => super::purchase::handle_list_user(ctx, msg).await,
+        UserRoute::GetPurchase => super::purchase::handle_get(ctx, msg).await,
+        UserRoute::Checkout => super::stripe::handle_checkout(ctx, msg, input).await,
+        UserRoute::Subscription => handle_subscription(ctx, msg).await,
     }
 }
 
@@ -451,8 +694,16 @@ async fn handle_catalog(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn handle_get_product_public(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let id = path.strip_prefix("/b/products/catalog/").unwrap_or("");
+    let id = {
+        let var = msg.var("id");
+        if var.is_empty() {
+            msg.path()
+                .strip_prefix("/b/products/catalog/")
+                .unwrap_or("")
+        } else {
+            var
+        }
+    };
     if id.is_empty() {
         return err_bad_request("Missing product ID");
     }
@@ -652,10 +903,19 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStr
 
 // Products in a user's group
 async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    // Path: /b/products/groups/{id}/products
-    let rest = path.strip_prefix("/b/products/groups/").unwrap_or("");
-    let group_id = rest.strip_suffix("/products").unwrap_or("");
+    // Path: /b/products/groups/{id}/products — prefer the matcher-bound `{id}`.
+    let group_id = {
+        let var = msg.var("id");
+        if var.is_empty() {
+            msg.path()
+                .strip_prefix("/b/products/groups/")
+                .unwrap_or("")
+                .strip_suffix("/products")
+                .unwrap_or("")
+        } else {
+            var
+        }
+    };
     if group_id.is_empty() {
         return err_bad_request("Missing group ID");
     }

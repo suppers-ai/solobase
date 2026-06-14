@@ -14,6 +14,7 @@ pub mod cache_key;
 pub mod config_source;
 pub mod config_vars;
 pub mod crypto;
+pub mod endpoint_match;
 pub mod features;
 pub mod flows;
 pub mod messages_schema;

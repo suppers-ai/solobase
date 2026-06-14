@@ -61,8 +61,16 @@ impl Block for UserPortalBlock {
             BlockEndpoint::delete("/b/userportal/sessions/:hash").summary("Revoke session").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/security").summary("Account security").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/config").summary("Portal configuration"),
+            // Admin surface — declared in full so the central router enforces
+            // the `Admin` tier (the block no longer hand-checks `is_admin` for
+            // the `/admin/` subtree).
+            BlockEndpoint::get("/b/userportal/admin/settings").summary("Branding settings").auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/userportal/admin/settings").summary("Save branding settings").auth(AuthLevel::Admin),
             BlockEndpoint::get("/b/userportal/admin/buttons").summary("Manage portal buttons").auth(AuthLevel::Admin),
             BlockEndpoint::post("/b/userportal/admin/buttons").summary("Create button").auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/userportal/admin/buttons/{id}/edit").summary("Edit button form").auth(AuthLevel::Admin),
+            BlockEndpoint::patch("/b/userportal/admin/buttons/{id}").summary("Update button").auth(AuthLevel::Admin),
+            BlockEndpoint::delete("/b/userportal/admin/buttons/{id}").summary("Delete button").auth(AuthLevel::Admin),
         ])
         .config_keys(vec![])
         .admin_url("/b/userportal/admin/settings")
@@ -83,11 +91,11 @@ impl Block for UserPortalBlock {
             .unwrap_or("/")
             .to_string();
 
-        // Admin routes — require admin role
+        // Admin routes. The `Admin` tier is enforced centrally from the
+        // declared `/b/userportal/admin/*` endpoints, so no inline `is_admin`
+        // check is needed; the normalized `sub` path is still passed
+        // explicitly to the admin sub-dispatcher (no `req.resource` rewrite).
         if sub.starts_with("/admin/") {
-            if !helpers::is_admin(&msg) {
-                return crate::ui::forbidden_response(&msg);
-            }
             return self.handle_admin(ctx, msg, input, &action, &sub).await;
         }
 

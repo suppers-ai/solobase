@@ -137,27 +137,28 @@ impl Block for AdminBlock {
     ) -> OutputStream {
         use route::AdminRoute;
 
-        // Capture path + action BEFORE any meta mutation. msg.path() reads from
-        // get_meta("req.resource") which the API normalization below mutates;
-        // without these captures the routing classifier would see the normalized
-        // path and miss the /b/admin/api prefix.
         let path_owned = msg.path().to_string();
         let action_owned = msg.action().to_string();
 
-        // API path normalization: downstream sub-handlers (users::handle,
-        // database::handle, etc.) expect req.resource as /admin/... instead
-        // of /b/admin/api/... — preserve that contract exactly as the
-        // pre-refactor handler did.
-        if let Some(api_rest) = path_owned.strip_prefix("/b/admin/api") {
-            msg.set_meta("req.resource", &format!("/admin{}", api_rest));
-        }
+        // The JSON sub-handlers (users::handle, database::handle, …) match on
+        // the normalized `/admin/...` form of the path. That normalized path is
+        // computed here and passed to them as an EXPLICIT argument — no
+        // `req.resource` mutation. `req.resource` is reserved for the genuine
+        // cross-block `call_block` delegations below (StorageDelegate /
+        // CloudStorageDelegate), where the receiving files block reads it as a
+        // fresh request boundary.
+        let api_norm = path_owned
+            .strip_prefix("/b/admin/api")
+            .map(|rest| format!("/admin{rest}"))
+            .unwrap_or_else(|| path_owned.clone());
+
         match route::route(&path_owned, &action_owned) {
             // --- /b/admin/api/... ---
-            AdminRoute::UsersApi => users::handle(ctx, &msg, input).await,
-            AdminRoute::DatabaseApi => database::handle(ctx, &msg, input).await,
-            AdminRoute::IamApi => iam::handle(ctx, &msg, input).await,
-            AdminRoute::LogsApi => logs::handle(ctx, &msg).await,
-            AdminRoute::SettingsApi => settings::handle(ctx, &msg, input).await,
+            AdminRoute::UsersApi => users::handle(ctx, &msg, &api_norm, input).await,
+            AdminRoute::DatabaseApi => database::handle(ctx, &msg, &api_norm, input).await,
+            AdminRoute::IamApi => iam::handle(ctx, &msg, &api_norm, input).await,
+            AdminRoute::LogsApi => logs::handle(ctx, &msg, &api_norm).await,
+            AdminRoute::SettingsApi => settings::handle(ctx, &msg, &api_norm, input).await,
             AdminRoute::ExtensionsApi => {
                 let blocks: Vec<_> = ctx
                     .registered_blocks()

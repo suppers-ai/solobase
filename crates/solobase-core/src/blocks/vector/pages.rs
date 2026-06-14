@@ -56,39 +56,9 @@ use crate::blocks::helpers::{
     err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json, path_param,
 };
 
-/// Route dispatcher for the `suppers-ai/vector` block.
-///
-/// Matches on the normalized action (GET→`retrieve`, POST→`create`,
-/// DELETE→`delete`, etc.) and the request path. Anything that does not
-/// match a handled route resolves to `Unimplemented`, which lets the block
-/// compile and be registered while the remaining handlers land in future
-/// tasks.
-pub async fn route(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let action = msg.action();
-    let path = msg.path();
-
-    match (action, path) {
-        ("create", "/b/vector/api/indexes") => create_index(ctx, msg, input).await,
-        ("retrieve", "/b/vector/api/indexes") => list_indexes(ctx).await,
-        ("create", "/b/vector/api/upsert") => upsert(ctx, input).await,
-        ("create", "/b/vector/api/query") => query(ctx, input).await,
-        ("create", "/b/vector/api/ingest") => ingest(ctx, input).await,
-        ("create", "/b/vector/api/embed") => embed(ctx, input).await,
-        ("retrieve", "/b/vector/api/stats") => stats(ctx).await,
-        // NOTE: the `indexes/` guard must come before the generic
-        // `{index}/{id}` guard so `/indexes/foo` resolves to `delete_index`
-        // rather than being matched as `index=indexes, id=foo`.
-        ("delete", p) if p.starts_with("/b/vector/api/indexes/") => delete_index(ctx, msg).await,
-        ("delete", p) if p.starts_with("/b/vector/api/") && p != "/b/vector/api/" => {
-            delete_single(ctx, msg).await
-        }
-        _ => OutputStream::error(WaferError {
-            code: ErrorCode::Unimplemented,
-            message: format!("vector route not yet implemented: {action} {path}"),
-            meta: vec![],
-        }),
-    }
-}
+// Per-route dispatch now lives in `VectorBlock::handle` via the shared
+// `endpoint_match` table; the JSON handlers below are called directly from
+// there (no in-block `route` shim, no `starts_with` ordering guards).
 
 // ---------------------------------------------------------------------------
 // POST /b/vector/api/indexes — create an index
@@ -107,7 +77,11 @@ struct CreateIndexBody {
     keyword_search: bool,
 }
 
-async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+pub(super) async fn create_index(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     // Accept either JSON (programmatic clients) or URL-encoded form
     // (htmx modal). Parse via the shared helper, then map fields explicitly
@@ -237,7 +211,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
 // GET /b/vector/api/indexes — list indexes
 // ---------------------------------------------------------------------------
 
-async fn list_indexes(ctx: &dyn Context) -> OutputStream {
+pub(super) async fn list_indexes(ctx: &dyn Context) -> OutputStream {
     match discover_indexes(ctx).await {
         Ok(indexes) => ok_json(&serde_json::json!({ "indexes": indexes })),
         Err(e) => err_internal("list indexes failed", e),
@@ -278,7 +252,7 @@ async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> 
 // DELETE /b/vector/api/indexes/{name} — delete an index
 // ---------------------------------------------------------------------------
 
-async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
+pub(super) async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let name = path_param(msg, "name", "/b/vector/api/indexes/");
     if name.is_empty() {
         return err_bad_request("index name is required");
@@ -324,7 +298,7 @@ struct UpsertBody {
     entries: Vec<VectorEntry>,
 }
 
-async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
+pub(super) async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let body: UpsertBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -353,7 +327,7 @@ async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
 // DELETE /b/vector/api/{index}/{id} — delete a single vector by ID
 // ---------------------------------------------------------------------------
 
-async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
+pub(super) async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (index, id) = extract_index_and_id(msg);
     if index.is_empty() {
         return err_bad_request("index is required");
@@ -397,7 +371,7 @@ fn extract_index_and_id(msg: &Message) -> (&str, &str) {
 // GET /b/vector/api/stats — per-index counts
 // ---------------------------------------------------------------------------
 
-async fn stats(ctx: &dyn Context) -> OutputStream {
+pub(super) async fn stats(ctx: &dyn Context) -> OutputStream {
     let indexes = match discover_indexes(ctx).await {
         Ok(v) => v,
         Err(e) => return err_internal("stats failed", e),
@@ -442,7 +416,7 @@ struct QueryBody {
 
 const DEFAULT_TOP_K: usize = 10;
 
-async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
+pub(super) async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let mut body: QueryBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -643,7 +617,7 @@ struct IngestResponse {
 /// chunks for this `document_id` (re-ingestion safety), chunk the text,
 /// optionally add context summaries, embed, and upsert. The response tells
 /// the caller how many chunks landed.
-async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
+pub(super) async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let body: IngestBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -811,7 +785,7 @@ struct EmbedResponse {
 /// Thin shim over `vclient::embed` — we look up which block serves the
 /// requested model on this runtime and dispatch. Empty `texts` is allowed
 /// (the embedding block returns an empty vector list).
-async fn embed(ctx: &dyn Context, input: InputStream) -> OutputStream {
+pub(super) async fn embed(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let body: EmbedBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,

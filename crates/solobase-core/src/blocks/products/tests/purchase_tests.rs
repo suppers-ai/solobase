@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use wafer_run::ErrorCode;
 
 use super::harness::*;
-use crate::blocks::products::{handlers, purchase};
+use crate::blocks::products::purchase;
 
 // ============================================================
 // Purchase creation — happy path
@@ -490,7 +490,7 @@ async fn purchase_create_via_user_handler() {
         }),
     );
 
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["total_cents"].as_i64().unwrap(), 1000);
 }
@@ -505,7 +505,7 @@ async fn purchase_list_via_user_handler() {
     seed(&ctx, "suppers_ai__products__purchases", "pur_route", pd).await;
 
     let (msg, input) = get_msg("/b/products/purchases", "user_1");
-    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let out = dispatch_user(&ctx, msg, input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }

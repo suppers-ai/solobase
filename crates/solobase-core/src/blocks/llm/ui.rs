@@ -24,7 +24,7 @@ use super::{
     LlmBlock,
 };
 use crate::{
-    blocks::helpers::{self, err_internal},
+    blocks::helpers::err_internal,
     ui::{self, components},
 };
 
@@ -41,9 +41,8 @@ pub(super) async fn providers_page(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return ui::forbidden_response(msg);
-    }
+    // Admin gate enforced centrally from the declared `AuthLevel::Admin` on
+    // `GET /b/llm/providers` (no per-handler `is_admin` re-check).
 
     // Load all provider rows (both enabled and disabled) — the admin UI
     // wants the full picture, not just the in-flight set.
@@ -312,9 +311,8 @@ pub(super) async fn models_page(
     ctx: &dyn Context,
     msg: &Message,
 ) -> OutputStream {
-    if !helpers::is_admin(msg) {
-        return ui::forbidden_response(msg);
-    }
+    // Admin gate enforced centrally from the declared `AuthLevel::Admin` on
+    // `GET /b/llm/models` (no per-handler `is_admin` re-check).
 
     let models = match wafer_core::clients::llm::list_models(ctx).await {
         Ok(m) => m,
@@ -465,91 +463,14 @@ fn model_row(model: &ModelInfo) -> Markup {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use wafer_run::{
-        context::Context, streams::output::TerminalNotResponse, ErrorCode, InputStream,
-    };
-
     use super::*;
-    use crate::blocks::llm::{
-        provider_admin::NoopProviderAdmin, providers::config::ProviderProtocol,
-    };
+    use crate::blocks::llm::providers::config::ProviderProtocol;
 
-    /// Minimal Context that panics on `call_block` — UI handlers should
-    /// never invoke block dispatch when the auth guard rejects first.
-    #[derive(Clone)]
-    struct PanicCtx;
-
-    #[async_trait::async_trait]
-    impl Context for PanicCtx {
-        async fn call_block(
-            &self,
-            _block_name: &str,
-            _msg: Message,
-            _input: InputStream,
-        ) -> OutputStream {
-            panic!("call_block must not be invoked on the forbidden path");
-        }
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-        fn config_get(&self, _key: &str) -> Option<&str> {
-            None
-        }
-        fn clone_arc(&self) -> std::sync::Arc<dyn Context> {
-            std::sync::Arc::new(self.clone())
-        }
-    }
-
-    fn stub_block() -> LlmBlock {
-        // The forbidden-path tests never reach the provider-admin surface, so
-        // the no-op handle suffices and keeps the test independent of the
-        // native `llm` provider feature.
-        LlmBlock::new(Arc::new(NoopProviderAdmin))
-    }
-
-    fn user_msg(path: &str) -> Message {
-        let mut m = Message::new(format!("retrieve:{path}"));
-        m.set_meta(wafer_run::META_REQ_ACTION, "retrieve");
-        m.set_meta(wafer_run::META_REQ_RESOURCE, path);
-        m.set_meta(wafer_run::META_AUTH_USER_ID, "regular-user");
-        m.set_meta("auth.user_roles", "user");
-        // Prefer JSON 403 over the styled HTML page so the test can
-        // assert on the error code directly.
-        m.set_meta("http.header.accept", "application/json");
-        m
-    }
-
-    #[tokio::test]
-    async fn providers_page_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("/b/llm/providers");
-
-        let out = providers_page(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn models_page_rejects_non_admin() {
-        let block = stub_block();
-        let ctx = PanicCtx;
-        let msg = user_msg("/b/llm/models");
-
-        let out = models_page(&block, &ctx, &msg).await;
-        match out.collect_buffered().await {
-            Err(TerminalNotResponse::Error(e)) => {
-                assert_eq!(e.code, ErrorCode::PermissionDenied);
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
+    // The provider/model admin pages are gated centrally by the declared
+    // `AuthLevel::Admin` on `GET /b/llm/providers` + `GET /b/llm/models`; the
+    // non-admin rejection is pinned at the enforcement point in
+    // `tests/extra_routes_test.rs` (llm_admin_ui_*), not here, so these page
+    // renderers no longer carry their own `is_admin` re-check.
 
     #[test]
     fn render_providers_table_empty_shows_hint() {
