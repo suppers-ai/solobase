@@ -449,6 +449,54 @@ async fn llm_admin_provider_crud_rejects_non_admin() {
 }
 
 #[tokio::test]
+async fn files_admin_pages_reject_non_admin_and_public_share_passes() {
+    // `/b/storage/admin/*` declared Admin; `/b/storage/` Authenticated;
+    // `/b/storage/direct/{token}` Public. The files prefix is Public, so the
+    // declared levels are the gate (the block dropped its inline `is_admin`).
+    let ctx = RecordingContext::new();
+    let infos = vec![BlockInfo::new(
+        "suppers-ai/files",
+        "0.0.1",
+        "http-handler@v1",
+        "files",
+    )
+    .endpoints(vec![
+        BlockEndpoint::get("/b/storage/admin/buckets").auth(AuthLevel::Admin),
+        BlockEndpoint::get("/b/storage/").auth(AuthLevel::Authenticated),
+        BlockEndpoint::get("/b/storage/direct/{token}").auth(AuthLevel::Public),
+    ])];
+
+    // Non-admin → 403 on admin page.
+    let admin_page = make_msg_with_user("/b/storage/admin/buckets", "user-1");
+    let s1 =
+        routing::route_to_block(&ctx, admin_page, InputStream::empty(), &AllEnabled, &infos, &[])
+            .await;
+    assert_eq!(response_status(s1).await, 403);
+
+    // Anonymous → 403 on the Authenticated bucket list.
+    let ctx2 = RecordingContext::new();
+    let bucket_list = make_msg("/b/storage/");
+    let s2 = routing::route_to_block(
+        &ctx2,
+        bucket_list,
+        InputStream::empty(),
+        &AllEnabled,
+        &infos,
+        &[],
+    )
+    .await;
+    assert_eq!(response_status(s2).await, 403);
+
+    // Anonymous → 200 dispatch on the Public direct-share link.
+    let ctx3 = RecordingContext::new();
+    let share = make_msg("/b/storage/direct/tok-abc");
+    let s3 =
+        routing::route_to_block(&ctx3, share, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s3).await, 200);
+    assert_eq!(ctx3.calls(), vec!["suppers-ai/files".to_string()]);
+}
+
+#[tokio::test]
 async fn products_admin_api_rejects_non_admin() {
     // The products prefix (`/b/products`) is Public, and the block dropped its
     // in-handler `is_admin` preambles, so every admin API path must be a

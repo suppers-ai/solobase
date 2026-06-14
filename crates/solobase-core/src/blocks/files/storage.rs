@@ -1,9 +1,12 @@
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{database as db, storage as store};
-use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
-use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
+use crate::{
+    blocks::helpers::{
+        self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
+    },
+    endpoint_match::{self, EndpointRoute},
 };
 
 /// Buckets table — user-created storage containers (one row per bucket).
@@ -14,39 +17,81 @@ pub(crate) const BUCKETS_TABLE: &str = "suppers_ai__files__buckets";
 /// uploader and timestamps.
 pub(crate) const OBJECTS_TABLE: &str = "suppers_ai__files__objects";
 
-pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-    let action = msg.action();
-    let path = msg.path();
+/// In-block dispatch targets for the user storage API.
+#[derive(Clone, Copy)]
+enum Route {
+    ListBuckets,
+    CreateBucket,
+    ListObjects,
+    GetObject,
+    UploadObject,
+    DeleteObject,
+    DeleteBucket,
+    Search,
+    Recent,
+}
 
-    match (action, path) {
-        ("retrieve", "/storage/buckets") => handle_list_buckets(ctx, &msg).await,
-        ("create", "/storage/buckets") => handle_create_bucket(ctx, &msg, input).await,
-        ("retrieve", _) if path.starts_with("/storage/buckets/") && path.contains("/objects") => {
-            if path.contains("/objects/") {
-                handle_get_object(ctx, &msg).await
-            } else {
-                handle_list_objects(ctx, &msg).await
-            }
-        }
-        ("create", _) if path.starts_with("/storage/buckets/") && path.contains("/objects") => {
-            handle_upload_object(ctx, &msg, input).await
-        }
-        ("delete", _) if path.starts_with("/storage/buckets/") && path.contains("/objects/") => {
-            handle_delete_object(ctx, &msg).await
-        }
-        ("delete", _) if path.starts_with("/storage/buckets/") => {
-            handle_delete_bucket(ctx, &msg).await
-        }
-        ("retrieve", "/storage/search") => handle_search(ctx, &msg).await,
-        ("retrieve", "/storage/recent") => handle_recent(ctx, &msg).await,
-        _ => err_not_found("not found"),
+/// Dispatch table over the REAL on-the-wire `/b/storage/api/...` suffixes —
+/// no path rewrite. The object-key routes use a trailing `{key...}` rest
+/// param (keys may contain `/`); the more-specific `.../objects/{key...}`
+/// templates precede the bare `.../objects` and `.../{name}` ones so ordering
+/// resolves them like the old `contains("/objects/")` guards. `{name}` and
+/// `{key}` bind into `req.param.*`.
+const ROUTES: &[EndpointRoute<Route>] = &[
+    EndpointRoute::new(HttpMethod::Get, "/b/storage/api/buckets", Route::ListBuckets),
+    EndpointRoute::new(HttpMethod::Post, "/b/storage/api/buckets", Route::CreateBucket),
+    EndpointRoute::new(HttpMethod::Get, "/b/storage/api/search", Route::Search),
+    EndpointRoute::new(HttpMethod::Get, "/b/storage/api/recent", Route::Recent),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/storage/api/buckets/{name}/objects/{key...}",
+        Route::GetObject,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/storage/api/buckets/{name}/objects/{key...}",
+        Route::DeleteObject,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/storage/api/buckets/{name}/objects",
+        Route::ListObjects,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/storage/api/buckets/{name}/objects",
+        Route::UploadObject,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/storage/api/buckets/{name}",
+        Route::DeleteBucket,
+    ),
+];
+
+pub async fn handle(ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
+        return err_not_found("not found");
+    };
+    match route {
+        Route::ListBuckets => handle_list_buckets(ctx, &msg).await,
+        Route::CreateBucket => handle_create_bucket(ctx, &msg, input).await,
+        Route::ListObjects => handle_list_objects(ctx, &msg).await,
+        Route::GetObject => handle_get_object(ctx, &msg).await,
+        Route::UploadObject => handle_upload_object(ctx, &msg, input).await,
+        Route::DeleteObject => handle_delete_object(ctx, &msg).await,
+        Route::DeleteBucket => handle_delete_bucket(ctx, &msg).await,
+        Route::Search => handle_search(ctx, &msg).await,
+        Route::Recent => handle_recent(ctx, &msg).await,
     }
 }
 
+/// Admin storage API, delegated from the admin block via `call_block` on the
+/// real `/admin/storage/...` paths. Authorization is enforced by the admin
+/// block's central tier before delegation.
 pub async fn handle_admin(ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
-
     match (action, path) {
         ("retrieve", "/admin/storage/buckets") => handle_list_buckets(ctx, &msg).await,
         ("retrieve", "/admin/storage/stats") => handle_stats(ctx, &msg).await,
@@ -54,23 +99,35 @@ pub async fn handle_admin(ctx: &dyn Context, msg: Message, _input: InputStream) 
     }
 }
 
-fn extract_bucket_name(path: &str) -> &str {
+/// Extract the bucket name. Prefers the matcher-bound `{name}` path var, with a
+/// prefix-strip fallback for the admin delegation path and hand-built tests.
+fn extract_bucket_name(msg: &Message) -> String {
+    let var = msg.var("name");
+    if !var.is_empty() {
+        return var.to_string();
+    }
+    let path = msg.path();
     let rest = path
-        .strip_prefix("/storage/buckets/")
+        .strip_prefix("/b/storage/api/buckets/")
         .or_else(|| path.strip_prefix("/admin/storage/buckets/"))
         .unwrap_or("");
-    if let Some(idx) = rest.find('/') {
-        &rest[..idx]
-    } else {
-        rest
+    match rest.find('/') {
+        Some(idx) => rest[..idx].to_string(),
+        None => rest.to_string(),
     }
 }
 
-fn extract_object_key(path: &str) -> &str {
-    if let Some(idx) = path.find("/objects/") {
-        &path[idx + 9..]
-    } else {
-        ""
+/// Extract the object key (may contain `/`). Prefers the matcher-bound
+/// `{key...}` rest param, falling back to the substring after `/objects/`.
+fn extract_object_key(msg: &Message) -> String {
+    let var = msg.var("key");
+    if !var.is_empty() {
+        return var.to_string();
+    }
+    let path = msg.path();
+    match path.find("/objects/") {
+        Some(idx) => path[idx + 9..].to_string(),
+        None => String::new(),
     }
 }
 
@@ -299,8 +356,8 @@ async fn handle_create_bucket(
 }
 
 async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let bucket = extract_bucket_name(path);
+    let bucket = extract_bucket_name(msg);
+    let bucket = bucket.as_str();
     if bucket.is_empty() {
         return err_bad_request("Missing bucket name");
     }
@@ -337,8 +394,8 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream 
 }
 
 async fn handle_list_objects(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let bucket = extract_bucket_name(path);
+    let bucket = extract_bucket_name(msg);
+    let bucket = bucket.as_str();
     if bucket.is_empty() {
         return err_bad_request("Missing bucket name");
     }
@@ -365,9 +422,10 @@ async fn handle_list_objects(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let bucket = extract_bucket_name(path);
-    let key = extract_object_key(path);
+    let bucket = extract_bucket_name(msg);
+    let bucket = bucket.as_str();
+    let key = extract_object_key(msg);
+    let key = key.as_str();
     if bucket.is_empty() || key.is_empty() {
         return err_bad_request("Missing bucket name or object key");
     }
@@ -401,8 +459,8 @@ async fn handle_upload_object(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let path = msg.path();
-    let bucket = extract_bucket_name(path);
+    let bucket = extract_bucket_name(msg);
+    let bucket = bucket.as_str();
     if bucket.is_empty() {
         return err_bad_request("Missing bucket name");
     }
@@ -493,9 +551,10 @@ async fn handle_upload_object(
 }
 
 async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let bucket = extract_bucket_name(path);
-    let key = extract_object_key(path);
+    let bucket = extract_bucket_name(msg);
+    let bucket = bucket.as_str();
+    let key = extract_object_key(msg);
+    let key = key.as_str();
     if bucket.is_empty() || key.is_empty() {
         return err_bad_request("Missing bucket name or object key");
     }
@@ -603,39 +662,73 @@ async fn handle_recent(ctx: &dyn Context, msg: &Message) -> OutputStream {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_extract_bucket_name() {
-        assert_eq!(
-            extract_bucket_name("/storage/buckets/my-bucket"),
-            "my-bucket"
-        );
-        assert_eq!(
-            extract_bucket_name("/storage/buckets/my-bucket/objects"),
-            "my-bucket"
-        );
-        assert_eq!(
-            extract_bucket_name("/storage/buckets/my-bucket/objects/file.txt"),
-            "my-bucket"
-        );
-        assert_eq!(
-            extract_bucket_name("/admin/storage/buckets/admin-bucket"),
-            "admin-bucket"
-        );
-        assert_eq!(extract_bucket_name("/other/path"), "");
+    /// Build a message carrying `path` on `req.resource` and, optionally, the
+    /// matcher-bound `{name}`/`{key}` path vars in `req.param.*`.
+    fn msg_with(path: &str, params: &[(&str, &str)]) -> Message {
+        let mut m = Message::new("test");
+        m.set_meta("req.resource", path);
+        for (k, v) in params {
+            m.set_meta(format!("req.param.{k}"), *v);
+        }
+        m
     }
 
     #[test]
-    fn test_extract_object_key() {
+    fn test_extract_bucket_name_from_param() {
+        // Router-populated path var wins (the normal dispatch path).
+        let m = msg_with(
+            "/b/storage/api/buckets/my-bucket/objects",
+            &[("name", "my-bucket")],
+        );
+        assert_eq!(extract_bucket_name(&m), "my-bucket");
+    }
+
+    #[test]
+    fn test_extract_bucket_name_prefix_fallback() {
+        // Fallback for the admin delegation path / hand-built messages.
         assert_eq!(
-            extract_object_key("/storage/buckets/b/objects/file.txt"),
+            extract_bucket_name(&msg_with("/b/storage/api/buckets/my-bucket", &[])),
+            "my-bucket"
+        );
+        assert_eq!(
+            extract_bucket_name(&msg_with("/b/storage/api/buckets/my-bucket/objects", &[])),
+            "my-bucket"
+        );
+        assert_eq!(
+            extract_bucket_name(&msg_with("/admin/storage/buckets/admin-bucket", &[])),
+            "admin-bucket"
+        );
+        assert_eq!(extract_bucket_name(&msg_with("/other/path", &[])), "");
+    }
+
+    #[test]
+    fn test_extract_object_key_from_param() {
+        // Rest param preserves embedded slashes.
+        let m = msg_with(
+            "/b/storage/api/buckets/b/objects/dir/file.txt",
+            &[("key", "dir/file.txt")],
+        );
+        assert_eq!(extract_object_key(&m), "dir/file.txt");
+    }
+
+    #[test]
+    fn test_extract_object_key_prefix_fallback() {
+        assert_eq!(
+            extract_object_key(&msg_with("/b/storage/api/buckets/b/objects/file.txt", &[])),
             "file.txt"
         );
         assert_eq!(
-            extract_object_key("/storage/buckets/b/objects/dir/file.txt"),
+            extract_object_key(&msg_with(
+                "/b/storage/api/buckets/b/objects/dir/file.txt",
+                &[]
+            )),
             "dir/file.txt"
         );
-        assert_eq!(extract_object_key("/storage/buckets/b"), "");
-        assert_eq!(extract_object_key("/other/path"), "");
+        assert_eq!(
+            extract_object_key(&msg_with("/b/storage/api/buckets/b", &[])),
+            ""
+        );
+        assert_eq!(extract_object_key(&msg_with("/other/path", &[])), "");
     }
 
     #[test]
