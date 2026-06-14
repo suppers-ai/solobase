@@ -270,3 +270,70 @@ pub fn register_all_static_blocks(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod migration_registry_tests {
+    use super::all_sqlite_migrations;
+
+    /// The D1 build registry is the single schema source for Cloudflare:
+    /// it must carry every block's full migration set, including the auth
+    /// scripts the old CollectionSchema generator silently dropped (auth
+    /// only had 001/002 wired through `extra_migrations`; 003-007 plus
+    /// llm/vector/legalpages never reached the D1 migration set).
+    #[test]
+    fn registry_covers_auth_and_feature_block_schemas() {
+        let migrations = all_sqlite_migrations();
+        let names: Vec<&str> = migrations.iter().map(|(n, _)| n.as_str()).collect();
+
+        // Auth first (FK targets) — all seven scripts, not just 001/002.
+        assert!(names.iter().any(|n| n.contains("auth__001_auth_schema")));
+        assert!(names.iter().any(|n| n.contains("auth__002_reserved_orgs")));
+        assert!(names.iter().any(|n| n.contains("auth__007_api_keys")));
+
+        // Admin's migration-state tables must be present (the gate writes
+        // block_settings / variables) and ordered after auth.
+        assert!(names.iter().any(|n| n.contains("admin__001_admin_schema")));
+
+        // The blocks the old generator never emitted for the D1 build,
+        // gated by their feature flags.
+        #[cfg(feature = "block-llm")]
+        assert!(names.iter().any(|n| n.contains("llm__001_llm_schema")));
+        #[cfg(feature = "block-vector")]
+        assert!(names
+            .iter()
+            .any(|n| n.contains("vector__001_vector_schema")));
+        #[cfg(feature = "block-legalpages")]
+        assert!(names
+            .iter()
+            .any(|n| n.contains("legalpages__001_legalpages_schema")));
+    }
+
+    /// Wrangler applies migrations in lexical order, so filenames must be
+    /// unique and carry a strictly increasing zero-padded sequence prefix
+    /// with auth first.
+    #[test]
+    fn registry_filenames_are_unique_sequenced_and_nonempty() {
+        let migrations = all_sqlite_migrations();
+        assert!(!migrations.is_empty());
+
+        let mut prev_seq = 0u32;
+        let mut seen = std::collections::HashSet::new();
+        for (i, (name, content)) in migrations.iter().enumerate() {
+            assert!(name.ends_with(".sql"), "{name} must end with .sql");
+            assert!(seen.insert(name.clone()), "duplicate migration file {name}");
+            assert!(
+                !content.trim().is_empty(),
+                "migration {name} has empty SQL content"
+            );
+            let seq: u32 = name[..4]
+                .parse()
+                .unwrap_or_else(|_| panic!("migration {name} must start with a 4-digit sequence"));
+            assert_eq!(seq as usize, i + 1, "sequence must be dense and 1-based");
+            assert!(seq > prev_seq, "sequence must strictly increase");
+            prev_seq = seq;
+        }
+
+        // Auth schema is the very first applied migration.
+        assert!(migrations[0].0.contains("auth__001_auth_schema"));
+    }
+}
