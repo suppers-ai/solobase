@@ -1,5 +1,5 @@
-//! Embed × web: today's solobase-cli flow, with export-assets as a direct
-//! library call instead of a cargo subprocess.
+//! Embed × web: today's solobase-cli flow, with the asset writer + bundler
+//! (`solobase-bundle`) as a direct library call instead of a cargo subprocess.
 
 use std::path::Path;
 
@@ -32,15 +32,15 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
 
     // 3. Bundle: write static assets + content-hash + render templates.
     let dist_dir = repo_root.join(&cfg.wasm.out_dir);
-    let app = solobase_browser::tools::bundle::AppConfig {
+    let app = solobase_bundle::bundle::AppConfig {
         app_name: Some(cfg.app.name.clone()),
         app_title: Some(cfg.app.title.clone()),
         boot_redirect: Some(cfg.app.boot_redirect.clone()),
         extra_bypass_prefix: cfg.assets.extra_bypass_prefix.clone(),
         opfs_wipe_on_recovery: cfg.assets.opfs_wipe_on_recovery,
     };
-    solobase_browser::assets::write_to(&dist_dir)?;
-    solobase_browser::tools::bundle::run(&dist_dir, repo_root, app)?;
+    solobase_bundle::assets::write_to(&dist_dir)?;
+    solobase_bundle::bundle::run(&dist_dir, repo_root, app)?;
     // `release` no longer flips the bundle path — every build is hashed so
     // dev iterations don't get pinned to stale browser-cached modules.
     let _ = release;

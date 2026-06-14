@@ -7,8 +7,8 @@
 # vendored 1.11.0 came from, with one extra Emscripten define.
 #
 # Inputs: none. Idempotent. Writes to:
-#   - crates/solobase-browser/assets/vendor/sql-wasm.wasm
-#   - crates/solobase-browser/assets/vendor/sql-wasm-esm.js
+#   - crates/solobase-bundle/assets/vendor/sql-wasm.wasm
+#   - crates/solobase-bundle/assets/vendor/sql-wasm-esm.js
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Work under $HOME because Docker Desktop file-sharing typically excludes
 # /tmp; $HOME is always allowed.
 WORK_DIR="$(mktemp -d -p "$HOME" sqljs-fts5-build.XXXXXX)"
-VENDOR_DIR="${SCRIPT_DIR}/../crates/solobase-browser/assets/vendor"
+VENDOR_DIR="${SCRIPT_DIR}/../crates/solobase-bundle/assets/vendor"
 
 trap 'rm -rf "${WORK_DIR}"' EXIT
 

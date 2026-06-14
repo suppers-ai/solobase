@@ -4614,7 +4614,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "solobase-browser",
+ "solobase-bundle",
  "solobase-core",
  "solobase-native",
  "tempfile",
@@ -4630,7 +4630,6 @@ dependencies = [
 name = "solobase-browser"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "base64ct",
  "bytemuck",
@@ -4646,7 +4645,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
- "tempfile",
  "tokio-util",
  "uuid",
  "wafer-block",
@@ -4658,6 +4656,18 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams 0.4.2",
  "web-sys",
+]
+
+[[package]]
+name = "solobase-bundle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]

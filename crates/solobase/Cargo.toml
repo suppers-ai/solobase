@@ -63,8 +63,9 @@ block-fastembed = ["solobase-core/block-fastembed"]
 solobase-core = { path = "../solobase-core", default-features = false }
 solobase-native = { path = "../solobase-native" }
 # Browser-shell asset writer + bundle/template runner used by the
-# sealed × web and embed × web flows.
-solobase-browser = { path = "../solobase-browser" }
+# sealed × web and embed × web flows. Native std::fs tooling — lives in its
+# own crate so the native binary doesn't compile the wasm-bindgen `solobase-browser`.
+solobase-bundle = { path = "../solobase-bundle" }
 
 # WAFER runtime
 wafer-run = { workspace = true, features = ["full"] }

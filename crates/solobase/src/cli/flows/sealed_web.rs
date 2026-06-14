@@ -31,18 +31,18 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     std::fs::write(&js_path, &*js_bytes).map_err(|e| anyhow!("write {js_path:?}: {e}"))?;
 
     // 4. Run the bundler — content-hash assets + render templates.
-    //    This calls solobase_browser::tools::bundle::run, which writes the
+    //    This calls solobase_bundle::bundle::run, which writes the
     //    static shell (index.html, sw.js, loader.js) into dist/.
     let cfg = config::find_and_load(repo_root).ok();
     let app = match cfg.as_ref() {
-        Some((c, _)) => solobase_browser::tools::bundle::AppConfig {
+        Some((c, _)) => solobase_bundle::bundle::AppConfig {
             app_name: Some(c.app.name.clone()),
             app_title: Some(c.app.title.clone()),
             boot_redirect: Some(c.app.boot_redirect.clone()),
             extra_bypass_prefix: c.assets.extra_bypass_prefix.clone(),
             opfs_wipe_on_recovery: c.assets.opfs_wipe_on_recovery,
         },
-        None => solobase_browser::tools::bundle::AppConfig {
+        None => solobase_bundle::bundle::AppConfig {
             app_name: None,
             app_title: None,
             boot_redirect: None,
@@ -51,8 +51,8 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
         },
     };
 
-    solobase_browser::assets::write_to(&dist)?;
-    solobase_browser::tools::bundle::run(&dist, repo_root, app)?;
+    solobase_bundle::assets::write_to(&dist)?;
+    solobase_bundle::bundle::run(&dist, repo_root, app)?;
 
     // 5. Apply overlays from solobase.toml if present.
     if let Some((cfg, root)) = cfg {

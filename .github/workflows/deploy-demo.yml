@@ -36,7 +36,7 @@ jobs:
         run: cargo install --path crates/solobase --locked
 
       # Embed × web flow (Cargo.toml + solobase.toml present): the unified
-      # CLI re-runs wasm-pack, then `solobase_browser::tools::bundle::run`
+      # CLI re-runs wasm-pack, then `solobase_bundle::bundle::run`
       # to drop sw.js / loader.js / index.html / hashed assets into pkg/.
       - name: Build solobase-web (framework assets + hashed pkg/)
         working-directory: crates/solobase-web

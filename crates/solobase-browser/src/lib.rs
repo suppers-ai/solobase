@@ -8,13 +8,10 @@
 //! (`store_wafer`/`dispatch_request`/`is_initialized`). Consumers compose these
 //! in their own `#[wasm_bindgen]` entrypoints using any app-level builder.
 //!
-//! The `assets` and `tools` modules are unconditionally available (native +
-//! wasm32) and are used by the native `export-assets` binary. All other modules
-//! are wasm32-only.
-
-// Always available — used by native tooling (export-assets bin) and wasm32.
-pub mod assets;
-pub mod tools;
+//! Native web-bundle tooling (the `sw.js`/`loader.js`/`index.html` templates
+//! and the wasm-pack output bundler) lives in the sibling `solobase-bundle`
+//! crate, so this crate stays a pure wasm32 cdylib that the native `solobase`
+//! CLI never has to compile.
 
 // Pure-Rust modules — available on all targets (native + wasm32).
 // openai_codec is pure Rust and tested on native; the rest of `llm` is too

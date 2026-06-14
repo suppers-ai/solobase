@@ -14,12 +14,12 @@ pub struct Config {
 /// Points at the solobase workspace when the consumer repo isn't part of it.
 ///
 /// For repos that ARE inside the solobase workspace (e.g. `solobase-web` at
-/// `crates/solobase-web/`) this stays at the default — cargo resolves
-/// `-p solobase-browser` from the enclosing workspace. For external
-/// consumers (e.g. gizza-ai that path-depends on solobase from a sibling
-/// directory) set `manifest_path = "../solobase"` so the CLI passes
-/// `--manifest-path ../solobase/Cargo.toml` to the `cargo run` that drives
-/// `export-assets`.
+/// `crates/solobase-web/`) this stays at the default — cargo resolves the
+/// solobase crates from the enclosing workspace. For external consumers
+/// (e.g. gizza-ai that path-depends on solobase from a sibling directory)
+/// set `manifest_path = "../solobase"` so the CLI passes
+/// `--manifest-path ../solobase/Cargo.toml` to the `cargo build` that
+/// compiles the native binary (see `embed_native`).
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct SolobaseConfig {
@@ -51,7 +51,7 @@ pub struct AssetsConfig {
     /// `true` for throwaway-data deployments like `demo.solobase.dev`
     /// where a stale-schema loop should self-resolve without manual
     /// `chrome://settings/siteData` cleanup. See
-    /// `crates/solobase-browser/assets/loader.js.tmpl` for the runtime
+    /// `crates/solobase-bundle/assets/loader.js.tmpl` for the runtime
     /// behavior this controls.
     #[serde(default)]
     pub opfs_wipe_on_recovery: bool,
