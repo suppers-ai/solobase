@@ -180,3 +180,107 @@ pub fn collect_all_config_vars(block_infos: &[wafer_run::BlockInfo]) -> Vec<Conf
     }
     all
 }
+
+/// Derive the SCREAMING_SNAKE block prefix written to the
+/// `suppers_ai__admin__variables.block` column from a `{org}/{block}` name.
+///
+/// This is the single source of truth for the `block` column value: the
+/// boot-time auto-generated-secret seeder ([`crate::boot::seed_auto_generated`])
+/// writes it, the `D1ConfigSource` queries by it, and admin migration 002
+/// backfills the same shape from the `key` column's first two `__`-delimited
+/// segments. All three must agree, so they all funnel through here.
+///
+/// Conversion rules:
+/// - `-` → `_` (within each segment)
+/// - `/` → `__` (segment separator)
+/// - uppercase
+///
+/// Examples:
+/// - `"suppers-ai/auth"` → `"SUPPERS_AI__AUTH"`
+/// - `"wafer-run/sqlite"` → `"WAFER_RUN__SQLITE"`
+/// - `"suppers-ai"` (org only) → `"SUPPERS_AI"`
+pub fn screaming_block(name: &str) -> String {
+    let (org, block) = name.split_once('/').unwrap_or((name, ""));
+    let org_upper = org.replace('-', "_").to_uppercase();
+    if block.is_empty() {
+        org_upper
+    } else {
+        let block_upper = block.replace('-', "_").to_uppercase();
+        format!("{org_upper}__{block_upper}")
+    }
+}
+
+/// Derive the `variables.block` column value from a *config key* (rather than
+/// a block name), matching the SQL backfill in admin migration 002.
+///
+/// The block prefix is the key's first two `__`-delimited segments — e.g.
+/// `SUPPERS_AI__AUTH__JWT_SECRET` → `SUPPERS_AI__AUTH`. A key with fewer than
+/// two `__` separators (a shared `SOLOBASE_SHARED__*` var, or any legacy
+/// single-segment key) has no block and returns `""`. The empty string is the
+/// in-memory stand-in for the migration's `NULL`: the boot seeder omits the
+/// `block` column entirely when this is empty, leaving the row's `block` NULL,
+/// exactly as the backfill would.
+///
+/// This MUST stay byte-for-byte equivalent to migration 002's `CASE` so a
+/// row seeded by [`crate::boot`] and a row backfilled by the migration land on
+/// the same `block` value (and therefore the same `D1ConfigSource` per-block
+/// cache key).
+pub fn key_block_prefix(key: &str) -> String {
+    let first = match key.find("__") {
+        Some(i) => i,
+        None => return String::new(),
+    };
+    // Look for a second `__` after the first separator.
+    match key[first + 2..].find("__") {
+        Some(rel) => key[..first + 2 + rel].to_string(),
+        None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod screaming_block_tests {
+    use super::{key_block_prefix, screaming_block};
+
+    #[test]
+    fn two_segment_name() {
+        assert_eq!(screaming_block("suppers-ai/auth"), "SUPPERS_AI__AUTH");
+        assert_eq!(screaming_block("wafer-run/sqlite"), "WAFER_RUN__SQLITE");
+    }
+
+    #[test]
+    fn org_only_name() {
+        assert_eq!(screaming_block("suppers-ai"), "SUPPERS_AI");
+    }
+
+    #[test]
+    fn key_block_prefix_two_segments() {
+        // Block-scoped key → first two `__`-segments, matching migration 002.
+        assert_eq!(
+            key_block_prefix("SUPPERS_AI__AUTH__JWT_SECRET"),
+            "SUPPERS_AI__AUTH"
+        );
+        assert_eq!(
+            key_block_prefix("SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET"),
+            "SUPPERS_AI__PRODUCTS"
+        );
+    }
+
+    #[test]
+    fn key_block_prefix_shared_and_legacy_are_null() {
+        // One `__` (shared var) → NULL/empty.
+        assert_eq!(key_block_prefix("SOLOBASE_SHARED__ALLOW_SIGNUP"), "");
+        // No `__` → NULL/empty.
+        assert_eq!(key_block_prefix("LEGACY_KEY"), "");
+    }
+
+    #[test]
+    fn key_block_prefix_matches_screaming_block_for_owned_keys() {
+        // A block's auto-gen key prefix derived from the key must equal the
+        // prefix derived from the block name, so the seeder and the migration
+        // backfill agree.
+        assert_eq!(
+            key_block_prefix("SUPPERS_AI__AUTH__JWT_SECRET"),
+            screaming_block("suppers-ai/auth")
+        );
+    }
+}
