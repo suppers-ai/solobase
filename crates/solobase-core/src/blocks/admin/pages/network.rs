@@ -20,14 +20,12 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
             { (icons::refresh_cw()) " Refresh" }
         }
 
-        div .tabs {
-            a .tab .active
-                href="/b/admin/settings/network"
-                hx-get="/b/admin/settings/network"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::arrow_down_left()) " Inbound" }
-        }
+        (components::tab_navigation(vec![components::Tab {
+            active: true,
+            href: "/b/admin/settings/network",
+            label: "Inbound",
+            icon: Some(icons::arrow_down_left()),
+        }]))
 
         div #network-tab-content {
             (network_inbound_tab(ctx, msg).await)

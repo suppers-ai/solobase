@@ -1,9 +1,11 @@
 //! Canonical sidebar groups per audience. Single source of truth for
 //! both `sidebar_grouped()` callers and the ⌘K palette entries.
 
-use super::{sidebar::NavGroup, NavItem};
+use maud::Markup;
 
-fn item(label: &str, href: &str, icon: &'static str) -> NavItem {
+use super::{icons, sidebar::NavGroup, NavItem};
+
+fn item(label: &str, href: &str, icon: fn() -> Markup) -> NavItem {
     NavItem {
         label: label.to_string(),
         href: href.to_string(),
@@ -18,31 +20,31 @@ pub fn admin() -> Vec<NavGroup> {
         NavGroup {
             label: Some("Workspace".to_string()),
             items: vec![
-                item("Dashboard", "/b/admin/", "layout-dashboard"),
-                item("Users", "/b/admin/users", "users"),
+                item("Dashboard", "/b/admin/", icons::layout_dashboard),
+                item("Users", "/b/admin/users", icons::users),
             ],
         },
         NavGroup {
             label: Some("Data".to_string()),
             items: vec![
-                item("Storage", "/b/storage/admin/", "hard-drive"),
-                item("Database", "/b/admin/database", "server"),
-                item("Vector indexes", "/b/vector/", "network"),
+                item("Storage", "/b/storage/admin/", icons::hard_drive),
+                item("Database", "/b/admin/database", icons::server),
+                item("Vector indexes", "/b/vector/", icons::network),
             ],
         },
         NavGroup {
             label: Some("Communication".to_string()),
             items: vec![
-                item("Messages", "/b/messages/", "file-text"),
-                item("LLM", "/b/llm/", "robot"),
+                item("Messages", "/b/messages/", icons::file_text),
+                item("LLM", "/b/llm/", icons::robot),
             ],
         },
         NavGroup {
             label: Some("System".to_string()),
             items: vec![
-                item("Blocks", "/b/admin/blocks", "package"),
-                item("Logs", "/b/admin/logs", "file-text"),
-                item("Settings", "/b/admin/settings/email", "settings"),
+                item("Blocks", "/b/admin/blocks", icons::package),
+                item("Logs", "/b/admin/logs", icons::file_text),
+                item("Settings", "/b/admin/settings/email", icons::settings),
             ],
         },
     ]
@@ -54,19 +56,19 @@ pub fn portal() -> Vec<NavGroup> {
         NavGroup {
             label: Some("Account".to_string()),
             items: vec![
-                item("Profile", "/b/userportal/profile", "user"),
-                item("Organizations", "/b/auth/orgs", "users"),
-                item("Sessions", "/b/userportal/sessions", "shield"),
-                item("Security", "/b/userportal/security", "lock"),
+                item("Profile", "/b/userportal/profile", icons::user),
+                item("Organizations", "/b/auth/orgs", icons::users),
+                item("Sessions", "/b/userportal/sessions", icons::shield),
+                item("Security", "/b/userportal/security", icons::lock),
             ],
         },
         NavGroup {
             label: Some("Apps".to_string()),
             items: vec![
-                item("Products", "/b/products/", "package"),
-                item("Files", "/b/storage/", "folder"),
-                item("Shares", "/b/cloudstorage/", "link"),
-                item("Legal", "/b/legalpages/admin/privacy", "file-text"),
+                item("Products", "/b/products/", icons::package),
+                item("Files", "/b/storage/", icons::folder),
+                item("Shares", "/b/cloudstorage/", icons::link),
+                item("Legal", "/b/legalpages/admin/privacy", icons::file_text),
             ],
         },
     ]

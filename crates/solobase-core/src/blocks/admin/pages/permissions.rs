@@ -20,20 +20,20 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     };
 
     html! {
-        div .tabs {
-            a .tab .(if active_subtab == "all" { "active" } else { "" })
-                href="/b/admin/settings/permissions"
-                hx-get="/b/admin/settings/permissions"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::shield()) " All" }
-            a .tab .(if active_subtab == "database" { "active" } else { "" })
-                href="/b/admin/settings/permissions?subtab=database"
-                hx-get="/b/admin/settings/permissions?subtab=database"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::database()) " Database & Config" }
-        }
+        (components::tab_navigation(vec![
+            components::Tab {
+                active: active_subtab == "all",
+                href: "/b/admin/settings/permissions",
+                label: "All",
+                icon: Some(icons::shield()),
+            },
+            components::Tab {
+                active: active_subtab == "database",
+                href: "/b/admin/settings/permissions?subtab=database",
+                label: "Database & Config",
+                icon: Some(icons::database()),
+            },
+        ]))
 
         div #permissions-content {
             @if active_subtab == "database" {

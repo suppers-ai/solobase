@@ -73,7 +73,7 @@ pub struct DetailMeta<'a> {
 /// `detail_page` template.
 pub fn detail_page(
     hero: DetailHero<'_>,
-    sections: Vec<Markup>, // typically `components::card(...)` invocations
+    sections: Vec<Markup>, // typically `section .card { .. }` panels
     meta: Vec<DetailMeta<'_>>,
 ) -> Markup {
     html! {

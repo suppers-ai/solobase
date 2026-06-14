@@ -110,7 +110,11 @@ impl UserInfo {
 pub struct NavItem {
     pub label: String,
     pub href: String,
-    pub icon: &'static str,
+    /// The icon renderer, referenced directly (e.g. `icons::users`). Typed as
+    /// a function pointer rather than a name string so the compiler rejects a
+    /// missing or misspelled icon instead of silently falling back to a
+    /// default glyph (the bug the old `nav_icon` string match hid).
+    pub icon: fn() -> maud::Markup,
     /// When true, render as `target="_blank"` and open in a new tab from
     /// both the sidebar and the ⌘K palette. Used for cross-block links
     /// that have their own chrome (e.g. Inspector).

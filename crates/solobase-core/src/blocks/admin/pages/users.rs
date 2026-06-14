@@ -30,29 +30,26 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "users",
     };
 
-    let tabs_markup = html! {
-        // Tabs
-        div .tabs {
-            a .tab .(if active_tab == "users" { "active" } else { "" })
-                href="/b/admin/users"
-                hx-get="/b/admin/users"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::users()) " Users" }
-            a .tab .(if active_tab == "roles" { "active" } else { "" })
-                href="/b/admin/users?tab=roles"
-                hx-get="/b/admin/users?tab=roles"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::shield()) " Roles" }
-            a .tab .(if active_tab == "api-keys" { "active" } else { "" })
-                href="/b/admin/users?tab=api-keys"
-                hx-get="/b/admin/users?tab=api-keys"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::key()) " API Keys" }
-        }
-    };
+    let tabs_markup = components::tab_navigation(vec![
+        components::Tab {
+            active: active_tab == "users",
+            href: "/b/admin/users",
+            label: "Users",
+            icon: Some(icons::users()),
+        },
+        components::Tab {
+            active: active_tab == "roles",
+            href: "/b/admin/users?tab=roles",
+            label: "Roles",
+            icon: Some(icons::shield()),
+        },
+        components::Tab {
+            active: active_tab == "api-keys",
+            href: "/b/admin/users?tab=api-keys",
+            label: "API Keys",
+            icon: Some(icons::key()),
+        },
+    ]);
 
     let current_uid = user
         .as_ref()

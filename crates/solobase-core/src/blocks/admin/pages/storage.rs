@@ -8,7 +8,7 @@ use super::{admin_page, crumb};
 use crate::{
     blocks::admin::STORAGE_ACCESS_LOGS_TABLE as STORAGE_ACCESS_LOGS,
     ui::{
-        icons,
+        components, icons,
         shell::Topbar,
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
@@ -27,14 +27,12 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let tabs_and_body = html! {
-        div .tabs {
-            a .tab .active
-                href="/b/admin/storage"
-                hx-get="/b/admin/storage"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::eye()) " Access Logs" }
-        }
+        (components::tab_navigation(vec![components::Tab {
+            active: true,
+            href: "/b/admin/storage",
+            label: "Access Logs",
+            icon: Some(icons::eye()),
+        }]))
 
         div #storage-tab-content {
             (storage_logs_tab(ctx, msg).await)

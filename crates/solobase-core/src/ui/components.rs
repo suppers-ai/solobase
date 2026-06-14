@@ -12,28 +12,40 @@ use super::icons;
 // Tab Navigation
 // ---------------------------------------------------------------------------
 
-/// A tab definition.
-pub struct Tab {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub href: String,
-    pub icon: Option<&'static str>,
+/// One tab in a [`tab_navigation`] bar.
+///
+/// `icon` is pre-rendered [`Markup`] (e.g. `icons::users()`) so each call site
+/// references the icon function directly — no name-string lookup, no silent
+/// fallback. `href` is borrowed; the same URL feeds both the `href` and the
+/// `hx-get` so the htmx swap and a no-JS click navigate identically.
+pub struct Tab<'a> {
+    /// Whether this tab is the active one (renders the `active` class).
+    pub active: bool,
+    /// Destination URL — used for both `href` and `hx-get`.
+    pub href: &'a str,
+    /// Visible label.
+    pub label: &'a str,
+    /// Optional leading icon markup.
+    pub icon: Option<Markup>,
 }
 
-/// Render a tab navigation bar.
-pub fn tab_navigation(tabs: &[Tab], active_id: &str) -> Markup {
+/// Render an htmx tab bar: each tab swaps `#content` and pushes its URL.
+///
+/// This is the single place the admin pages' tab strips are defined, so the
+/// `hx-target` / `hx-push-url` behavior lives in one spot.
+pub fn tab_navigation(tabs: Vec<Tab<'_>>) -> Markup {
     html! {
         div .tabs {
             @for tab in tabs {
                 a .tab
-                    .(if tab.id == active_id { "active" } else { "" })
+                    .(if tab.active { "active" } else { "" })
                     href=(tab.href)
                     hx-get=(tab.href)
                     hx-target="#content"
                     hx-push-url="true"
                 {
-                    @if let Some(icon_name) = tab.icon {
-                        span .nav-icon { (super::sidebar::nav_icon(icon_name)) }
+                    @if let Some(icon) = tab.icon {
+                        (icon) " "
                     }
                     (tab.label)
                 }
@@ -111,20 +123,54 @@ pub fn search_input_with_value(
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Status Badge
+// Badge — single source of truth for the small status pill
 // ---------------------------------------------------------------------------
 
-/// Render a colored status badge.
-pub fn status_badge(status: &str) -> Markup {
-    let class = match status.to_lowercase().as_str() {
-        "active" | "enabled" | "completed" | "running" => "badge-success",
-        "inactive" | "disabled" | "stopped" => "badge-danger",
-        "pending" | "draft" => "badge-warning",
-        _ => "badge-info",
-    };
-    html! {
-        span .badge .(class) { (status) }
+/// Color variant for [`badge`]. Typed so call sites pick a variant by name
+/// rather than passing a class string; [`status_badge`] is the convenience
+/// that derives the variant from a status string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BadgeVariant {
+    Success,
+    Danger,
+    Warning,
+    Info,
+}
+
+impl BadgeVariant {
+    /// Map a free-form status string to a variant. Centralizes the
+    /// status→color policy in one place (the only implicit mapping, and it's
+    /// presentation, not data translation).
+    fn from_status(status: &str) -> Self {
+        match status.to_lowercase().as_str() {
+            "active" | "enabled" | "completed" | "running" => BadgeVariant::Success,
+            "inactive" | "disabled" | "stopped" => BadgeVariant::Danger,
+            "pending" | "draft" => BadgeVariant::Warning,
+            _ => BadgeVariant::Info,
+        }
     }
+
+    fn class(self) -> &'static str {
+        match self {
+            BadgeVariant::Success => "badge-success",
+            BadgeVariant::Danger => "badge-danger",
+            BadgeVariant::Warning => "badge-warning",
+            BadgeVariant::Info => "badge-info",
+        }
+    }
+}
+
+/// Render a colored badge pill for an explicit variant. The single badge
+/// renderer — [`status_badge`] delegates here.
+pub fn badge(variant: BadgeVariant, label: &str) -> Markup {
+    html! {
+        span .badge .(variant.class()) { (label) }
+    }
+}
+
+/// Render a colored status badge, deriving the color from the status string.
+pub fn status_badge(status: &str) -> Markup {
+    badge(BadgeVariant::from_status(status), status)
 }
 
 // ---------------------------------------------------------------------------
@@ -152,49 +198,9 @@ pub fn modal(id: &str, title: &str, body: Markup) -> Markup {
     }
 }
 
-/// Render a modal with a footer (for action buttons).
-pub fn modal_with_footer(id: &str, title: &str, body: Markup, footer: Markup) -> Markup {
-    html! {
-        div .modal-overlay id=(id) hidden
-            onclick="if(event.target===this)closeModal(this.id)"
-        {
-            div .modal {
-                div .modal-header {
-                    h3 .modal-title { (title) }
-                    button .modal-close onclick={"closeModal('" (id) "')"} {
-                        (icons::x())
-                    }
-                }
-                div .modal-body {
-                    (body)
-                }
-                div .modal-footer {
-                    (footer)
-                }
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Empty State
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Loading Spinner
-// ---------------------------------------------------------------------------
-
-/// Render a loading spinner.
-pub fn loading_spinner(message: Option<&str>) -> Markup {
-    html! {
-        div .loading-spinner {
-            div .spinner {}
-            @if let Some(msg) = message {
-                div .text-muted { (msg) }
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Page Header
@@ -214,43 +220,6 @@ pub fn page_header(title: &str, subtitle: Option<&str>, action: Option<Markup>) 
                 div { (action) }
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Confirm Dialog (htmx pattern)
-// ---------------------------------------------------------------------------
-
-/// Render a confirm dialog for destructive actions.
-pub fn confirm_dialog(
-    id: &str,
-    title: &str,
-    message: &str,
-    confirm_label: &str,
-    hx_action: &str,
-) -> Markup {
-    modal_with_footer(
-        id,
-        title,
-        html! { p { (message) } },
-        html! {
-            button .btn .btn-secondary onclick={"closeModal('" (id) "')"} { "Cancel" }
-            button .btn .btn-danger
-                hx-post=(hx_action)
-                hx-target="body"
-            { (confirm_label) }
-        },
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Toast container (rendered once per page)
-// ---------------------------------------------------------------------------
-
-/// The toast container div — included automatically by `layout::page()`.
-pub fn toast_container() -> Markup {
-    html! {
-        div #toast-container .toast-container {}
     }
 }
 
@@ -316,109 +285,6 @@ pub fn button(
     PreEscaped(format!(
         r#"<button class="{class}" {extra}>{label_escaped}</button>"#,
     ))
-}
-
-// ---------------------------------------------------------------------------
-// Form-control components (Phase 1)
-// ---------------------------------------------------------------------------
-
-/// Common props for any labeled form control.
-#[derive(Default)]
-pub struct FieldProps<'a> {
-    pub label: &'a str,
-    pub name: &'a str,
-    pub helper: Option<&'a str>,
-    pub error: Option<&'a str>,
-    pub required: bool,
-    pub disabled: bool,
-}
-
-fn field_attrs(p: &FieldProps) -> String {
-    let mut s = format!(r#"name="{}""#, html_escape(p.name));
-    if p.required {
-        s.push_str(" required");
-    }
-    if p.disabled {
-        s.push_str(" disabled");
-    }
-    s
-}
-
-fn html_escape(input: &str) -> String {
-    // Single-pass escape — four sequential `replace` calls would reallocate
-    // the buffer per substitution, and pre-sizing with a small overhead
-    // avoids the per-push grow loop for the common no-escape case.
-    let mut out = String::with_capacity(input.len() + 8);
-    for ch in input.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            other => out.push(other),
-        }
-    }
-    out
-}
-
-fn field_wrap(p: &FieldProps, control: maud::Markup) -> maud::Markup {
-    use maud::html;
-    let id = format!("field-{}", p.name);
-    let has_error = p.error.is_some();
-    html! {
-        div .field .(if has_error { "field--error" } else { "" }) {
-            @if !p.label.is_empty() {
-                label for=(id) .field__label { (p.label) @if p.required { span .field__req { " *" } } }
-            }
-            (control)
-            @if let Some(h) = p.helper { div .field__helper { (h) } }
-            @if let Some(e) = p.error { div .field__error { (e) } }
-        }
-    }
-}
-
-pub fn text_input<'a>(p: FieldProps<'a>, input_type: &'a str, value: &'a str) -> maud::Markup {
-    use maud::{html, PreEscaped};
-    let id = format!("field-{}", p.name);
-    let attrs = field_attrs(&p);
-    let v = html_escape(value);
-    let t = html_escape(input_type);
-    let inner = html! {
-        (PreEscaped(format!(
-            r#"<input id="{id}" type="{t}" value="{v}" class="field__input" {attrs} />"#,
-        )))
-    };
-    field_wrap(&p, inner)
-}
-
-pub fn textarea_input<'a>(p: FieldProps<'a>, value: &'a str, rows: u32) -> maud::Markup {
-    use maud::{html, PreEscaped};
-    let id = format!("field-{}", p.name);
-    let attrs = field_attrs(&p);
-    let v = html_escape(value);
-    let inner = html! {
-        (PreEscaped(format!(
-            r#"<textarea id="{id}" class="field__input field__input--textarea" rows="{rows}" {attrs}>{v}</textarea>"#,
-        )))
-    };
-    field_wrap(&p, inner)
-}
-
-pub fn select_input<'a>(
-    p: FieldProps<'a>,
-    options: &[(&'a str, &'a str)], // (value, label)
-    selected: &'a str,
-) -> maud::Markup {
-    use maud::html;
-    let id = format!("field-{}", p.name);
-    let inner = html! {
-        select id=(id) .field__input name=(p.name) required[p.required] disabled[p.disabled] {
-            @for (val, label) in options {
-                option value=(val) selected[*val == selected] { (label) }
-            }
-        }
-    };
-    field_wrap(&p, inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -535,58 +401,8 @@ pub fn pagination(page: u32, per_page: u32, total: u32, base_href: &str) -> maud
 }
 
 // ---------------------------------------------------------------------------
-// Card, Badge, Avatar (Phase 1)
+// Badge, Avatar (Phase 1)
 // ---------------------------------------------------------------------------
-
-/// Card — wrapped panel with optional title and action slot.
-pub fn card(
-    title: Option<&str>,
-    body: maud::Markup,
-    actions: Option<maud::Markup>,
-) -> maud::Markup {
-    use maud::html;
-    html! {
-        section .card {
-            @if title.is_some() || actions.is_some() {
-                header .card__head {
-                    @if let Some(t) = title { h3 .card__title { (t) } }
-                    @if let Some(a) = actions { div .card__actions { (a) } }
-                }
-            }
-            div .card__body { (body) }
-        }
-    }
-}
-
-/// Badge — small status pill.
-#[derive(Debug, Clone, Copy)]
-#[non_exhaustive]
-pub enum BadgeVariant {
-    Neutral,
-    Admin,
-    User,
-    Success,
-    Warning,
-    Danger,
-}
-
-impl BadgeVariant {
-    fn class(self) -> &'static str {
-        match self {
-            BadgeVariant::Neutral => "badge badge--neutral",
-            BadgeVariant::Admin => "badge badge--admin",
-            BadgeVariant::User => "badge badge--user",
-            BadgeVariant::Success => "badge badge--success",
-            BadgeVariant::Warning => "badge badge--warning",
-            BadgeVariant::Danger => "badge badge--danger",
-        }
-    }
-}
-
-pub fn badge(variant: BadgeVariant, label: &str) -> maud::Markup {
-    use maud::html;
-    html! { span class=(variant.class()) { (label) } }
-}
 
 /// Avatar — flat brand-orange circle with the seed's first character. The
 /// initial varies per user, but the background does not: a single brand
@@ -643,67 +459,29 @@ mod tests {
     }
 
     #[test]
-    fn text_input_renders_label_and_value() {
-        let p = FieldProps {
-            label: "Email",
-            name: "email",
-            required: true,
-            ..Default::default()
-        };
-        let s = text_input(p, "email", "alice@example.com").into_string();
-        assert!(s.contains(r#"for="field-email""#));
-        assert!(s.contains("Email"));
-        assert!(s.contains(r#"value="alice@example.com""#));
-        assert!(s.contains("required"));
-        assert!(s.contains("field__req"));
+    fn badge_renders_variant_class_and_label() {
+        let s = badge(BadgeVariant::Success, "Online").into_string();
+        assert!(s.contains("badge-success"), "variant class missing: {s}");
+        assert!(s.contains(">Online</span>"), "label missing: {s}");
     }
 
     #[test]
-    fn select_marks_selected_option() {
-        let p = FieldProps {
-            label: "Role",
-            name: "role",
-            ..Default::default()
-        };
-        let opts = [("user", "User"), ("admin", "Admin")];
-        let s = select_input(p, &opts, "admin").into_string();
-        assert!(s.contains(r#"value="admin" selected"#));
-        assert!(!s.contains(r#"value="user" selected"#));
-    }
-
-    #[test]
-    fn textarea_escapes_content() {
-        let p = FieldProps {
-            label: "Bio",
-            name: "bio",
-            ..Default::default()
-        };
-        let s = textarea_input(p, "<script>x</script>", 4).into_string();
-        assert!(s.contains("&lt;script&gt;"), "unescaped: {s}");
-        assert!(!s.contains("<script>x</script>"));
-    }
-
-    #[test]
-    fn card_renders_title_and_body() {
-        let body = maud::html! { p { "hello" } };
-        let s = card(Some("Recent activity"), body, None).into_string();
-        assert!(s.contains("card__title"));
-        assert!(s.contains("Recent activity"));
-        assert!(s.contains("hello"));
-    }
-
-    #[test]
-    fn card_omits_head_when_no_title_no_actions() {
-        let body = maud::html! { p { "x" } };
-        let s = card(None, body, None).into_string();
-        assert!(!s.contains("card__head"));
-    }
-
-    #[test]
-    fn badge_admin_has_class_and_label() {
-        let s = badge(BadgeVariant::Admin, "Admin").into_string();
-        assert!(s.contains("badge--admin"));
-        assert!(s.contains(">Admin</span>"));
+    fn status_badge_delegates_to_badge_with_mapped_variant() {
+        // status_badge is the single status-string entry point; it derives a
+        // BadgeVariant and renders through the one `badge` function.
+        assert!(status_badge("active")
+            .into_string()
+            .contains("badge-success"));
+        assert!(status_badge("disabled")
+            .into_string()
+            .contains("badge-danger"));
+        assert!(status_badge("pending")
+            .into_string()
+            .contains("badge-warning"));
+        // Unknown status falls to the Info variant and keeps the label text.
+        let unknown = status_badge("public").into_string();
+        assert!(unknown.contains("badge-info"), "default variant: {unknown}");
+        assert!(unknown.contains(">public</span>"), "label text: {unknown}");
     }
 
     #[test]

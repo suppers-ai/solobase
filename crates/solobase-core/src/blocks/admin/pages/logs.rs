@@ -35,20 +35,20 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let tabs_and_body = html! {
-        div .tabs {
-            a .tab .(if active_tab == "system" { "active" } else { "" })
-                href="/b/admin/logs"
-                hx-get="/b/admin/logs"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::server()) " System Logs" }
-            a .tab .(if active_tab == "audit" { "active" } else { "" })
-                href="/b/admin/logs?tab=audit"
-                hx-get="/b/admin/logs?tab=audit"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::file_text()) " Audit Logs" }
-        }
+        (components::tab_navigation(vec![
+            components::Tab {
+                active: active_tab == "system",
+                href: "/b/admin/logs",
+                label: "System Logs",
+                icon: Some(icons::server()),
+            },
+            components::Tab {
+                active: active_tab == "audit",
+                href: "/b/admin/logs?tab=audit",
+                label: "Audit Logs",
+                icon: Some(icons::file_text()),
+            },
+        ]))
 
         div #logs-tab-content {
             @if active_tab == "system" {

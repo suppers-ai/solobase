@@ -323,7 +323,7 @@ mod tests {
             html.matches("Current session").count()
         );
         assert!(
-            html.contains("badge--success"),
+            html.contains("badge-success"),
             "expected success-variant badge class in HTML"
         );
     }

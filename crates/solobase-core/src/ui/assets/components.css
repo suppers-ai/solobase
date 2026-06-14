@@ -256,12 +256,6 @@
 
 .modal-body { padding: 1.5rem; }
 
-.modal-footer {
-	display: flex; justify-content: flex-end; gap: 0.75rem;
-	padding: 1.25rem 1.5rem;
-	border-top: 1px solid var(--border-color);
-}
-
 /* Native <dialog> modals (used by the files browser's "New bucket" form,
    etc). The .modal box rules above target the htmx-driven overlay/box
    pattern; this block re-centers and pads the native-dialog variant,
@@ -369,24 +363,6 @@ dialog.modal .modal-error[hidden] { display: none; }
 .empty-state-description {
 	font-size: 0.875rem; color: var(--text-secondary);
 	margin-bottom: 1.5rem;
-}
-
-/* Loading Spinner */
-.loading-spinner {
-	display: flex; align-items: center; justify-content: center;
-	padding: 3rem; flex-direction: column; gap: 1rem;
-}
-
-.spinner {
-	width: 32px; height: 32px;
-	border: 3px solid var(--border-color);
-	border-top-color: var(--primary-color);
-	border-radius: 50%;
-	animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-	to { transform: rotate(360deg); }
 }
 
 /* Toast Notifications */
@@ -634,38 +610,12 @@ dialog.modal .modal-error[hidden] { display: none; }
 .btn--danger { background: var(--accent-danger); color: #fff; }
 .btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
 
-/* ===== Canonical form fields (Phase 1) ===== */
-.field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: var(--spacing-md); }
-.field__label { font-size: var(--text-sm); color: var(--text-primary); font-weight: 500; }
-.field__req { color: var(--accent-danger); }
-.field__input {
-	font-family: inherit; font-size: var(--text-base);
-	padding: 0.5rem 0.75rem; border: 1px solid var(--border-color);
-	border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary);
-	transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-.field__input:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--primary-color); }
-.field__input:disabled { background: var(--bg-secondary); cursor: not-allowed; }
-.field__input--textarea { resize: vertical; min-height: 6rem; }
-.field__helper { font-size: var(--text-xs); color: var(--text-muted); }
-.field__error { font-size: var(--text-xs); color: var(--accent-danger); }
-.field--error .field__input { border-color: var(--accent-danger); }
-
 /* ===== Card ===== */
 .card { background: var(--surface-1); border: 1px solid var(--border-color); border-radius: var(--radius-lg); margin-bottom: var(--spacing-md); }
 .card__head { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid var(--border-light); }
 .card__title { margin: 0; font-size: var(--text-lg); font-weight: 500; color: var(--text-primary); }
 .card__actions { margin-left: auto; display: flex; gap: var(--spacing-sm); }
 .card__body { padding: var(--spacing-lg); }
-
-/* ===== Badge ===== */
-.badge { display: inline-block; padding: 0.1rem 0.6rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 500; line-height: 1.4; }
-.badge--neutral { background: var(--border-light); color: var(--text-secondary); }
-.badge--admin { background: #fff1e6; color: var(--primary-color); }
-.badge--user { background: #ecfeff; color: #0369a1; }
-.badge--success { background: #d1fae5; color: #065f46; }
-.badge--warning { background: #fef3c7; color: #92400e; }
-.badge--danger { background: #fee2e2; color: #991b1b; }
 
 /* ===== Avatar ===== */
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); background: var(--primary-color); color: #fff; font-weight: 600; }
