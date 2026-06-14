@@ -4,9 +4,9 @@
 //! All solobase blocks are registered in the Wafer registry at boot; routing
 //! dispatches via `ctx.call_block` without any factory indirection.
 
-use wafer_run::{context::Context, InputStream, Message, OutputStream};
+use wafer_run::{context::Context, AuthLevel, BlockInfo, InputStream, Message, OutputStream};
 
-use crate::{blocks::helpers, features::FeatureConfig};
+use crate::{blocks::helpers, endpoint_match, features::FeatureConfig};
 
 /// URL prefix for embedded static assets, served by `suppers-ai/system`.
 ///
@@ -63,7 +63,7 @@ impl Route {
 ///
 /// Checked by [`route_to_block`] (via `check_access`) before dispatching to the
 /// target block, for both built-in [`Route`]s and runtime-added [`ExtraRoute`]s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum RouteAccess {
     /// No auth check. Anyone can hit this route.
@@ -72,6 +72,30 @@ pub enum RouteAccess {
     Authenticated,
     /// User must have the `admin` role (per [`helpers::is_admin`]) or 403.
     Admin,
+}
+
+impl RouteAccess {
+    /// Bridge a block's declared per-endpoint [`AuthLevel`] (from
+    /// `BlockInfo::endpoints`) into the router's coarse [`RouteAccess`] tier.
+    /// The two enums are the same three-tier ladder; this is the single place
+    /// they are mapped so the declared level can be enforced by the same
+    /// `check_access` path as the prefix tier.
+    fn from_auth_level(level: AuthLevel) -> RouteAccess {
+        match level {
+            AuthLevel::Public => RouteAccess::Public,
+            AuthLevel::Authenticated => RouteAccess::Authenticated,
+            AuthLevel::Admin => RouteAccess::Admin,
+        }
+    }
+
+    /// The stricter of two tiers (`Public < Authenticated < Admin`). Used to
+    /// combine the coarse prefix tier with a matched endpoint's declared level
+    /// so neither can weaken the other: the prefix is a backstop for paths a
+    /// block has not (yet) declared an endpoint for, and the declared endpoint
+    /// level refines it where present.
+    fn max(self, other: RouteAccess) -> RouteAccess {
+        std::cmp::max(self, other)
+    }
 }
 
 /// A runtime-added route registered by a downstream project via
@@ -154,73 +178,75 @@ pub const ROUTES: &[Route] = &[
     Route::new("/b/llm", RouteAccess::Public, "suppers-ai/llm"),
     // Vector — similarity search, hybrid retrieval, RAG ingestion.
     //
-    // Each endpoint from `VectorBlock::info().endpoints` is registered as a
-    // separate entry so the inspector's routes document reflects the
-    // granularity the block exposes. The prefix matcher uses `starts_with`,
-    // so entries are ordered most-specific-first:
-    //   - `DELETE /b/vector/api/indexes/{name}` must be listed BEFORE the
-    //     generic `DELETE /b/vector/api/{index}/{id}` entry so the specific
-    //     "delete index" route wins over the generic "delete vector" route.
-    // All entries dispatch to `suppers-ai/vector`; per-method path-param
-    // matching happens inside the block's `pages::route` dispatcher.
-    Route::new(
-        "/b/vector/api/indexes/{name}",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/indexes",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/upsert",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/query",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/ingest",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/embed",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    Route::new(
-        "/b/vector/api/stats",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    // Generic `DELETE /b/vector/api/{index}/{id}` — MUST come after the
-    // more specific `/b/vector/api/indexes/{name}` entry above so that
-    // path-prefix ordering routes index-deletes to the correct handler.
-    Route::new(
-        "/b/vector/api/{index}/{id}",
-        RouteAccess::Public,
-        "suppers-ai/vector",
-    ),
-    // SSR pages and any other /b/vector/* paths.
+    // ONE prefix route. The previous nine decorative entries all shared the
+    // same access tier (`Public`) and dispatch target, differing only in
+    // path — pure duplication, since the block does its own per-method
+    // path-param matching in `pages::route`. The per-endpoint access tier
+    // now comes from `VectorBlock::info().endpoints` and is enforced
+    // centrally via `declared_access` (UI pages → Admin, JSON API →
+    // Authenticated), so the coarse prefix tier is `Public` and the declared
+    // level refines it. The inspector sources endpoint granularity from the
+    // same `info().endpoints` (see [`routes_config`]).
     Route::new("/b/vector/", RouteAccess::Public, "suppers-ai/vector"),
 ];
 
 /// Generate the routing table as JSON config (same format as wafer-run/router).
 /// Used to expose routes to the inspector.
-pub fn routes_config() -> serde_json::Value {
-    let routes: Vec<serde_json::Value> = ROUTES
+///
+/// Each coarse prefix [`Route`] contributes one `{prefix}**` entry. Endpoint
+/// granularity (the exact method+path templates a block exposes) is sourced
+/// from each block's `BlockInfo::endpoints` rather than from hand-maintained
+/// per-endpoint `Route` entries — this is what lets the vector block collapse
+/// to a single prefix route while the inspector still shows its nine
+/// endpoints. Endpoint entries are de-duplicated against the prefix entries.
+pub fn routes_config(block_infos: &[BlockInfo]) -> serde_json::Value {
+    let mut routes: Vec<serde_json::Value> = ROUTES
         .iter()
         .map(|r| {
             let path = format!("{}**", r.prefix);
             serde_json::json!({ "path": path, "block": r.block })
         })
         .collect();
+
+    // Per-endpoint granularity from the blocks themselves. Only emit entries
+    // for blocks that own a built-in prefix route (so we mirror the routing
+    // table, not the whole registry), and skip any whose exact `{prefix}**`
+    // form already covers them.
+    for info in block_infos {
+        if !ROUTES.iter().any(|r| r.block == info.name) {
+            continue;
+        }
+        for ep in &info.endpoints {
+            let entry = serde_json::json!({
+                "path": ep.path,
+                "method": ep.method.to_string(),
+                "block": info.name,
+                "auth": ep.auth.to_string(),
+            });
+            if !routes.contains(&entry) {
+                routes.push(entry);
+            }
+        }
+    }
+
     serde_json::json!({ "routes": routes })
+}
+
+/// Resolve the declared per-endpoint access tier for `(msg.action,
+/// msg.path)` from the target block's `BlockInfo::endpoints`, mapped into the
+/// router's [`RouteAccess`] ladder.
+///
+/// Returns [`RouteAccess::Public`] when no declared endpoint matches — the
+/// caller combines this with the coarse prefix tier via [`RouteAccess::max`],
+/// so an undeclared path is governed solely by its prefix tier (the backstop)
+/// and a declared path is governed by the stricter of prefix and endpoint.
+fn declared_access(block_infos: &[BlockInfo], block_name: &str, msg: &Message) -> RouteAccess {
+    let Some(info) = block_infos.iter().find(|i| i.name == block_name) else {
+        return RouteAccess::Public;
+    };
+    endpoint_match::endpoint_auth(&info.endpoints, msg.action(), msg.path())
+        .map(RouteAccess::from_auth_level)
+        .unwrap_or(RouteAccess::Public)
 }
 
 /// Enforce a route's [`RouteAccess`] tier against the request. Returns
@@ -248,6 +274,7 @@ pub async fn route_to_block(
     msg: Message,
     input: InputStream,
     features: &dyn FeatureConfig,
+    block_infos: &[BlockInfo],
     extra_routes: &[ExtraRoute],
 ) -> OutputStream {
     let path = msg.path().to_string();
@@ -280,8 +307,16 @@ pub async fn route_to_block(
             return crate::blocks::helpers::err_not_found("endpoint not found");
         }
 
-        // Access gate
-        if let Some(denied) = check_access(route.access, &msg) {
+        // Access gate. The coarse prefix tier is a backstop; if the target
+        // block declares an endpoint matching this exact (action, path) we
+        // also enforce that endpoint's declared `AuthLevel` — taking the
+        // stricter of the two. This is what makes `BlockEndpoint::auth`
+        // load-bearing instead of documentation-only, and lets blocks drop
+        // their per-handler `is_admin`/`user_id` preambles.
+        let access = route
+            .access
+            .max(declared_access(block_infos, route.block, &msg));
+        if let Some(denied) = check_access(access, &msg) {
             return denied;
         }
 
@@ -601,12 +636,37 @@ mod tests {
         // routes_config() must show the inspector as `suppers-ai/inspector`
         // (the display/feature name), not its `wafer-run/inspector` dispatch
         // target — the inspector UI keys its feature map on the former.
-        let cfg = super::routes_config();
+        let cfg = super::routes_config(&[]);
         let routes = cfg["routes"].as_array().expect("routes array");
         let inspector = routes
             .iter()
             .find(|r| r["path"] == "/b/inspector**")
             .expect("inspector route in config");
         assert_eq!(inspector["block"], "suppers-ai/inspector");
+    }
+
+    #[test]
+    fn routes_config_sources_endpoint_granularity_from_block_infos() {
+        use wafer_run::{AuthLevel, BlockEndpoint, BlockInfo};
+        // A block that owns a built-in prefix route ("/b/vector/") contributes
+        // its declared endpoints to the inspector view even though the route
+        // table has a single collapsed prefix entry.
+        let info = BlockInfo::new("suppers-ai/vector", "0.0.1", "http-handler@v1", "v")
+            .endpoints(vec![
+                BlockEndpoint::post("/b/vector/api/query").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/vector/").auth(AuthLevel::Admin),
+            ]);
+        let cfg = super::routes_config(std::slice::from_ref(&info));
+        let routes = cfg["routes"].as_array().expect("routes array");
+        // The collapsed prefix entry is present.
+        assert!(routes.iter().any(|r| r["path"] == "/b/vector/**"));
+        // And the per-endpoint granularity is sourced from info().endpoints.
+        let query = routes
+            .iter()
+            .find(|r| r["path"] == "/b/vector/api/query")
+            .expect("endpoint-sourced query route");
+        assert_eq!(query["method"], "POST");
+        assert_eq!(query["auth"], "authenticated");
+        assert_eq!(query["block"], "suppers-ai/vector");
     }
 }

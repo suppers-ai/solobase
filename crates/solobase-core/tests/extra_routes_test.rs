@@ -145,7 +145,7 @@ async fn built_in_route_wins_over_extra_with_same_prefix() {
 
     let msg = make_msg("/b/auth/login");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let _ = stream.collect_buffered().await;
 
     let calls = ctx.calls();
@@ -170,7 +170,7 @@ async fn public_extra_route_dispatches_without_auth() {
     // No user_id set on the message — Public access should allow it through.
     let msg = make_msg("/b/chat/hello");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -191,7 +191,7 @@ async fn authenticated_extra_route_forbids_empty_user_id() {
 
     let msg = make_msg("/b/chat/hello"); // no user_id
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 403, "Authenticated + empty user_id should be 403");
 
@@ -214,7 +214,7 @@ async fn authenticated_extra_route_allows_user() {
 
     let msg = make_msg_with_user("/b/chat/hello", "user-123");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -235,7 +235,7 @@ async fn admin_extra_route_forbids_non_admin() {
     // User is authenticated but lacks the admin role.
     let msg = make_msg_with_user("/b/gizza-admin/dash", "user-123");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 403, "Admin access + non-admin user should be 403");
 
@@ -255,7 +255,7 @@ async fn admin_extra_route_allows_admin() {
 
     let msg = make_msg_with_admin("/b/gizza-admin/dash", "admin-1");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -275,9 +275,113 @@ async fn unmatched_path_falls_through_to_not_found() {
 
     let msg = make_msg("/some/other/path");
     let input = InputStream::empty();
-    let stream = routing::route_to_block(&ctx, msg, input, &features, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &[], &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 404);
 
+    assert!(ctx.calls().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Central per-endpoint AuthLevel enforcement (S4-U).
+//
+// These pin the new behavior: the router enforces the *declared* endpoint
+// `AuthLevel` (from `BlockInfo::endpoints`) before dispatch, taking the
+// stricter of the coarse prefix tier and the declared level. This is what
+// lets blocks drop their per-handler `is_admin`/`user_id` preambles — and it
+// is the fix for the #1 regression risk (legalpages admin protection that
+// used to rest only on route-table ordering).
+// ---------------------------------------------------------------------------
+
+use wafer_run::{AuthLevel, BlockEndpoint, BlockInfo};
+
+/// A `block_infos` slice declaring the legalpages admin/api endpoints as
+/// `Admin` and the public terms page as `Public` — exactly as the block's
+/// `info()` does.
+fn legalpages_infos() -> Vec<BlockInfo> {
+    vec![
+        BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "legal").endpoints(
+            vec![
+                BlockEndpoint::get("/b/legalpages/terms").auth(AuthLevel::Public),
+                BlockEndpoint::get("/b/legalpages/admin").auth(AuthLevel::Admin),
+                BlockEndpoint::patch("/b/legalpages/api/documents/{id}").auth(AuthLevel::Admin),
+            ],
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn declared_admin_endpoint_rejects_non_admin_even_when_prefix_is_public() {
+    let ctx = RecordingContext::new();
+    let features = AllEnabled;
+    let infos = legalpages_infos();
+
+    // `/b/legalpages/admin` is declared Admin. An authenticated non-admin must
+    // be rejected centrally BEFORE the block runs — proving the admin gate no
+    // longer rests on route-table ordering.
+    let msg = make_msg_with_user("/b/legalpages/admin", "user-1");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 403);
+    assert!(ctx.calls().is_empty(), "must not dispatch to the block");
+}
+
+#[tokio::test]
+async fn declared_admin_endpoint_allows_admin() {
+    let ctx = RecordingContext::new();
+    let features = AllEnabled;
+    let infos = legalpages_infos();
+
+    let msg = make_msg_with_admin("/b/legalpages/admin", "admin-1");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 200);
+    assert_eq!(ctx.calls(), vec!["suppers-ai/legalpages".to_string()]);
+}
+
+#[tokio::test]
+async fn declared_admin_endpoint_with_path_param_enforced() {
+    let ctx = RecordingContext::new();
+    let features = AllEnabled;
+    let infos = legalpages_infos();
+
+    // PATCH /b/legalpages/api/documents/{id} is Admin — a non-admin is 403'd
+    // even though the `{id}` segment is dynamic.
+    let mut msg = make_msg_with_user("/b/legalpages/api/documents/doc-7", "user-1");
+    msg.set_meta("req.action", "update");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 403);
+    assert!(ctx.calls().is_empty());
+}
+
+#[tokio::test]
+async fn public_declared_endpoint_passes_without_auth() {
+    let ctx = RecordingContext::new();
+    let features = AllEnabled;
+    let infos = legalpages_infos();
+
+    // `/b/legalpages/terms` is declared Public — anonymous request dispatches.
+    let msg = make_msg("/b/legalpages/terms");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 200);
+    assert_eq!(ctx.calls(), vec!["suppers-ai/legalpages".to_string()]);
+}
+
+#[tokio::test]
+async fn undeclared_path_falls_back_to_prefix_tier() {
+    let ctx = RecordingContext::new();
+    let features = AllEnabled;
+    let infos = legalpages_infos();
+
+    // `/b/legalpages/api/documents` (no `{id}`) is NOT in the declared
+    // endpoint list above. The coarse prefix route for `/b/legalpages/api` is
+    // Admin (the backstop), so a non-admin is still rejected — an undeclared
+    // path can never be LESS protected than its prefix tier.
+    let msg = make_msg_with_user("/b/legalpages/api/documents", "user-1");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 403);
     assert!(ctx.calls().is_empty());
 }
