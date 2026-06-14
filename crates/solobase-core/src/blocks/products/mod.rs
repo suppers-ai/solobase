@@ -98,83 +98,22 @@ impl Block for ProductsBlock {
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
+            // Advisory table list — admin "Database tables" discovery + the
+            // WRAP grant-UI read only `CollectionSchema::name`. The schema
+            // itself (columns, indexes, FKs) lives solely in the block's
+            // hand-authored `migrations/*.sqlite.sql` files (the single
+            // source for both runtime `migrations::apply()` and the
+            // Cloudflare D1 build).
             .collections(vec![
-                CollectionSchema::new(PRODUCTS_TABLE)
-                    .field("name", "string")
-                    .field_default("description", "text", "")
-                    .field_default("slug", "string", "")
-                    .field_default("price", "float", "0")
-                    .field_default("base_price", "float", "0")
-                    .field_default("currency", "string", "USD")
-                    .field_default("status", "string", "draft")
-                    .field_default("category", "string", "")
-                    .field_default("tags", "json", "[]")
-                    .field_default("metadata", "json", "{}")
-                    .field_default("image_url", "string", "")
-                    .field_default("stock", "int", "0")
-                    .field_default("group_id", "string", "")
-                    .field_default("type_id", "string", "")
-                    .field_default("group_template_id", "string", "")
-                    .field_default("product_template_id", "string", "")
-                    .field_default("pricing_template_id", "string", "")
-                    .field_default("requires", "string", "")
-                    .field_default("created_by", "string", "")
-                    .field_optional("deleted_at", "datetime")
-                    .index(&["status"])
-                    .index(&["group_id"])
-                    .index(&["created_by"]),
-                CollectionSchema::new(GROUPS_TABLE)
-                    .field("name", "string")
-                    .field_default("description", "string", "")
-                    .field_default("template_id", "string", "")
-                    .field_default("group_template_id", "string", "")
-                    .field_default("user_id", "string", "")
-                    .field_default("status", "string", "active")
-                    .field_default("created_by", "string", ""),
-                CollectionSchema::new(TYPES_TABLE)
-                    .field("name", "string")
-                    .field_default("description", "string", "")
-                    .field_default("is_system", "bool", "false"),
-                CollectionSchema::new(PRICING_TABLE)
-                    .field("name", "string")
-                    .field_default("price_formula", "string", "")
-                    .field_default("template_data", "json", "{}"),
-                CollectionSchema::new(PURCHASES_TABLE)
-                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_TABLE))
-                    .field_default("status", "string", "pending")
-                    .field_default("total_cents", "int", "0")
-                    .field_default("amount_cents", "int", "0")
-                    .field_default("currency", "string", "USD")
-                    .field_default("provider", "string", "manual")
-                    .field_default("metadata", "json", "{}")
-                    .field_default("stripe_payment_intent_id", "string", "")
-                    .field_optional("refunded_at", "datetime")
-                    .field_default("refunded_by", "string", "")
-                    .field_default("refund_reason", "string", "")
-                    .field_optional("payment_at", "datetime")
-                    .index(&["user_id"])
-                    .index(&["status"]),
-                CollectionSchema::new(LINE_ITEMS_TABLE)
-                    .field("purchase_id", "string")
-                    .field("product_id", "string")
-                    .field_default("product_name", "string", "")
-                    .field_default("quantity", "int", "1")
-                    .field_default("unit_price", "float", "0")
-                    .field_default("total_price", "float", "0")
-                    .field_default("variables", "json", "{}")
-                    .index(&["purchase_id"]),
-                CollectionSchema::new(GROUP_TEMPLATES_TABLE)
-                    .field("name", "string")
-                    .field_default("display_name", "string", ""),
-                CollectionSchema::new(PRODUCT_TEMPLATES_TABLE)
-                    .field("name", "string")
-                    .field_default("display_name", "string", ""),
-                CollectionSchema::new(VARIABLES_TABLE)
-                    .field("name", "string")
-                    .field_default("var_type", "string", "number")
-                    .field_optional("default_value", "string")
-                    .field_default("scope", "string", "system")
-                    .field_default("product_id", "string", ""),
+                CollectionSchema::new(PRODUCTS_TABLE),
+                CollectionSchema::new(GROUPS_TABLE),
+                CollectionSchema::new(TYPES_TABLE),
+                CollectionSchema::new(PRICING_TABLE),
+                CollectionSchema::new(PURCHASES_TABLE),
+                CollectionSchema::new(LINE_ITEMS_TABLE),
+                CollectionSchema::new(GROUP_TEMPLATES_TABLE),
+                CollectionSchema::new(PRODUCT_TEMPLATES_TABLE),
+                CollectionSchema::new(VARIABLES_TABLE),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Product catalog, pricing engine, and payment processing. Manages products, groups, pricing templates with formula evaluation, purchases, and Stripe integration for checkout and recurring subscriptions.")

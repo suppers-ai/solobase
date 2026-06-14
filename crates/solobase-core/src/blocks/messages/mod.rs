@@ -1,5 +1,5 @@
 pub(crate) mod a2a;
-mod migrations;
+pub(crate) mod migrations;
 pub mod pages;
 pub mod rest;
 pub mod service;
@@ -52,37 +52,14 @@ impl Block for MessagesBlock {
             ResourceGrant::read("suppers-ai/llm", service::CONTEXTS_TABLE),
             ResourceGrant::read("suppers-ai/llm", service::ENTRIES_TABLE),
         ])
+        // Advisory table list — admin "Database tables" discovery + the WRAP
+        // grant-UI read only `CollectionSchema::name`. The schema itself
+        // (columns, indexes, FKs) lives solely in the block's hand-authored
+        // `migrations/*.sqlite.sql` files (the single source for both runtime
+        // `migrations::apply()` and the Cloudflare D1 build).
         .collections(vec![
-            CollectionSchema::new(service::CONTEXTS_TABLE)
-                .field("type", "string")
-                .field_default("status", "string", "active")
-                .field_default("title", "string", "")
-                .field_default("sender_id", "string", "")
-                .field_default("recipient_id", "string", "")
-                .field_optional("parent_id", "string")
-                .field_default("metadata", "text", "{}")
-                .index(&["type"])
-                .index(&["status"])
-                .index(&["parent_id"])
-                .index(&["updated_at"])
-                .index(&["sender_id"]),
-            CollectionSchema::new(service::ENTRIES_TABLE)
-                .field_ref(
-                    "context_id",
-                    "string",
-                    &format!("{}.id", service::CONTEXTS_TABLE),
-                )
-                .field_default("kind", "string", "message")
-                .field_default("role", "string", "")
-                .field_default("status", "string", "")
-                .field_default("sender_id", "string", "")
-                .field_default("content", "text", "")
-                .field_default("content_type", "string", "text/plain")
-                .field_default("metadata", "text", "{}")
-                .index(&["context_id"])
-                .index(&["context_id", "created_at"])
-                .index(&["kind"])
-                .index(&["context_id", "kind"]),
+            CollectionSchema::new(service::CONTEXTS_TABLE),
+            CollectionSchema::new(service::ENTRIES_TABLE),
         ])
         .category(wafer_run::BlockCategory::Feature)
         .description(

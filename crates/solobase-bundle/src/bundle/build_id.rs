@@ -11,7 +11,7 @@ pub fn build_id(repo_dir: &Path, asset_hashes: &[&str]) -> String {
         return format!("{sha}{suffix}");
     }
     let joined: String = asset_hashes.join("");
-    crate::tools::bundle::hash::short_hash(joined.as_bytes())
+    crate::bundle::hash::short_hash(joined.as_bytes())
 }
 
 fn git_short_sha(dir: &Path) -> Option<String> {

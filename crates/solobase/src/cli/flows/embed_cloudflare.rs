@@ -28,24 +28,16 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let wrangler_path = wrangler::generate(&cfg, repo_root, &out_dir)?;
     println!("-> {}", wrangler_path.display());
 
-    // Generate D1 migrations from registered blocks' CollectionSchema.
+    // Write the D1 migrations from the per-block SQL files — the single
+    // schema source. `all_sqlite_migrations()` returns the same
+    // `migrations::SQLITE_MIGRATIONS` scripts the runtime `apply()` paths
+    // execute at `lifecycle(Init)`, sequenced as `NNNN_<block>__<name>.sql`.
     // Wrangler picks these up via `migrations_dir` in wrangler.toml when
     // `wrangler d1 migrations apply` runs at deploy time.
     let migrations_dir = out_dir.join("migrations");
     std::fs::create_dir_all(&migrations_dir)?;
-    let block_infos = solobase_core::blocks::all_block_infos();
-    let collections: Vec<_> = block_infos
-        .iter()
-        .flat_map(|b| b.collections.iter().cloned())
-        .collect();
-    let sql = solobase_core::migrations::generate_initial_schema(&collections);
-    std::fs::write(migrations_dir.join("0001_initial_schema.sql"), &sql)?;
-
-    // Hand-authored migrations for blocks whose schema isn't declared via
-    // CollectionSchema (e.g. wafer-core's AuthBlock). Embedded at compile
-    // time; written alongside the auto-generated initial schema.
-    for (name, content) in solobase_core::migrations::extra_migrations() {
-        std::fs::write(migrations_dir.join(name), content)?;
+    for (name, content) in solobase_core::blocks::all_sqlite_migrations() {
+        std::fs::write(migrations_dir.join(&name), content)?;
     }
 
     let migration_count = std::fs::read_dir(&migrations_dir)?.count();

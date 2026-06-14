@@ -44,12 +44,6 @@ base64ct = { version = "1", features = ["alloc"] }
 bytemuck = { version = "1", default-features = false }
 subtle = { version = "2", default-features = false }
 
-# Used by the bundler module (tools/bundle):
-anyhow = "1"
-
-[dev-dependencies]
-tempfile = "3"
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 uuid = { version = "1", features = ["v4", "js"] }

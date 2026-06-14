@@ -108,7 +108,7 @@ mod tests {
     fn loader_template_renders_with_recovery_loop_guard() {
         use std::collections::BTreeMap;
 
-        use crate::tools::bundle::template;
+        use crate::bundle::template;
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("loader.js.tmpl");
         let out = tmp.path().join("loader.js");

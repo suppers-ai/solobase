@@ -229,7 +229,7 @@ jobs:
         run: echo "$GITHUB_WORKSPACE/out/bin" >> "$GITHUB_PATH"
 
       # Embed × web flow (Cargo.toml + solobase.toml present): the unified
-      # CLI runs wasm-pack, then `solobase_browser::tools::bundle::run` to drop
+      # CLI runs wasm-pack, then `solobase_bundle::bundle::run` to drop
       # sw.js / loader.js / index.html / hashed assets into pkg/. This produces
       # the served bundle for the smoke tests, overwriting the prereq pkg/.
       - name: Build solobase-web (framework assets + hashed pkg/)

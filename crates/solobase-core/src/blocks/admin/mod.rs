@@ -57,62 +57,22 @@ impl Block for AdminBlock {
                 "wafer-run/config".into(),
                 "wafer-run/crypto".into(),
             ])
+            // Advisory table list — admin "Database tables" discovery + the
+            // WRAP grant-UI read only `CollectionSchema::name`. The schema
+            // itself (columns, indexes, FKs) lives solely in the block's
+            // hand-authored `migrations/*.sqlite.sql` files (the single
+            // source for both runtime `migrations::apply()` and the
+            // Cloudflare D1 build).
             .collections(vec![
-                CollectionSchema::new(ROLES_TABLE)
-                    .field("name", "string")
-                    .field_default("description", "string", "")
-                    .field_default("permissions", "json", "[]")
-                    .field_default("is_system", "bool", "false"),
-                CollectionSchema::new(PERMISSIONS_TABLE)
-                    .field("name", "string")
-                    .field_default("resource", "string", "")
-                    .field_default("actions", "json", "[]"),
-                CollectionSchema::new(USER_ROLES_TABLE)
-                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_TABLE))
-                    .field("role", "string")
-                    .field_optional("assigned_at", "datetime")
-                    .field_default("assigned_by", "string", "")
-                    .index(&["user_id"]),
-                CollectionSchema::new(VARIABLES_TABLE)
-                    .field_unique("key", "string")
-                    .field_default("name", "string", "")
-                    .field_default("description", "string", "")
-                    .field_default("value", "string", "")
-                    .field_default("warning", "string", "")
-                    .field_default("sensitive", "int", "0")
-                    .field_default("updated_by", "string", ""),
-                CollectionSchema::new(AUDIT_LOGS_TABLE)
-                    .field_default("user_id", "string", "")
-                    .field("action", "string")
-                    .field_default("resource", "string", "")
-                    .field_default("ip_address", "string", "")
-                    .index(&["created_at"]),
-                CollectionSchema::new(REQUEST_LOGS_TABLE)
-                    .field_default("flow_id", "string", "")
-                    .field_default("method", "string", "")
-                    .field_default("path", "string", "")
-                    .field_default("status", "string", "")
-                    .field_default("status_code", "int", "0")
-                    .field_default("duration_ms", "int", "0")
-                    .field_default("error_message", "string", "")
-                    .field_default("client_ip", "string", "")
-                    .field_default("user_id", "string", "")
-                    .index(&["created_at"]),
-                CollectionSchema::new(STORAGE_ACCESS_LOGS_TABLE)
-                    .field_default("source_block", "string", "")
-                    .field_default("operation", "string", "")
-                    .field_default("path", "string", "")
-                    .field_default("status", "string", "")
-                    .index(&["created_at"]),
-                CollectionSchema::new(BLOCK_SETTINGS_TABLE)
-                    .field_unique("block_name", "string")
-                    .field_default("enabled", "int", "1"),
-                CollectionSchema::new(WRAP_GRANTS_TABLE)
-                    .field("grantee", "string")
-                    .field("resource", "string")
-                    .field_default("write", "int", "0")
-                    .field_default("resource_type", "string", "")
-                    .field_default("description", "string", ""),
+                CollectionSchema::new(ROLES_TABLE),
+                CollectionSchema::new(PERMISSIONS_TABLE),
+                CollectionSchema::new(USER_ROLES_TABLE),
+                CollectionSchema::new(VARIABLES_TABLE),
+                CollectionSchema::new(AUDIT_LOGS_TABLE),
+                CollectionSchema::new(REQUEST_LOGS_TABLE),
+                CollectionSchema::new(STORAGE_ACCESS_LOGS_TABLE),
+                CollectionSchema::new(BLOCK_SETTINGS_TABLE),
+                CollectionSchema::new(WRAP_GRANTS_TABLE),
             ])
             .grants(vec![
                 wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_TABLE),

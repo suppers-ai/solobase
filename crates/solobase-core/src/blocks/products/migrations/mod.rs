@@ -22,11 +22,21 @@ const SQL_001_POSTGRES: &str = include_str!("001_products_schema.postgres.sql");
 const SQL_002_SQLITE: &str = include_str!("002_default_templates.sqlite.sql");
 const SQL_002_POSTGRES: &str = include_str!("002_default_templates.postgres.sql");
 
+/// Ordered SQLite migration scripts for this block, as `(basename, content)`
+/// pairs. Single source for both the runtime `apply()` below and the
+/// Cloudflare-build D1 migration registry (`crate::migrations`). Order here
+/// is the apply order.
+pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
+    ("001_products_schema", SQL_001_SQLITE),
+    ("002_default_templates", SQL_002_SQLITE),
+];
+
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
+    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
     migration_helper::apply_migrations(
         ctx,
         PRODUCTS_BLOCK_NAME,
-        &[SQL_001_SQLITE, SQL_002_SQLITE],
+        &sqlite,
         &[SQL_001_POSTGRES, SQL_002_POSTGRES],
     )
     .await

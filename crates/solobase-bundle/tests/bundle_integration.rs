@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use solobase_browser::tools::bundle::{run, AppConfig};
+use solobase_bundle::bundle::{run, AppConfig};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/bundle_fixtures/pkg-in")
@@ -65,8 +65,8 @@ fn deterministic_across_runs() {
     let tmp2 = tempfile::tempdir().unwrap();
     copy_dir(&fixture_path(), tmp1.path());
     copy_dir(&fixture_path(), tmp2.path());
-    solobase_browser::tools::bundle::run(tmp1.path(), tmp1.path(), default_app()).unwrap();
-    solobase_browser::tools::bundle::run(tmp2.path(), tmp2.path(), default_app()).unwrap();
+    solobase_bundle::bundle::run(tmp1.path(), tmp1.path(), default_app()).unwrap();
+    solobase_bundle::bundle::run(tmp2.path(), tmp2.path(), default_app()).unwrap();
 
     let m1 = fs::read_to_string(tmp1.path().join("asset-manifest.json")).unwrap();
     let m2 = fs::read_to_string(tmp2.path().join("asset-manifest.json")).unwrap();

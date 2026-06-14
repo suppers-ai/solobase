@@ -18,16 +18,27 @@ const SQL_002_POSTGRES: &str = include_str!("002_variables_block_column.postgres
 const SQL_003_SQLITE: &str = include_str!("003_block_settings_seed_hash.sqlite.sql");
 const SQL_003_POSTGRES: &str = include_str!("003_block_settings_seed_hash.postgres.sql");
 
+/// Ordered SQLite migration scripts for this block, as `(basename, content)`
+/// pairs. Single source for both the runtime `apply()` below and the
+/// Cloudflare-build D1 migration registry (`crate::migrations`). Order here
+/// is the apply order.
+pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
+    ("001_admin_schema", SQL_001_SQLITE),
+    ("002_variables_block_column", SQL_002_SQLITE),
+    ("003_block_settings_seed_hash", SQL_003_SQLITE),
+];
+
 /// Apply all admin migrations through the shared migration-state gate.
 /// Idempotent across cold starts: once the gate stamps a `current_hash` row
 /// in `block_settings`, subsequent boots short-circuit before issuing any
 /// DDL. Schema changes require a `--run-migrations` redeploy (see
 /// `migration-state-workflow` in user memory).
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
+    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
     crate::migration_helper::apply_migrations(
         ctx,
         ADMIN_BLOCK_NAME,
-        &[SQL_001_SQLITE, SQL_002_SQLITE, SQL_003_SQLITE],
+        &sqlite,
         &[SQL_001_POSTGRES, SQL_002_POSTGRES, SQL_003_POSTGRES],
     )
     .await

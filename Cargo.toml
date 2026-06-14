@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/solobase-browser",
+    "crates/solobase-bundle",
     "crates/solobase-cloudflare",
     "crates/solobase-core",
     "crates/solobase-native",
@@ -15,6 +16,7 @@ members = [
 # explicitly with `cargo <cmd> -p solobase-cloudflare --target wasm32-unknown-unknown`.
 default-members = [
     "crates/solobase-browser",
+    "crates/solobase-bundle",
     "crates/solobase-core",
     "crates/solobase-native",
     "crates/solobase",
