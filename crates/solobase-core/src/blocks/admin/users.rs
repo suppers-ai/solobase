@@ -10,16 +10,38 @@ use crate::blocks::{
     helpers::{err_bad_request, err_internal, err_not_found, ok_json},
 };
 
-pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+/// `path` is the normalized `/admin/users[...]` sub-path passed explicitly by
+/// the admin dispatcher (no `req.resource` rewrite). The leaf handlers read the
+/// user id from `req.param.id`, which this dispatcher binds from `path`.
+pub async fn handle(
+    ctx: &dyn Context,
+    msg: &Message,
+    path: &str,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
-    let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/users") => handle_list(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg, input).await,
-        ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/users/") => {
+            handle_get(ctx, msg, user_id_from(path)).await
+        }
+        ("update", _) if path.starts_with("/admin/users/") => {
+            handle_update(ctx, msg, user_id_from(path), input).await
+        }
+        ("delete", _) if path.starts_with("/admin/users/") => {
+            handle_delete(ctx, msg, user_id_from(path)).await
+        }
         _ => err_not_found("not found"),
+    }
+}
+
+/// Extract the first `/`-bounded user-id segment after `/admin/users/`.
+fn user_id_from(path: &str) -> &str {
+    let rest = path.strip_prefix("/admin/users/").unwrap_or("");
+    match rest.find('/') {
+        Some(idx) => &rest[..idx],
+        None => rest,
     }
 }
 
@@ -74,18 +96,11 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let id = msg.var("id").to_string();
+async fn handle_get(ctx: &dyn Context, _msg: &Message, id: &str) -> OutputStream {
     if id.is_empty() {
-        // Extract from path
-        let path = msg.path().to_string();
-        let id = path.strip_prefix("/admin/users/").unwrap_or("").to_string();
-        if id.is_empty() {
-            return err_bad_request("Missing user ID");
-        }
-        return get_user(ctx, &id).await;
+        return err_bad_request("Missing user ID");
     }
-    get_user(ctx, &id).await
+    get_user(ctx, id).await
 }
 
 async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
@@ -111,14 +126,12 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
     }
 }
 
-async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let path = msg.path();
-    let id = msg.var("id");
-    let id = if id.is_empty() {
-        path.strip_prefix("/admin/users/").unwrap_or("")
-    } else {
-        id
-    };
+async fn handle_update(
+    ctx: &dyn Context,
+    msg: &Message,
+    id: &str,
+    input: InputStream,
+) -> OutputStream {
     if id.is_empty() {
         return err_bad_request("Missing user ID");
     }
@@ -137,21 +150,7 @@ async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
     }
 }
 
-async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
-    let id = msg.var("id");
-    let id = if id.is_empty() {
-        // `strip_prefix` returns everything after `/admin/users/`, including
-        // any trailing path segments. Take only the first `/`-bounded segment
-        // so e.g. `/admin/users/u123/foo` resolves to `u123`, not `u123/foo`.
-        let rest = path.strip_prefix("/admin/users/").unwrap_or("");
-        match rest.find('/') {
-            Some(idx) => &rest[..idx],
-            None => rest,
-        }
-    } else {
-        id
-    };
+async fn handle_delete(ctx: &dyn Context, msg: &Message, id: &str) -> OutputStream {
     if id.is_empty() {
         return err_bad_request("Missing user ID");
     }

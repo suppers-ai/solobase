@@ -18,31 +18,37 @@ pub(crate) const PERMISSIONS_TABLE: &str = "suppers_ai__admin__permissions";
 /// User → role assignment table (many-to-many via row per pair).
 pub(crate) const USER_ROLES_TABLE: &str = "suppers_ai__admin__user_roles";
 
-pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+/// `path` is the normalized `/admin/iam/...` sub-path, passed explicitly (no
+/// `req.resource` rewrite). Id-bearing leaves take their id from it.
+pub async fn handle(
+    ctx: &dyn Context,
+    msg: &Message,
+    path: &str,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
-    let path = msg.path();
 
     match (action, path) {
         // Roles
         ("retrieve", "/admin/iam/roles") => handle_list_roles(ctx).await,
         ("create", "/admin/iam/roles") => handle_create_role(ctx, msg, input).await,
         ("update", _) if path.starts_with("/admin/iam/roles/") => {
-            handle_update_role(ctx, msg, input).await
+            handle_update_role(ctx, path, input).await
         }
         ("delete", _) if path.starts_with("/admin/iam/roles/") => {
-            handle_delete_role(ctx, msg).await
+            handle_delete_role(ctx, msg, path).await
         }
         // Permissions
         ("retrieve", "/admin/iam/permissions") => handle_list_permissions(ctx).await,
         ("create", "/admin/iam/permissions") => handle_create_permission(ctx, input).await,
         ("delete", _) if path.starts_with("/admin/iam/permissions/") => {
-            handle_delete_permission(ctx, msg).await
+            handle_delete_permission(ctx, path).await
         }
         // User-role assignments
         ("retrieve", "/admin/iam/user-roles") => handle_list_user_roles(ctx, msg).await,
         ("create", "/admin/iam/user-roles") => handle_assign_role(ctx, msg, input).await,
         ("delete", _) if path.starts_with("/admin/iam/user-roles/") => {
-            handle_remove_role(ctx, msg).await
+            handle_remove_role(ctx, msg, path).await
         }
         _ => err_not_found("not found"),
     }
@@ -90,8 +96,7 @@ async fn handle_create_role(ctx: &dyn Context, msg: &Message, input: InputStream
     }
 }
 
-async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let path = msg.path();
+async fn handle_update_role(ctx: &dyn Context, path: &str, input: InputStream) -> OutputStream {
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request("Missing role ID");
@@ -137,8 +142,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
     }
 }
 
-async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_delete_role(ctx: &dyn Context, msg: &Message, path: &str) -> OutputStream {
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
     // System-role guard, delete, and audit-log write live in the shared ops
     // layer (the JSON path previously logged nothing).
@@ -187,8 +191,7 @@ async fn handle_create_permission(ctx: &dyn Context, input: InputStream) -> Outp
     }
 }
 
-async fn handle_delete_permission(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_delete_permission(ctx: &dyn Context, path: &str) -> OutputStream {
     let id = path.strip_prefix("/admin/iam/permissions/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request("Missing permission ID");
@@ -275,8 +278,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
     }
 }
 
-async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let path = msg.path();
+async fn handle_remove_role(ctx: &dyn Context, msg: &Message, path: &str) -> OutputStream {
     let id = path.strip_prefix("/admin/iam/user-roles/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request("Missing user-role ID");
