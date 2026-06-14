@@ -629,6 +629,86 @@ pub fn post_start(wafer: &Wafer, storage_block: &SolobaseStorageBlock) {
     storage_block.update_wrap_grants(wafer.wrap_grants());
 }
 
+/// Per-target boot I/O for [`boot`]. Implemented by each platform to supply
+/// the one step that genuinely differs between them: what to seed and which
+/// shared snapshots to publish into once the admin block's `Init` has created
+/// the variables / block_settings tables.
+///
+/// Everything else around it — the invariant `seal → admin-first init →
+/// (seed) → init_all_blocks → post_start` ordering — is owned by [`boot`], so
+/// the two stateless targets (Cloudflare, browser) collapse to a hook impl
+/// plus the platform-specific request/response plumbing.
+#[wafer_block::wafer_async_trait]
+pub trait BootHooks {
+    /// Runs AFTER `init_block(admin)` (so the admin migration has created the
+    /// `suppers_ai__admin__variables` + `block_settings` tables) and BEFORE
+    /// `init_all_blocks` (so a block depending on a seeded `auto_generate` key
+    /// can't lose the `HashMap::keys()` race and permanent-fail on a missing
+    /// secret — the solobase #209 regression class).
+    ///
+    /// Implementations call [`crate::boot::seed_auto_generated`] /
+    /// [`crate::boot::seed_and_load_variables`] /
+    /// [`crate::features::load_and_seed_block_settings`] as appropriate and
+    /// publish the results into the shared `ConfigService` / `BlockSettings`
+    /// handle / crypto secret the runtime already holds.
+    ///
+    /// Errors abort the boot — return `Err` only for a genuinely fatal
+    /// condition (e.g. the JWT secret can't be read on a target that needs it
+    /// before any request). Best-effort per-key seed failures should be logged
+    /// and swallowed inside the impl.
+    async fn seed_after_admin_init(&self, wafer: &Wafer) -> Result<(), String>;
+}
+
+/// Target-agnostic boot orchestrator owning the invariant post-build lifecycle
+/// sequence shared by the stateless targets (Cloudflare Workers, browser WASM):
+///
+/// 1. `seal()` — finalize composite/uses/capability/snapshot wiring.
+/// 2. `init_block(admin)` FIRST — admin's migrations create the variables /
+///    block_settings tables before any other block's `Init` writes to them,
+///    and before the seed step reads them. Failure is logged-and-tolerated
+///    (matching `init_all_blocks`' resilience contract) so one broken block
+///    can't wedge the whole runtime.
+/// 3. `hooks.seed_after_admin_init` — seed + publish (see [`BootHooks`]).
+/// 4. `init_all_blocks()` — eager-init the rest; admin is a slot-cached no-op.
+/// 5. `post_start()` — inject WRAP grants into the storage block.
+///
+/// The caller must have already wired the pre-seal bits its platform needs
+/// (`set_config_snapshot`, `set_asset_loader`, any post-build block
+/// registration) onto `wafer` before calling this. After it returns, the
+/// caller dispatches requests / stores the runtime handle as appropriate.
+///
+/// Native uses `Wafer::start_with_priority` instead of this funnel: its
+/// HTTP-listener block binds the TCP socket in the `Start`-lifecycle `bind()`
+/// pass that `start_with_priority` performs atomically, and its immutable
+/// `Argon2JwtCryptoService` needs the JWT secret before `build()` — so native
+/// seeds pre-wafer and there is no public hook to inject a seed step mid-way
+/// through `start_with_priority`. Native still shares the seed *functions*
+/// above; only its lifecycle differs.
+pub async fn boot(
+    wafer: &mut Wafer,
+    storage_block: &SolobaseStorageBlock,
+    hooks: &dyn BootHooks,
+) -> Result<(), RuntimeError> {
+    wafer.seal().await?;
+
+    // Admin first — its Init creates the variables / block_settings tables the
+    // seed step reads, and migration 002's `block` column the auto-gen seeder
+    // writes. Tolerated-and-logged, like every other init.
+    if let Err(e) = wafer.init_block(crate::blocks::admin::ADMIN_BLOCK_ID).await {
+        tracing::warn!(error = %e, "admin block Init failed before seeding");
+    }
+
+    hooks
+        .seed_after_admin_init(wafer)
+        .await
+        .map_err(RuntimeError::Config)?;
+
+    wafer.init_all_blocks().await;
+
+    post_start(wafer, storage_block);
+    Ok(())
+}
+
 /// Register the `wafer-run/vector` runtime block backed by native
 /// `SqliteVecService` + `FastembedService`.
 ///
