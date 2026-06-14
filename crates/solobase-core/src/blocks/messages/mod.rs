@@ -5,14 +5,88 @@ pub mod rest;
 pub mod service;
 
 use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
-    LifecycleType, Message, OutputStream, WaferError,
+    context::Context, Block, BlockEndpoint, BlockInfo, HttpMethod, InputStream, InstanceMode,
+    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
 use crate::{
-    blocks::helpers::{self, err_not_found},
-    ui,
+    blocks::helpers::err_not_found,
+    endpoint_match::{self, EndpointRoute},
 };
+
+/// In-block dispatch targets, one per declared HTTP endpoint.
+#[derive(Clone, Copy)]
+enum Route {
+    ContextListPage,
+    ContextDetailPage,
+    ListContexts,
+    CreateContext,
+    GetContext,
+    UpdateContext,
+    DeleteContext,
+    ListEntries,
+    AddEntry,
+    GetEntry,
+    DeleteEntry,
+}
+
+/// Method + path-template dispatch table. Templates mirror the declared
+/// `info().endpoints`; the matcher extracts `{id}` into `req.param.id`.
+/// More-specific templates (`.../{id}/entries`) precede generic ones
+/// (`.../{id}`) so ordering resolves them like the old `ends_with` guards.
+const ROUTES: &[EndpointRoute<Route>] = &[
+    EndpointRoute::new(HttpMethod::Get, "/b/messages/", Route::ContextListPage),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/messages/contexts/{id}",
+        Route::ContextDetailPage,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/messages/api/contexts",
+        Route::ListContexts,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/messages/api/contexts",
+        Route::CreateContext,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/messages/api/contexts/{id}/entries",
+        Route::ListEntries,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/messages/api/contexts/{id}/entries",
+        Route::AddEntry,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/messages/api/contexts/{id}",
+        Route::GetContext,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/messages/api/contexts/{id}",
+        Route::UpdateContext,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/messages/api/contexts/{id}",
+        Route::DeleteContext,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/messages/api/entries/{id}",
+        Route::GetEntry,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/messages/api/entries/{id}",
+        Route::DeleteEntry,
+    ),
+];
 
 pub struct MessagesBlock;
 
@@ -69,6 +143,17 @@ impl Block for MessagesBlock {
              primitive (messages, artifacts, notifications, status changes).",
         )
         .endpoints(vec![
+            // UI pages — admin-only (the chat/context inspector SSR pages).
+            // Declared here so the central router enforces the admin tier
+            // before dispatch; the block no longer hand-checks `is_admin`.
+            BlockEndpoint::get("/b/messages/")
+                .summary("Context list page")
+                .auth(AuthLevel::Admin)
+                .tags(&["ui"]),
+            BlockEndpoint::get("/b/messages/contexts/{id}")
+                .summary("Context detail page")
+                .auth(AuthLevel::Admin)
+                .tags(&["ui"]),
             // Contexts
             BlockEndpoint::get("/b/messages/api/contexts")
                 .summary("List contexts")
@@ -184,84 +269,36 @@ impl Block for MessagesBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        let action = msg.action().to_string();
-        let path = msg.path().to_string();
-        let is_api = path.contains("/api/");
-        let user_id = msg.user_id().to_string();
-
+    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
         // A2A JSON-RPC endpoint — protocol-public (auth handled by the
-        // JSON-RPC method handlers themselves). Routed from the shared
-        // pipeline via `ctx.call_block("suppers-ai/messages", ...)`.
-        if path == "/a2a" {
+        // JSON-RPC method handlers themselves). It does NOT pass through the
+        // central router's prefix table: the shared pipeline dispatches `/a2a`
+        // straight here via `ctx.call_block("suppers-ai/messages", ...)`, so
+        // the block keeps this entry point.
+        if msg.path() == "/a2a" {
             return a2a::handle_a2a(ctx, msg, input).await;
         }
 
-        // All other endpoints require authentication
-        if user_id.is_empty() {
-            return ui::forbidden_response(&msg);
-        }
-
-        // UI pages require admin role
-        if !is_api {
-            let is_admin = helpers::is_admin(&msg);
-            if !is_admin {
-                return ui::forbidden_response(&msg);
-            }
-        }
-
-        match (action.as_str(), path.as_str()) {
-            // UI pages
-            ("retrieve", "/b/messages/") => pages::context_list_page(ctx, &msg).await,
-            ("retrieve", _)
-                if path.starts_with("/b/messages/contexts/") && !path.contains("/api/") =>
-            {
-                pages::context_detail_page(ctx, &msg).await
-            }
-
-            // Context CRUD
-            ("retrieve", "/b/messages/api/contexts") => rest::list_contexts(ctx, &msg).await,
-            ("create", "/b/messages/api/contexts") => rest::create_context(ctx, input).await,
-            ("retrieve", _)
-                if path.starts_with("/b/messages/api/contexts/")
-                    && !path["/b/messages/api/contexts/".len()..].contains('/') =>
-            {
-                rest::get_context(ctx, &msg).await
-            }
-            ("update", _)
-                if path.starts_with("/b/messages/api/contexts/")
-                    && !path["/b/messages/api/contexts/".len()..].contains('/') =>
-            {
-                rest::update_context(ctx, &msg, input).await
-            }
-            ("delete", _)
-                if path.starts_with("/b/messages/api/contexts/")
-                    && !path["/b/messages/api/contexts/".len()..].contains('/') =>
-            {
-                rest::delete_context(ctx, &msg).await
-            }
-
-            // Entries within a context
-            ("retrieve", _)
-                if path.starts_with("/b/messages/api/contexts/") && path.ends_with("/entries") =>
-            {
-                rest::list_entries(ctx, &msg).await
-            }
-            ("create", _)
-                if path.starts_with("/b/messages/api/contexts/") && path.ends_with("/entries") =>
-            {
-                rest::add_entry(ctx, &msg, input).await
-            }
-
-            // Direct entry access
-            ("retrieve", _) if path.starts_with("/b/messages/api/entries/") => {
-                rest::get_entry(ctx, &msg).await
-            }
-            ("delete", _) if path.starts_with("/b/messages/api/entries/") => {
-                rest::delete_entry(ctx, &msg).await
-            }
-
-            _ => err_not_found("not found"),
+        // Auth is enforced centrally by `route_to_block` from the declared
+        // endpoint `AuthLevel` (UI pages → Admin, API → Authenticated), so no
+        // per-handler `user_id`/`is_admin` preamble is needed here. Dispatch
+        // matches the same declared endpoint templates, extracting `{id}` into
+        // `req.param.id` for the sub-handlers.
+        let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
+            return err_not_found("not found");
+        };
+        match route {
+            Route::ContextListPage => pages::context_list_page(ctx, &msg).await,
+            Route::ContextDetailPage => pages::context_detail_page(ctx, &msg).await,
+            Route::ListContexts => rest::list_contexts(ctx, &msg).await,
+            Route::CreateContext => rest::create_context(ctx, input).await,
+            Route::GetContext => rest::get_context(ctx, &msg).await,
+            Route::UpdateContext => rest::update_context(ctx, &msg, input).await,
+            Route::DeleteContext => rest::delete_context(ctx, &msg).await,
+            Route::ListEntries => rest::list_entries(ctx, &msg).await,
+            Route::AddEntry => rest::add_entry(ctx, &msg, input).await,
+            Route::GetEntry => rest::get_entry(ctx, &msg).await,
+            Route::DeleteEntry => rest::delete_entry(ctx, &msg).await,
         }
     }
 
