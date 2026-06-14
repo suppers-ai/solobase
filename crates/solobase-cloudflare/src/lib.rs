@@ -190,7 +190,7 @@ where
     //    on `variables.block`. block_settings still needs an eager load
     //    because the SolobaseRouter consumes the enablement map up front
     //    when wiring routes (it can't defer to a per-block init event).
-    let block_settings = runner::load_block_settings(&db).await;
+    let block_settings = solobase_core::features::load_and_seed_block_settings(&db).await;
 
     // 3. Build the ConfigService map. After dropping the D1 env_vars
     //    pre-load, this map only carries:
@@ -287,37 +287,14 @@ where
     //     blocks that need direct un-namespaced bucket access.
     register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
 
-    // 6c. Seal the runtime (composite/uses/capability/snapshot, no bind, no
-    //     Start dispatch — same semantics as the former start_without_bind).
-    wafer.seal().await.map_err(|e| format!("wafer.seal: {e}"))?;
-
-    // 6d. Init the admin block first so its migrations (incl. variables.block
-    //     in migration 002) have applied before we seed auto-generated
-    //     secrets. `init_all_blocks` iterates `HashMap::keys()` in unspecified
-    //     order, so without this explicit step a block that depends on a
-    //     seeded `auto_generate` key (e.g. `suppers-ai/products` and
-    //     `SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET`) could be the first one
-    //     initialised, permanent-fail on the missing key, and remain broken
-    //     for the slot's lifetime even after seeding completes.
-    if let Err(e) = wafer
-        .init_block(solobase_core::blocks::admin::ADMIN_BLOCK_ID)
+    // 6c. Run the shared boot funnel: seal → init_block(admin) →
+    //     seed_after_admin_init → init_all_blocks → post_start. The hook seeds
+    //     `auto_generate` ConfigVars once admin's migration 002 has added the
+    //     `variables.block` column. block_settings was already loaded eagerly
+    //     above (the router consumes its enablement map at build time).
+    solobase_core::builder::boot(&mut wafer, &storage_block, &CfBootHooks { db: db.clone() })
         .await
-    {
-        worker::console_log!("warn: admin block Init failed before seed_auto_generated: {e}",);
-    }
-
-    // 6e. Seed `auto_generate` ConfigVars (mirror of native CLI's
-    //     `seed_auto_generated`). Inserts random 32-byte hex values for keys
-    //     missing from the admin variables table — idempotent on repeat
-    //     cold-starts. Per-key failures are logged but tolerated.
-    runner::seed_auto_generated(&db).await;
-
-    // 6f. Eager Init pass for the remaining blocks. Slot caching makes admin
-    //     a no-op here. Init failures are logged-and-tolerated inside
-    //     `init_all_blocks`.
-    wafer.init_all_blocks().await;
-
-    solobase_core::builder::post_start(&wafer, &storage_block);
+        .map_err(|e| format!("boot: {e}"))?;
 
     // 7. Convert request → message; preserve auth header in meta.
     let auth_header = req.headers().get("authorization")?;
@@ -335,3 +312,23 @@ where
 /// `wrangler secret put`). Most config belongs in D1 so admins can
 /// manage it through the dashboard — this list stays short.
 const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KEY];
+
+/// [`BootHooks`](solobase_core::builder::BootHooks) impl for the Cloudflare
+/// target. block_settings is loaded eagerly before build (the router needs its
+/// enablement map at build time); the only post-admin-init seed step is the
+/// shared auto-generated-secret pass, which must run after admin migration 002
+/// has added the `variables.block` column.
+struct CfBootHooks {
+    db: Arc<dyn DatabaseService>,
+}
+
+#[wafer_block::wafer_async_trait]
+impl solobase_core::builder::BootHooks for CfBootHooks {
+    async fn seed_after_admin_init(
+        &self,
+        _wafer: &wafer_run::Wafer,
+    ) -> Result<(), String> {
+        solobase_core::boot::seed_auto_generated(&self.db).await;
+        Ok(())
+    }
+}
