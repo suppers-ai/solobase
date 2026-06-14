@@ -101,6 +101,63 @@ pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
     infos
 }
 
+/// Collect every compiled block's ordered SQLite migration scripts for the
+/// Cloudflare D1 build.
+///
+/// This is the single schema source for `solobase build --target cloudflare`:
+/// the same per-block `migrations::SQLITE_MIGRATIONS` consts that the runtime
+/// `apply()` paths execute at `lifecycle(Init)` are written verbatim into the
+/// generated D1 migration directory (`embed_cloudflare.rs`). There is no
+/// separate DDL generator and no second schema declaration — the hand-authored
+/// `*.sqlite.sql` files own the schema for both native/in-Worker boot and the
+/// `wrangler d1 migrations apply` deploy path.
+///
+/// Returns `(filename, content)` pairs already prefixed with a zero-padded
+/// global sequence number so `wrangler d1 migrations apply` runs them in this
+/// exact order. Auth comes first because other blocks' tables carry foreign
+/// keys onto `suppers_ai__auth__users`. The per-block source order (the order
+/// inside each `SQLITE_MIGRATIONS` slice) is preserved.
+///
+/// Feature-gated blocks contribute only when their `block-*` feature is on,
+/// matching the block set that actually registers at runtime. The native
+/// `solobase` binary that runs the Cloudflare build enables every default
+/// `block-*` feature, so the generated migration set is complete.
+pub fn all_sqlite_migrations() -> Vec<(String, &'static str)> {
+    // `(block-slug, &SQLITE_MIGRATIONS)` in apply order. Auth first (FK
+    // targets), then admin (block_settings / variables that the migration
+    // gate itself writes), then the feature blocks.
+    #[allow(unused_mut)]
+    let mut blocks: Vec<(&'static str, &'static [(&'static str, &'static str)])> = vec![
+        ("auth", auth::migrations::SQLITE_MIGRATIONS),
+        ("admin", admin::migrations::SQLITE_MIGRATIONS),
+    ];
+
+    #[cfg(feature = "block-files")]
+    blocks.push(("files", files::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-legalpages")]
+    blocks.push(("legalpages", legalpages::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-messages")]
+    blocks.push(("messages", messages::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-products")]
+    blocks.push(("products", products::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-userportal")]
+    blocks.push(("userportal", userportal::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-vector")]
+    blocks.push(("vector", vector::migrations::SQLITE_MIGRATIONS));
+    #[cfg(feature = "block-llm")]
+    blocks.push(("llm", llm::migrations::SQLITE_MIGRATIONS));
+
+    let mut out = Vec::new();
+    let mut seq = 1u32;
+    for (slug, migrations) in blocks {
+        for (basename, content) in migrations {
+            out.push((format!("{seq:04}_{slug}__{basename}.sql"), *content));
+            seq += 1;
+        }
+    }
+    out
+}
+
 /// Register the LLM feature block with the WAFER runtime.
 ///
 /// LlmBlock cannot self-register via `register_static_block!` because its

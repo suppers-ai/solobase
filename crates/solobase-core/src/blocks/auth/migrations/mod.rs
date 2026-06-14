@@ -23,19 +23,26 @@ const SQL_006_POSTGRES: &str = include_str!("006_user_extended_fields.postgres.s
 const SQL_007_SQLITE: &str = include_str!("007_api_keys.sqlite.sql");
 const SQL_007_POSTGRES: &str = include_str!("007_api_keys.postgres.sql");
 
+/// Ordered SQLite migration scripts for this block, as `(basename, content)`
+/// pairs. Single source for both the runtime `apply()` below and the
+/// Cloudflare-build D1 migration registry (`crate::migrations`). Order here
+/// is the apply order — keep it identical to `apply()`'s sqlite slice.
+pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
+    ("001_auth_schema", SQL_001_SQLITE),
+    ("002_reserved_orgs", SQL_002_SQLITE),
+    ("003_oauth_pkce_states", SQL_003_SQLITE),
+    ("004_refresh_tokens", SQL_004_SQLITE),
+    ("005_jwt_blocklist", SQL_005_SQLITE),
+    ("006_user_extended_fields", SQL_006_SQLITE),
+    ("007_api_keys", SQL_007_SQLITE),
+];
+
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
+    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
     migration_helper::apply_migrations(
         ctx,
         "suppers-ai/auth",
-        &[
-            SQL_001_SQLITE,
-            SQL_002_SQLITE,
-            SQL_003_SQLITE,
-            SQL_004_SQLITE,
-            SQL_005_SQLITE,
-            SQL_006_SQLITE,
-            SQL_007_SQLITE,
-        ],
+        &sqlite,
         &[
             SQL_001_POSTGRES,
             SQL_002_POSTGRES,

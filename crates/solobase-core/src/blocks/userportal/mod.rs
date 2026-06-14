@@ -45,11 +45,12 @@ impl Block for UserPortalBlock {
         )
         .instance_mode(InstanceMode::Singleton)
         .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
-        .collections(vec![CollectionSchema::new(TABLE)
-            .field("label", "string")
-            .field_default("icon", "string", "package")
-            .field("path", "string")
-            .field_default("sort_order", "int", "0")])
+        // Advisory table list — admin "Database tables" discovery + the WRAP
+        // grant-UI read only `CollectionSchema::name`. The schema itself
+        // (columns, indexes) lives solely in the block's hand-authored
+        // `migrations/*.sqlite.sql` files (the single source for both runtime
+        // `migrations::apply()` and the Cloudflare D1 build).
+        .collections(vec![CollectionSchema::new(TABLE)])
         .category(wafer_run::BlockCategory::Feature)
         .description("User-facing profile page with editable display name, admin-configurable navigation buttons, and portal configuration endpoint.")
         .endpoints(vec![

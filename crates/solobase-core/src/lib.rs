@@ -17,7 +17,6 @@ pub mod features;
 pub mod flows;
 pub mod messages_schema;
 pub mod migration_helper;
-pub mod migrations;
 pub mod pipeline;
 pub mod routing;
 pub mod ui;

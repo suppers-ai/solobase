@@ -54,46 +54,19 @@ impl Block for FilesBlock {
             // No explicit Storage grant needed. Wave 26 (c18) made WRAP
             // namespace-aware for Storage; this block self-admits its
             // own `suppers-ai/files/*` namespace via Rule 3.
+            // Advisory table list — admin "Database tables" discovery + the
+            // WRAP grant-UI read only `CollectionSchema::name`. The schema
+            // itself (columns, indexes, FKs, quota defaults) lives solely in
+            // the block's hand-authored `migrations/*.sqlite.sql` files (the
+            // single source for both runtime `migrations::apply()` and the
+            // Cloudflare D1 build).
             .collections(vec![
-                CollectionSchema::new(BUCKETS_TABLE)
-                    .field("name", "string")
-                    .field_default("public", "bool", "false")
-                    .field_default("created_by", "string", ""),
-                CollectionSchema::new(OBJECTS_TABLE)
-                    .field("bucket", "string")
-                    .field("key", "string")
-                    .field_default("size", "int", "0")
-                    .field_default("content_type", "string", "application/octet-stream")
-                    .field_default("status", "string", "complete")
-                    .field_default("uploaded_by", "string", "")
-                    .field_optional("uploaded_at", "datetime")
-                    .index(&["bucket"]),
-                CollectionSchema::new(VIEWS_TABLE)
-                    .field("bucket", "string")
-                    .field("key", "string")
-                    .field_default("user_id", "string", "")
-                    .field_optional("viewed_at", "datetime"),
-                CollectionSchema::new(SHARES_TABLE)
-                    .field("token", "string")
-                    .field("bucket", "string")
-                    .field("key", "string")
-                    .field_default("created_by", "string", "")
-                    .field_optional("expires_at", "datetime")
-                    .field_default("access_count", "int", "0")
-                    .field_optional("max_access_count", "int")
-                    .index(&["token"]),
-                CollectionSchema::new(ACCESS_LOGS_TABLE)
-                    .field("share_id", "string")
-                    .field_optional("accessed_at", "datetime")
-                    .field_default("ip_address", "string", "")
-                    .field_default("user_agent", "string", "")
-                    .index(&["share_id"]),
-                CollectionSchema::new(QUOTAS_TABLE)
-                    .field_unique("user_id", "string")
-                    .field_default("max_storage_bytes", "int64", &models::QuotaConfig::DEFAULT_MAX_STORAGE_BYTES.to_string())
-                    .field_default("max_file_size_bytes", "int64", &models::QuotaConfig::DEFAULT_MAX_FILE_SIZE_BYTES.to_string())
-                    .field_default("max_files_per_bucket", "int", &models::QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET.to_string())
-                    .field_default("reset_period_days", "int", &models::QuotaConfig::DEFAULT_RESET_PERIOD_DAYS.to_string()),
+                CollectionSchema::new(BUCKETS_TABLE),
+                CollectionSchema::new(OBJECTS_TABLE),
+                CollectionSchema::new(VIEWS_TABLE),
+                CollectionSchema::new(SHARES_TABLE),
+                CollectionSchema::new(ACCESS_LOGS_TABLE),
+                CollectionSchema::new(QUOTAS_TABLE),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
@@ -259,50 +232,47 @@ impl Block for FilesBlock {
 
 #[cfg(test)]
 mod schema_tests {
-    use wafer_run::Block;
+    use super::{migrations::SQLITE_MIGRATIONS, models::QuotaConfig};
 
-    use super::{models::QuotaConfig, FilesBlock, QUOTAS_TABLE};
-
-    /// The quota defaults advertised through the collection schema must
-    /// match the `QuotaConfig` consts (single in-code source). The
-    /// migration SQL files carry the same values DB-side; if you change
-    /// the consts, change `migrations/001_initial_schema.*.sql` too (and
-    /// remember `SOLOBASE_RUN_MIGRATIONS=1`).
+    /// The quota column defaults in the migration SQL (now the single schema
+    /// source) must match the `QuotaConfig` consts. If you change a const,
+    /// change `migrations/001_initial_schema.*.sql` too (and remember
+    /// `SOLOBASE_RUN_MIGRATIONS=1`).
     #[test]
-    fn quota_schema_defaults_match_quota_config_consts() {
-        let info = FilesBlock::new().info();
-        let quotas = info
-            .collections
+    fn quota_sql_defaults_match_quota_config_consts() {
+        let sql = SQLITE_MIGRATIONS
             .iter()
-            .find(|c| c.name == QUOTAS_TABLE)
-            .expect("quotas collection declared");
+            .map(|(_, s)| *s)
+            .collect::<Vec<_>>()
+            .join("\n");
 
-        let default_of = |field: &str| -> String {
-            quotas
-                .fields
-                .iter()
-                .find(|f| f.name == field)
-                .unwrap_or_else(|| panic!("field {field} declared"))
-                .default_value
-                .clone()
-        };
+        let asserts: &[(&str, i64)] = &[
+            ("max_storage_bytes", QuotaConfig::DEFAULT_MAX_STORAGE_BYTES),
+            (
+                "max_file_size_bytes",
+                QuotaConfig::DEFAULT_MAX_FILE_SIZE_BYTES,
+            ),
+            (
+                "max_files_per_bucket",
+                QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET,
+            ),
+            ("reset_period_days", QuotaConfig::DEFAULT_RESET_PERIOD_DAYS),
+        ];
 
-        assert_eq!(
-            default_of("max_storage_bytes"),
-            QuotaConfig::DEFAULT_MAX_STORAGE_BYTES.to_string()
-        );
-        assert_eq!(
-            default_of("max_file_size_bytes"),
-            QuotaConfig::DEFAULT_MAX_FILE_SIZE_BYTES.to_string()
-        );
-        assert_eq!(
-            default_of("max_files_per_bucket"),
-            QuotaConfig::DEFAULT_MAX_FILES_PER_BUCKET.to_string()
-        );
-        assert_eq!(
-            default_of("reset_period_days"),
-            QuotaConfig::DEFAULT_RESET_PERIOD_DAYS.to_string()
-        );
+        for (column, expected) in asserts {
+            // Match the `<column> ... DEFAULT <value>` line in the DDL.
+            let line = sql
+                .lines()
+                .find(|l| l.trim_start().starts_with(column))
+                .unwrap_or_else(|| panic!("column {column} declared in migration SQL"));
+            let needle = format!("DEFAULT {expected}");
+            assert!(
+                line.contains(&needle),
+                "column {column}: migration SQL `{line}` must carry `{needle}` to match \
+                 QuotaConfig::{}",
+                column.to_uppercase(),
+            );
+        }
     }
 }
 
