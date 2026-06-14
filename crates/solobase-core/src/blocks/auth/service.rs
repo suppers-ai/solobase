@@ -103,7 +103,7 @@ impl AuthServiceImpl {
 /// sha256 of a raw token string. Exposed so tests and the (future) session
 /// issuance helper in Plan A2 agree on the hash format. Thin wrapper over
 /// [`crate::util::sha256`] — there is one canonical sha256
-/// implementation in `blocks::helpers`.
+/// implementation in `crate::util` (re-exported from `wafer_block::hash`).
 pub fn hash_token(raw: &str) -> Vec<u8> {
     crate::util::sha256(raw.as_bytes()).to_vec()
 }
