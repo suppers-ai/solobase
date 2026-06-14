@@ -100,6 +100,9 @@ impl FeatureConfig for AllEnabled {
 fn make_msg(path: &str) -> Message {
     let mut msg = Message::new("http.request");
     msg.set_meta(META_REQ_RESOURCE, path);
+    // Default to a GET (`retrieve`) action so the per-endpoint matcher can
+    // resolve declared `AuthLevel`s; POST/DELETE cases override `req.action`.
+    msg.set_meta("req.action", "retrieve");
     msg
 }
 
@@ -384,4 +387,78 @@ async fn undeclared_path_falls_back_to_prefix_tier() {
         routing::route_to_block(&ctx, msg, InputStream::empty(), &features, &infos, &[]).await;
     assert_eq!(response_status(stream).await, 403);
     assert!(ctx.calls().is_empty());
+}
+
+/// `block_infos` mirroring the llm block's mixed-tier declarations: chat is
+/// `Authenticated`, the provider/model-admin UI + CRUD are `Admin`. The llm
+/// prefix route (`/b/llm`) is `Public`, so these prove the declared level is
+/// what gates — the source of the deleted per-handler `is_admin` re-checks.
+fn llm_infos() -> Vec<BlockInfo> {
+    vec![
+        BlockInfo::new("suppers-ai/llm", "0.0.1", "http-handler@v1", "llm").endpoints(vec![
+            BlockEndpoint::post("/b/llm/api/chat").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/llm/providers").auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/llm/models").auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/llm/api/providers").auth(AuthLevel::Admin),
+            BlockEndpoint::delete("/b/llm/api/providers/{id}").auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/llm/api/models/{backend_id}/{model_id}/load")
+                .auth(AuthLevel::Admin),
+        ]),
+    ]
+}
+
+#[tokio::test]
+async fn llm_admin_ui_rejects_non_admin() {
+    let ctx = RecordingContext::new();
+    let infos = llm_infos();
+    for path in ["/b/llm/providers", "/b/llm/models"] {
+        let msg = make_msg_with_user(path, "user-1");
+        let stream =
+            routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+        assert_eq!(response_status(stream).await, 403, "{path} must reject non-admin");
+    }
+    assert!(ctx.calls().is_empty());
+}
+
+#[tokio::test]
+async fn llm_admin_provider_crud_rejects_non_admin() {
+    let ctx = RecordingContext::new();
+    let infos = llm_infos();
+
+    // POST /b/llm/api/providers — declared Admin.
+    let mut create = make_msg_with_user("/b/llm/api/providers", "user-1");
+    create.set_meta("req.action", "create");
+    let s1 =
+        routing::route_to_block(&ctx, create, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s1).await, 403);
+
+    // DELETE /b/llm/api/providers/{id} — declared Admin, dynamic segment.
+    let mut del = make_msg_with_user("/b/llm/api/providers/p-9", "user-1");
+    del.set_meta("req.action", "delete");
+    let s2 = routing::route_to_block(&ctx, del, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s2).await, 403);
+
+    // POST /b/llm/api/models/{backend}/{model}/load — declared Admin.
+    let mut load = make_msg_with_user("/b/llm/api/models/ollama/llama3/load", "user-1");
+    load.set_meta("req.action", "create");
+    let s3 =
+        routing::route_to_block(&ctx, load, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(s3).await, 403);
+
+    assert!(ctx.calls().is_empty());
+}
+
+#[tokio::test]
+async fn llm_chat_allows_authenticated_non_admin() {
+    let ctx = RecordingContext::new();
+    let infos = llm_infos();
+
+    // POST /b/llm/api/chat — declared Authenticated; a plain user passes and
+    // dispatches (proving the chat endpoint is NOT swept up by the admin gate).
+    let mut chat = make_msg_with_user("/b/llm/api/chat", "user-1");
+    chat.set_meta("req.action", "create");
+    let stream =
+        routing::route_to_block(&ctx, chat, InputStream::empty(), &AllEnabled, &infos, &[]).await;
+    assert_eq!(response_status(stream).await, 200);
+    assert_eq!(ctx.calls(), vec!["suppers-ai/llm".to_string()]);
 }

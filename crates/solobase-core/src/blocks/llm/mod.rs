@@ -14,10 +14,95 @@ use wafer_run::{
     LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
 };
 
+use wafer_run::HttpMethod;
+
 use self::provider_admin::ProviderAdmin;
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
+use crate::{
+    blocks::helpers::{self, err_bad_request, err_internal, err_not_found, json_map, ok_json},
+    endpoint_match::{self, EndpointRoute},
 };
+
+/// In-block dispatch targets, one per declared HTTP endpoint.
+#[derive(Clone, Copy)]
+enum Route {
+    ChatPage,
+    ThreadPage,
+    SettingsPage,
+    ProvidersPage,
+    ModelsPage,
+    Chat,
+    ChatStream,
+    DiscoverModels,
+    ListProviders,
+    CreateProvider,
+    UpdateProvider,
+    DeleteProvider,
+    ModelStatus,
+    LoadModel,
+    UnloadModel,
+    ListModels,
+    GetConfig,
+    PostConfig,
+}
+
+/// Method + path-template dispatch table, mirroring `info().endpoints`.
+/// Sub-resource templates (`.../discover-models`, `.../load`, `.../status`)
+/// precede the generic `.../{id}` / `.../models` templates so the specific
+/// route wins (the old `ends_with` ordering). `{id}`/`{backend_id}`/
+/// `{model_id}` are bound into `req.param.*`.
+const ROUTES: &[EndpointRoute<Route>] = &[
+    // UI pages
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/", Route::ChatPage),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/threads/{id}", Route::ThreadPage),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/settings", Route::SettingsPage),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/providers", Route::ProvidersPage),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/models", Route::ModelsPage),
+    // Chat API
+    EndpointRoute::new(HttpMethod::Post, "/b/llm/api/chat", Route::Chat),
+    EndpointRoute::new(HttpMethod::Post, "/b/llm/api/chat/stream", Route::ChatStream),
+    // Provider CRUD (specific sub-resource first)
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/llm/api/providers/{id}/discover-models",
+        Route::DiscoverModels,
+    ),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/api/providers", Route::ListProviders),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/llm/api/providers",
+        Route::CreateProvider,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Patch,
+        "/b/llm/api/providers/{id}",
+        Route::UpdateProvider,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Delete,
+        "/b/llm/api/providers/{id}",
+        Route::DeleteProvider,
+    ),
+    // Models endpoints (specific sub-resources first)
+    EndpointRoute::new(
+        HttpMethod::Get,
+        "/b/llm/api/models/{backend_id}/{model_id}/status",
+        Route::ModelStatus,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/llm/api/models/{backend_id}/{model_id}/load",
+        Route::LoadModel,
+    ),
+    EndpointRoute::new(
+        HttpMethod::Post,
+        "/b/llm/api/models/{backend_id}/{model_id}/unload",
+        Route::UnloadModel,
+    ),
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/api/models", Route::ListModels),
+    // Config
+    EndpointRoute::new(HttpMethod::Get, "/b/llm/api/config", Route::GetConfig),
+    EndpointRoute::new(HttpMethod::Post, "/b/llm/api/config", Route::PostConfig),
+];
 
 /// LLM feature block. Owns the provider admin UI + chat thread persistence.
 ///
@@ -364,9 +449,19 @@ impl Block for LlmBlock {
             BlockEndpoint::post("/b/llm/api/config")
                 .summary("Update per-thread provider/model override")
                 .auth(AuthLevel::Authenticated),
+            // Chat UI is reached from the ADMIN sidebar (nav_groups::admin
+            // "Communication" group); the pre-refactor `handle()` gated every
+            // non-API page on `is_admin`, so the chat UI was admin-only in
+            // practice. Declaring it `Admin` (and the thread permalink too)
+            // makes that the single declared, centrally-enforced policy —
+            // preserving the exact prior auth outcome (the declared
+            // `Authenticated` was drift the old blanket gate overrode).
             BlockEndpoint::get("/b/llm/")
                 .summary("Chat UI")
-                .auth(AuthLevel::Authenticated),
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/llm/threads/{id}")
+                .summary("Chat UI (thread permalink)")
+                .auth(AuthLevel::Admin),
             BlockEndpoint::get("/b/llm/settings")
                 .summary("LLM settings page")
                 .auth(AuthLevel::Admin),
@@ -396,94 +491,47 @@ impl Block for LlmBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        let action = msg.action();
-        let path = msg.path();
-        let is_api = path.contains("/api/");
-        let user_id = msg.user_id().to_string();
-
+    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
         // Inter-block discovery endpoint: returns the configured default
         // `(provider, model)` target. Only accessible from another block (the
         // caller_id is set by `ctx.call_block`); never reachable from external
-        // HTTP because the shared pipeline strips the caller id.
-        if action == "retrieve" && path == "/b/llm/api/internal/default-target" {
+        // HTTP because the shared pipeline strips the caller id. It is NOT a
+        // declared HTTP endpoint, so it stays a handler-owned guard ahead of
+        // the matcher.
+        if msg.action() == "retrieve" && msg.path() == "/b/llm/api/internal/default-target" {
             if ctx.caller_id().is_none() {
                 return crate::blocks::helpers::err_not_found("not found");
             }
             return self.handle_default_target(ctx).await;
         }
 
-        // All endpoints require authentication
-        if user_id.is_empty() {
-            return crate::ui::forbidden_response(&msg);
-        }
-
-        // UI pages require admin role
-        if !is_api {
-            let is_admin = helpers::is_admin(&msg);
-            if !is_admin {
-                return crate::ui::forbidden_response(&msg);
-            }
-        }
-
-        match (action, path) {
-            // UI pages
-            ("retrieve", "/b/llm/") | ("retrieve", "/b/llm") => pages::page(ctx, &msg).await,
-            ("retrieve", _) if path.starts_with("/b/llm/threads/") => pages::page(ctx, &msg).await,
-            ("retrieve", "/b/llm/settings") => pages::settings_page(ctx, &msg).await,
-            ("retrieve", "/b/llm/providers") => ui::providers_page(self, ctx, &msg).await,
-            ("retrieve", "/b/llm/models") => ui::models_page(self, ctx, &msg).await,
-
-            // Chat API
-            ("create", "/b/llm/api/chat") => routes::handle_chat(self, ctx, &msg, input).await,
-            ("create", "/b/llm/api/chat/stream") => {
-                routes::handle_chat_stream(self, ctx, &msg, input).await
-            }
-
-            // Provider CRUD (admin-only — guard enforced inside handler).
-            // Sub-resource paths (`.../discover-models`) are matched first so
-            // the catch-all `update`/`delete` arms only fire for bare `:id`.
-            ("create", _)
-                if path.starts_with("/b/llm/api/providers/")
-                    && path.ends_with("/discover-models") =>
-            {
-                routes::discover_models(self, ctx, &msg).await
-            }
-            ("retrieve", "/b/llm/api/providers") => routes::list_providers(self, ctx, &msg).await,
-            ("create", "/b/llm/api/providers") => {
-                routes::create_provider(self, ctx, &msg, input).await
-            }
-            ("update", _) if path.starts_with("/b/llm/api/providers/") => {
-                routes::update_provider(self, ctx, &msg, input).await
-            }
-            ("delete", _) if path.starts_with("/b/llm/api/providers/") => {
-                routes::delete_provider(self, ctx, &msg).await
-            }
-
-            // Models endpoints — service-block-backed aggregation and
-            // per-(backend,model) ops. Sub-resource arms (`/status`,
-            // `/load`, `/unload`) must match BEFORE the generic
-            // `/b/llm/api/models` arm so suffix dispatch wins.
-            ("retrieve", _)
-                if path.starts_with("/b/llm/api/models/") && path.ends_with("/status") =>
-            {
-                routes::model_status(self, ctx, &msg).await
-            }
-            ("create", _) if path.starts_with("/b/llm/api/models/") && path.ends_with("/load") => {
-                routes::load_model(self, ctx, &msg).await
-            }
-            ("create", _)
-                if path.starts_with("/b/llm/api/models/") && path.ends_with("/unload") =>
-            {
-                routes::unload_model(self, ctx, &msg).await
-            }
-            ("retrieve", "/b/llm/api/models") => routes::list_models(self, ctx, &msg).await,
-
-            // Config
-            ("retrieve", "/b/llm/api/config") => self.handle_get_config(ctx).await,
-            ("create", "/b/llm/api/config") => self.handle_post_config(ctx, input).await,
-
-            _ => err_not_found("not found"),
+        // Auth is enforced centrally by `route_to_block` from the declared
+        // endpoint `AuthLevel` (chat/config/models-list → Authenticated; UI
+        // pages, provider CRUD, model load/unload → Admin). The block holds
+        // no `user_id`/`is_admin` preamble and the provider/model handlers no
+        // longer re-check `is_admin`. `{id}`/`{backend_id}`/`{model_id}` are
+        // bound into `req.param.*` for the handlers' `path_param` readers.
+        let Some(route) = endpoint_match::dispatch(&mut msg, ROUTES) else {
+            return err_not_found("not found");
+        };
+        match route {
+            Route::ChatPage | Route::ThreadPage => pages::page(ctx, &msg).await,
+            Route::SettingsPage => pages::settings_page(ctx, &msg).await,
+            Route::ProvidersPage => ui::providers_page(self, ctx, &msg).await,
+            Route::ModelsPage => ui::models_page(self, ctx, &msg).await,
+            Route::Chat => routes::handle_chat(self, ctx, &msg, input).await,
+            Route::ChatStream => routes::handle_chat_stream(self, ctx, &msg, input).await,
+            Route::DiscoverModels => routes::discover_models(self, ctx, &msg).await,
+            Route::ListProviders => routes::list_providers(self, ctx, &msg).await,
+            Route::CreateProvider => routes::create_provider(self, ctx, &msg, input).await,
+            Route::UpdateProvider => routes::update_provider(self, ctx, &msg, input).await,
+            Route::DeleteProvider => routes::delete_provider(self, ctx, &msg).await,
+            Route::ModelStatus => routes::model_status(self, ctx, &msg).await,
+            Route::LoadModel => routes::load_model(self, ctx, &msg).await,
+            Route::UnloadModel => routes::unload_model(self, ctx, &msg).await,
+            Route::ListModels => routes::list_models(self, ctx, &msg).await,
+            Route::GetConfig => self.handle_get_config(ctx).await,
+            Route::PostConfig => self.handle_post_config(ctx, input).await,
         }
     }
 
