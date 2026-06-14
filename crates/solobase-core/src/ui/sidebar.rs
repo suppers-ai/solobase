@@ -211,4 +211,20 @@ mod tests {
         let s = sidebar_grouped(&groups, None, "/b/storage/files/foo.png", "", "").into_string();
         assert!(s.contains("is-active"));
     }
+
+    #[test]
+    fn portal_security_renders_the_lock_icon_not_the_fallback() {
+        // Regression for the live mis-render: the Security nav entry used the
+        // icon name "lock", which `nav_icon` had no arm for, so it silently
+        // fell back to the package glyph. With typed `fn() -> Markup` icons the
+        // entry references `icons::lock` directly. The lock SVG's shackle path
+        // (`M7 11V7…`) is absent from the package SVG, so its presence proves
+        // the lock — not the package fallback — now renders.
+        let groups = crate::ui::nav_groups::portal();
+        let s = sidebar_grouped(&groups, None, "/b/userportal/security", "", "").into_string();
+        assert!(
+            s.contains("M7 11V7a5 5 0 0 1 10 0v4"),
+            "Security nav must render the lock icon (shackle path), got: {s}"
+        );
+    }
 }
