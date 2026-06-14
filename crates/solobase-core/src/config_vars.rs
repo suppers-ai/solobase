@@ -226,9 +226,8 @@ pub fn screaming_block(name: &str) -> String {
 /// the same `block` value (and therefore the same `D1ConfigSource` per-block
 /// cache key).
 pub fn key_block_prefix(key: &str) -> String {
-    let first = match key.find("__") {
-        Some(i) => i,
-        None => return String::new(),
+    let Some(first) = key.find("__") else {
+        return String::new();
     };
     // Look for a second `__` after the first separator.
     match key[first + 2..].find("__") {

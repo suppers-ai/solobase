@@ -324,10 +324,7 @@ struct CfBootHooks {
 
 #[wafer_block::wafer_async_trait]
 impl solobase_core::builder::BootHooks for CfBootHooks {
-    async fn seed_after_admin_init(
-        &self,
-        _wafer: &wafer_run::Wafer,
-    ) -> Result<(), String> {
+    async fn seed_after_admin_init(&self, _wafer: &wafer_run::Wafer) -> Result<(), String> {
         solobase_core::boot::seed_auto_generated(&self.db).await;
         Ok(())
     }

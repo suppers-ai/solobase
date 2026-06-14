@@ -23,10 +23,11 @@ use wafer_core::interfaces::database::service::DatabaseService;
 
 use crate::blocks::admin::VARIABLES_TABLE;
 
-/// Seed `INSERT OR IGNORE`-style: every variable row carries a synthesized
-/// `id`, the canonical `block` column ([`crate::config_vars::screaming_block`]),
-/// and `created_at` / `updated_at`. The `value`/`name`/`description`/`warning`/
-/// `sensitive` columns vary by call site.
+/// Build one admin-variables row: a synthesized `id`, the caller-supplied
+/// `block` column (derived via [`crate::config_vars::screaming_block`] or
+/// [`crate::config_vars::key_block_prefix`]; omitted when empty so the column
+/// stays NULL), and `created_at` / `updated_at`. The `value`/`name`/
+/// `description`/`warning`/`sensitive` columns vary by call site.
 fn build_variable_row(
     key: &str,
     value: &str,
@@ -139,8 +140,8 @@ async fn insert_if_absent(
 /// Ordering contract: this MUST run after the admin block's `lifecycle(Init)`
 /// (so migration 002's `block` column exists) and BEFORE
 /// [`wafer_run::Wafer::init_all_blocks`] on the targets that seed post-admin
-/// (Cloudflare, browser). Native seeds pre-wafer, so it ensures the table
-/// itself first (see [`crate::blocks::admin::migrations::apply_via_service`]).
+/// (Cloudflare, browser). Native seeds pre-wafer, so it ensures the tables
+/// itself first via [`crate::migration_helper::apply_ddl_via_service`].
 pub async fn seed_auto_generated(db: &Arc<dyn DatabaseService>) {
     let block_infos = crate::blocks::all_block_infos();
     for info in &block_infos {
@@ -246,7 +247,9 @@ async fn seed_jwt_secret(db: &Arc<dyn DatabaseService>) {
         &block,
     );
     match insert_if_absent(db, key, data).await {
-        Ok(true) => tracing::warn!(key = %key, "auto-generated JWT secret (not found in variables table)"),
+        Ok(true) => {
+            tracing::warn!(key = %key, "auto-generated JWT secret (not found in variables table)")
+        }
         Ok(false) => {}
         Err(e) => tracing::warn!(key = %key, error = %e, "failed to seed JWT secret"),
     }

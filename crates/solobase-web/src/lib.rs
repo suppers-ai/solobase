@@ -169,10 +169,7 @@ struct BrowserBootHooks {
 
 #[wafer_block::wafer_async_trait]
 impl builder::BootHooks for BrowserBootHooks {
-    async fn seed_after_admin_init(
-        &self,
-        _wafer: &wafer_run::Wafer,
-    ) -> Result<(), String> {
+    async fn seed_after_admin_init(&self, _wafer: &wafer_run::Wafer) -> Result<(), String> {
         let vars = config::seed_and_load_variables(&self.db).await?;
         web_sys::console::log_1(
             &format!("solobase: {} variables loaded from database", vars.len()).into(),

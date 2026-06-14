@@ -337,7 +337,10 @@ pub async fn load_and_seed_block_settings(
         skip_count: true,
         ..Default::default()
     };
-    let record_list = match db.list(crate::admin_schema::BLOCK_SETTINGS_TABLE, &opts).await {
+    let record_list = match db
+        .list(crate::admin_schema::BLOCK_SETTINGS_TABLE, &opts)
+        .await
+    {
         Ok(rl) => rl,
         Err(e) => {
             tracing::warn!(error = %e, "load_and_seed_block_settings: list failed");
@@ -384,7 +387,10 @@ pub async fn load_and_seed_block_settings(
 
     // Re-read only when something changed (rare). Costs one extra read.
     let final_records = if any_writes {
-        match db.list(crate::admin_schema::BLOCK_SETTINGS_TABLE, &opts).await {
+        match db
+            .list(crate::admin_schema::BLOCK_SETTINGS_TABLE, &opts)
+            .await
+        {
             Ok(rl) => rl.records,
             Err(e) => {
                 tracing::warn!(error = %e, "load_and_seed_block_settings: post-seed re-read failed");
@@ -759,10 +765,7 @@ mod load_and_seed_tests {
         svc
     }
 
-    async fn read_row(
-        db: &Arc<dyn DatabaseService>,
-        block_name: &str,
-    ) -> Option<(bool, String)> {
+    async fn read_row(db: &Arc<dyn DatabaseService>, block_name: &str) -> Option<(bool, String)> {
         let rows = db
             .query_raw(
                 &format!(
@@ -800,7 +803,11 @@ mod load_and_seed_tests {
             let (_enabled, hash) = read_row(&db, name)
                 .await
                 .unwrap_or_else(|| panic!("{name} row should have been inserted"));
-            assert_eq!(hash, seed_hash_for(*default), "{name} hash should be seeded");
+            assert_eq!(
+                hash,
+                seed_hash_for(*default),
+                "{name} hash should be seeded"
+            );
         }
     }
 
