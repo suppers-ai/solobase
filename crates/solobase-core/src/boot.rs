@@ -63,6 +63,31 @@ fn build_variable_row(
     data
 }
 
+/// `INSERT OR IGNORE` semantics over [`DatabaseService`]: insert a variable
+/// row for `key` only when no row with that `key` already exists.
+///
+/// Public so platform code can seed its own non-declared defaults (e.g. the
+/// browser's bootstrap-admin credentials and WebLLM script var) through the
+/// same `DatabaseService` path — no bridge raw SQL, no hardcoded table
+/// literal. The `block` column is derived from the key via
+/// [`crate::config_vars::key_block_prefix`], matching migration 002.
+///
+/// Returns `Ok(true)` when a row was inserted, `Ok(false)` when one already
+/// existed. A pre-existing row always wins — seeding never clobbers a stored
+/// value.
+pub async fn seed_variable_if_absent(
+    db: &Arc<dyn DatabaseService>,
+    key: &str,
+    value: &str,
+    name: &str,
+    description: &str,
+    sensitive: bool,
+) -> Result<bool, String> {
+    let block = crate::config_vars::key_block_prefix(key);
+    let data = build_variable_row(key, value, name, description, "", sensitive, &block);
+    insert_if_absent(db, key, data).await
+}
+
 /// `INSERT OR IGNORE` semantics over [`DatabaseService`]: insert `data` into
 /// `VARIABLES_TABLE` only when no row with `data["key"]` already exists.
 ///

@@ -117,70 +117,84 @@ pub async fn initialize() -> Result<(), JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     wafer.set_asset_loader(&solobase_browser::make_sw_asset_loader());
 
-    wafer
-        .seal()
-        .await
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
     // ── Phase 2 ─────────────────────────────────────────────────────────────
-    // Run admin's `lifecycle(Init)` so its migrations create the canonical
-    // `suppers_ai__admin__variables` + `suppers_ai__admin__block_settings`
-    // tables with the strict schema declared in
-    // `crates/solobase-core/src/blocks/admin/migrations/001_admin_schema.sqlite.sql`.
-    // Mirrors the native CLI's `start_with_priority(&[admin])` and the
-    // Cloudflare runner's `init_block(admin)` step.
-    if let Err(e) = wafer
-        .init_block(solobase_core::blocks::admin::ADMIN_BLOCK_ID)
+    // Run the shared boot funnel: seal → init_block(admin) →
+    // seed_after_admin_init → init_all_blocks → post_start.
+    //
+    // admin's `lifecycle(Init)` runs FIRST so its migrations create the
+    // canonical `suppers_ai__admin__variables` + `block_settings` tables
+    // before the seed hook reads them — admin's migration is the single source
+    // of schema truth (the #210/#211 schema-drift lesson). The hook then seeds
+    // + publishes into the services the wafer already holds (see
+    // `BrowserBootHooks`), all over `BrowserDatabaseService` rather than the
+    // old bridge raw-SQL strings.
+    let hooks = BrowserBootHooks {
+        db: solobase_browser::make_database_service(),
+        config_svc: config_svc.clone(),
+        block_settings_handle: block_settings_handle.clone(),
+        crypto: crypto_concrete.clone(),
+    };
+    builder::boot(&mut wafer, &storage_block, &hooks)
         .await
-    {
-        web_sys::console::error_1(&format!("solobase: admin block Init failed: {e}").into());
-        return Err(JsValue::from_str(&format!("admin init failed: {e}")));
-    }
-
-    // ── Phase 3 ─────────────────────────────────────────────────────────────
-    // Now the variables + block_settings tables exist with the canonical
-    // schema. Seed/load against them, then publish the results into the
-    // services the wafer already holds:
-    //  - `config_svc` is shared via Arc, mutated in place via `.set()`
-    //  - `block_settings_handle` is the same `Arc<RwLock<…>>` the router's
-    //    `FeatureConfig` reads from, so writes here are visible to the
-    //    subsequent `init_all_blocks()` and to every later request.
-    //  - `crypto_svc` exposes `set_jwt_secret` so the rotated secret takes
-    //    effect for any block that hasn't initialised yet.
-    let vars = config::seed_and_load_variables()?;
-    web_sys::console::log_1(
-        &format!("solobase: {} variables loaded from database", vars.len()).into(),
-    );
-    let features = config::load_block_settings()?;
-
-    for (key, value) in &vars {
-        config_svc.set(key, value);
-    }
-    config_svc.set(
-        solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY,
-        &features.to_config_json(),
-    );
-    *block_settings_handle
-        .write()
-        .expect("BlockSettings RwLock poisoned") = features;
-    if let Some(secret) = vars.get(solobase_core::blocks::auth::JWT_SECRET_KEY) {
-        crypto_concrete.set_jwt_secret(secret.clone());
-    }
-
-    // ── Phase 4 ─────────────────────────────────────────────────────────────
-    // Eager init the remaining blocks. With config_svc + block_settings now
-    // populated, auth's `bootstrap::run` reads BOOTSTRAP_ADMIN_{EMAIL,PASSWORD}
-    // via `config_client::get_default` and creates the admin user on a fresh
-    // OPFS. Slot caching makes admin's second init a no-op.
-    wafer.init_all_blocks().await;
-
-    builder::post_start(&wafer, &storage_block);
+        .map_err(|e| JsValue::from_str(&format!("boot: {e}")))?;
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 
     solobase_browser::store_wafer(wafer).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     Ok(())
+}
+
+/// [`BootHooks`](solobase_core::builder::BootHooks) impl for the browser
+/// target. After `init_block(admin)` has created the variables /
+/// block_settings tables, this seeds them (auto-gen + JWT + browser-only
+/// defaults) and the #222 block-settings hash-gate, then publishes the loaded
+/// state into the services the wafer already holds:
+///  - `config_svc` — the same `Arc<dyn ConfigService>` (mutated via `.set()`).
+///  - `block_settings_handle` — the same `Arc<RwLock<BlockSettings>>` the
+///    router's `FeatureConfig` reads, so the write is visible to the
+///    subsequent `init_all_blocks()` and every later request.
+///  - `crypto` — the concrete `BrowserCryptoService`, rotated to the real JWT
+///    secret so any not-yet-initialised block signs/verifies with it.
+///
+/// `db` is a fresh `BrowserDatabaseService` handle; the service is a stateless
+/// unit struct over global OPFS, so it points at the same database the wafer
+/// uses.
+struct BrowserBootHooks {
+    db: Arc<dyn wafer_core::interfaces::database::service::DatabaseService>,
+    config_svc: Arc<dyn ConfigService>,
+    block_settings_handle: Arc<std::sync::RwLock<solobase_core::features::BlockSettings>>,
+    crypto: Arc<solobase_browser::crypto::BrowserCryptoService>,
+}
+
+#[wafer_block::wafer_async_trait]
+impl builder::BootHooks for BrowserBootHooks {
+    async fn seed_after_admin_init(
+        &self,
+        _wafer: &wafer_run::Wafer,
+    ) -> Result<(), String> {
+        let vars = config::seed_and_load_variables(&self.db).await?;
+        web_sys::console::log_1(
+            &format!("solobase: {} variables loaded from database", vars.len()).into(),
+        );
+        let features = config::load_block_settings(&self.db).await;
+
+        for (key, value) in &vars {
+            self.config_svc.set(key, value);
+        }
+        self.config_svc.set(
+            solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY,
+            &features.to_config_json(),
+        );
+        *self
+            .block_settings_handle
+            .write()
+            .expect("BlockSettings RwLock poisoned") = features;
+        if let Some(secret) = vars.get(solobase_core::blocks::auth::JWT_SECRET_KEY) {
+            self.crypto.set_jwt_secret(secret.clone());
+        }
+        Ok(())
+    }
 }
 
 #[wasm_bindgen]
