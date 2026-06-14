@@ -337,7 +337,6 @@ impl SolobaseBuilder {
             .add_alias("storage", "wafer-run/storage")
             .map_err(|e| RuntimeError::Config(format!("add_alias storage: {e}")))?;
 
-        let config_ref = config.clone();
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
         wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto)?;
 
@@ -508,32 +507,6 @@ impl SolobaseBuilder {
         // 7. Extra platform-specific blocks
         for (name, block) in self.extra_blocks {
             wafer.register_block(&name, block)?;
-        }
-
-        // 9. Inject feature block configs from the ConfigService.
-        //
-        // The WAFER runtime validates required config vars at start() time by
-        // checking `block_configs` (serde_json objects), not the ConfigService
-        // directly. Feature blocks don't have explicit block_configs — they read
-        // from the config service at lifecycle(Init) time. We bridge this gap by
-        // reading each declared config var from the ConfigService and injecting
-        // the non-empty values into the wafer block_configs so that the validator
-        // sees them as provided.
-        {
-            let block_infos = crate::blocks::all_block_infos();
-            for info in &block_infos {
-                let mut obj = serde_json::Map::new();
-                for cv in &info.config_keys {
-                    if let Some(val) = config_ref.get(&cv.key) {
-                        if !val.is_empty() {
-                            obj.insert(cv.key.clone(), serde_json::Value::String(val));
-                        }
-                    }
-                }
-                if !obj.is_empty() {
-                    wafer.add_block_config(&info.name, serde_json::Value::Object(obj));
-                }
-            }
         }
 
         // 10. Build and register the solobase router.
