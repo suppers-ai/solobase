@@ -190,6 +190,49 @@ pub async fn apply_if_blessed(
     Ok(())
 }
 
+/// Apply migration DDL directly against a [`DatabaseService`], outside the
+/// runtime/`Context` gate.
+///
+/// This is the **pre-wafer** counterpart of [`apply_if_blessed`]: the native
+/// CLI must create the admin variables / block_settings tables *before* the
+/// wafer exists (so it can seed the JWT secret and construct its immutable
+/// crypto service), and it has no `Context` yet. It runs the migration-file SQL
+/// through `db.exec_raw` — the migration-file-runner exception to the no-raw-SQL
+/// rule (CLAUDE.md) — reusing the exact embedded `.sql` constants admin's
+/// gated `Init` runs later, so there's a single schema source.
+///
+/// Idempotent like the gated path: `CREATE TABLE IF NOT EXISTS` no-ops on
+/// re-run, and a duplicate `ALTER TABLE ADD COLUMN` (no `IF NOT EXISTS` for
+/// columns on SQLite) is swallowed as a benign re-run. Every other DDL error
+/// propagates. Admin's later gated `Init` re-asserts the same SQL (a no-op once
+/// the rows are stamped), so the migration-state bookkeeping is unaffected.
+pub async fn apply_ddl_via_service(
+    db: &std::sync::Arc<dyn wafer_core::interfaces::database::service::DatabaseService>,
+    sql_files: &[&str],
+) -> Result<(), String> {
+    for sql in sql_files {
+        for stmt in split_statements(sql) {
+            if !has_executable_content(stmt) {
+                continue;
+            }
+            let trimmed = stmt.trim();
+            if let Err(e) = db.exec_raw(trimmed, &[]).await {
+                let msg = e.to_string();
+                if is_alter_add_column(trimmed) && is_duplicate_column_error(&msg) {
+                    tracing::debug!(
+                        stmt = %trimmed,
+                        err = %msg,
+                        "pre-wafer ddl: duplicate column, treating as idempotent no-op",
+                    );
+                    continue;
+                }
+                return Err(format!("pre-wafer ddl failed on `{trimmed}`: {e}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Read the cached `BlockSettings` from the wafer config and look up the
 /// migration state for `block_name`. Returns an empty `MigrationState` when
 /// no row exists yet.

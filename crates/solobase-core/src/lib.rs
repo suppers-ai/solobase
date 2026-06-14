@@ -7,6 +7,7 @@
 
 pub mod admin_schema;
 pub mod blocks;
+pub mod boot;
 pub mod builder;
 pub mod cache;
 pub mod cache_key;

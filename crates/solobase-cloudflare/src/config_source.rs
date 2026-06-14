@@ -58,23 +58,13 @@ impl D1ConfigSource {
     /// Map a kebab-case block name like `"suppers-ai/auth"` to the
     /// SCREAMING_SNAKE prefix stored in the `block` column.
     ///
-    /// Conversion rules:
-    /// - `-` → `_` (within each segment)
-    /// - `/` → `__` (segment separator)
-    /// - uppercase
-    ///
-    /// Examples:
-    /// - `"suppers-ai/auth"` → `"SUPPERS_AI__AUTH"`
-    /// - `"wafer-run/sqlite"` → `"WAFER_RUN__SQLITE"`
+    /// Thin re-export of [`solobase_core::config_vars::screaming_block`], the
+    /// single source of truth for the `variables.block` column shape. Kept as
+    /// an inherent method so existing call sites read naturally; the body just
+    /// delegates so the CF copy can't drift from the seeder / migration-002
+    /// backfill.
     pub(crate) fn screaming_block(name: &str) -> String {
-        let (org, block) = name.split_once('/').unwrap_or((name, ""));
-        let org_upper = org.replace('-', "_").to_uppercase();
-        if block.is_empty() {
-            org_upper
-        } else {
-            let block_upper = block.replace('-', "_").to_uppercase();
-            format!("{org_upper}__{block_upper}")
-        }
+        solobase_core::config_vars::screaming_block(name)
     }
 
     /// Fetch all rows in the variables table whose `block` column equals

@@ -1,8 +1,10 @@
 //! Server-boot body lifted from the previous `main.rs`.
 //!
 //! `run()` is invoked by the sealed × native flow (and by the bare-`solobase`
-//! shortcut path in `main.rs`). It owns the SQLite seeding, WAFER builder,
-//! HTTP listener registration, and the `serve_until_shutdown` loop.
+//! shortcut path in `main.rs`). It constructs the database service, seeds the
+//! admin variables / block_settings tables pre-wafer through the shared
+//! `solobase_core` seeders, builds the WAFER runtime, registers the HTTP
+//! listener, and runs the `serve_until_shutdown` loop.
 
 use std::{collections::HashMap, path::Path, sync::Arc};
 
@@ -14,7 +16,7 @@ use solobase_native::{
 };
 use wafer_core::interfaces::config::service::ConfigService;
 
-use crate::cli::server_config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
+use crate::cli::server_config::{filter_to_declared_keys, load_wrap_grants};
 
 /// Boot the native server end-to-end. The body mirrors the previous
 /// `main()` exactly; the signature is `pub async fn run()` so the new
@@ -51,8 +53,38 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
     // 4. Collect app config vars from env (non-SOLOBASE_* prefixed, filtered to declared keys)
     let env_vars = filter_to_declared_keys(collect_app_env_vars());
 
-    // 5. Open SQLite directly, seed variables, read config
-    let vars = seed_and_load_variables(&infra.db_path, &env_vars)?;
+    // 5. Construct the platform database service up front. Native seeds the
+    //    variables / block_settings tables BEFORE the wafer exists — it needs
+    //    the JWT secret to construct its immutable crypto service, and
+    //    `start_with_priority` (which binds the HTTP socket in the atomic
+    //    Start pass) leaves no public hook to seed mid-lifecycle the way the
+    //    stateless targets do via `solobase_core::builder::boot`. The same
+    //    `Arc` is handed to the builder below, so seeding and the runtime
+    //    share one connection/pool.
+    let database = solobase_native::make_database_service(
+        &infra.db_type,
+        &infra.db_path,
+        infra.db_url.as_deref(),
+    )
+    .await
+    .context("construct database service")?;
+
+    // Create the admin variables / block_settings tables pre-wafer by running
+    // admin's migration-file SQL through the service (migration-file-runner
+    // exception). Reuses the embedded `.sql` constants admin's gated `Init`
+    // re-asserts later — single schema source, no hand-rolled CREATE TABLE.
+    solobase_core::migration_helper::apply_ddl_via_service(
+        &database,
+        solobase_core::blocks::admin::migrations::ddl_files(&infra.db_type),
+    )
+    .await
+    .map_err(|e| anyhow!("create admin tables pre-wafer: {e}"))?;
+
+    // Seed env/auto-gen/JWT variables + run the #222 block-settings hash-gate,
+    // all through the shared `solobase_core` seeders over the service.
+    let vars = solobase_core::boot::seed_and_load_variables(&database, &env_vars)
+        .await
+        .map_err(|e| anyhow!("seed and load variables: {e}"))?;
     tracing::info!(vars = vars.len(), "variables loaded from database");
 
     // 6. Extract JWT secret and feature config from variables. An empty
@@ -74,7 +106,7 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
             solobase_core::blocks::auth::JWT_SECRET_KEY
         ));
     }
-    let features = load_block_settings(&infra.db_path);
+    let features = solobase_core::features::load_and_seed_block_settings(&database).await;
 
     // 7. Build WAFER runtime via SolobaseBuilder
     let config_service = wafer_core::service_blocks::config::EnvConfigService::new();
@@ -111,18 +143,11 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         );
     }
 
-    // Dispatch on the infra config: `SOLOBASE_DB_TYPE` (sqlite|postgres) and
-    // `SOLOBASE_STORAGE_TYPE` (local|s3) select the platform service. An
-    // unsupported value, or a type whose cargo feature is off, is a hard boot
-    // error — the boot path no longer logs `db = postgres` / `storage = s3`
-    // while silently running SQLite / local disk.
-    let database = solobase_native::make_database_service(
-        &infra.db_type,
-        &infra.db_path,
-        infra.db_url.as_deref(),
-    )
-    .await
-    .context("construct database service")?;
+    // Dispatch on the infra config: `SOLOBASE_STORAGE_TYPE` (local|s3) selects
+    // the platform storage service. An unsupported value, or a type whose
+    // cargo feature is off, is a hard boot error — the boot path no longer
+    // logs `storage = s3` while silently running local disk. (The database
+    // service was already constructed above and reused here.)
     let storage = solobase_native::make_storage_service(&infra.storage_type, &infra.storage_root)
         .await
         .context("construct storage service")?;
@@ -194,172 +219,6 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         .await
         .context("await shutdown signal")?;
     tracing::info!("solobase shutdown complete");
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// SQLite variable seeding and loading
-// ---------------------------------------------------------------------------
-
-/// Canonical variables table name, sourced from the admin block so the
-/// boot loader and the `/b/admin/settings/variables` UI always read and
-/// write the same place. Earlier versions used a bare `variables` table
-/// here, which drifted from the admin block's prefixed `CollectionSchema`
-/// and silently divided the config into two stores. The constant lives
-/// in `solobase-core::blocks::admin` so there's no second source of truth.
-const VARIABLES_TABLE: &str = solobase_core::blocks::admin::VARIABLES_TABLE;
-
-/// Ensure the variables table exists, seed from env vars, and return all variables.
-fn seed_and_load_variables(
-    db_path: &str,
-    env_vars: &[(String, String)],
-) -> anyhow::Result<HashMap<String, String>> {
-    // Ensure parent directory exists
-    if let Some(parent) = std::path::Path::new(db_path).parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create database directory {}", parent.display()))?;
-    }
-
-    let conn =
-        rusqlite::Connection::open(db_path).with_context(|| format!("open SQLite at {db_path}"))?;
-
-    // Create variables table if it doesn't exist.
-    //
-    // Boot runs before WAFER, so the admin block's lifecycle hasn't created
-    // the table yet — we have to pre-create it via raw SQL. Schema mirrors
-    // the admin block's `CollectionSchema`: the user-visible columns are
-    // declared there, and `ensure_table` adds the `id`/`created_at`/
-    // `updated_at` columns the WAFER DB client expects. Pre-creating here
-    // with the union of both is harmless (the columns line up; later
-    // `ensure_table` calls see they exist and skip).
-    let create_sql = format!(
-        "CREATE TABLE IF NOT EXISTS \"{VARIABLES_TABLE}\" (
-            id TEXT PRIMARY KEY,
-            key TEXT NOT NULL UNIQUE,
-            name TEXT DEFAULT '',
-            description TEXT DEFAULT '',
-            value TEXT DEFAULT '',
-            warning TEXT DEFAULT '',
-            sensitive INTEGER DEFAULT 0,
-            updated_by TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS \"idx_{VARIABLES_TABLE}_key\" \
-         ON \"{VARIABLES_TABLE}\" (key);"
-    );
-    conn.execute_batch(&create_sql)
-        .context("create variables table")?;
-
-    // Seed from env vars (INSERT OR IGNORE — existing DB values take priority)
-    {
-        let insert_sql = format!(
-            "INSERT OR IGNORE INTO \"{VARIABLES_TABLE}\" \
-             (id, key, value, sensitive, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))"
-        );
-        let mut stmt = conn
-            .prepare(&insert_sql)
-            .context("prepare seed-variables statement")?;
-
-        for (key, value) in env_vars {
-            let id = format!("var_{}", uuid::Uuid::new_v4());
-            let sensitive = i32::from(key.ends_with("_SECRET") || key.ends_with("_KEY"));
-            if let Err(e) = stmt.execute(rusqlite::params![id, key, value, sensitive]) {
-                tracing::warn!(key = %key, error = %e, "failed to seed variable");
-            }
-        }
-    }
-
-    // Auto-generate secrets for config vars marked with auto_generate
-    seed_auto_generated(&conn)?;
-
-    // Load all variables
-    let mut vars = HashMap::new();
-    let select_sql = format!("SELECT key, value FROM \"{VARIABLES_TABLE}\"");
-    let mut stmt = conn
-        .prepare(&select_sql)
-        .context("prepare SELECT variables statement")?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .context("query variables")?;
-
-    for row in rows {
-        let (key, value) = row.context("read variables row")?;
-        if key.is_empty() {
-            // Empty key means a corrupt row — surface as warning rather than
-            // silently dropping (DB corruption is a real failure case).
-            tracing::warn!("variables table contains a row with an empty key");
-            continue;
-        }
-        vars.insert(key, value);
-    }
-
-    Ok(vars)
-}
-
-/// Auto-generate values for config vars marked with `auto_generate: true`.
-///
-/// Reads all block config var declarations, finds those needing auto-generation,
-/// and generates random values for any that don't already exist in the variables table.
-fn seed_auto_generated(conn: &rusqlite::Connection) -> anyhow::Result<()> {
-    let block_infos = solobase_core::blocks::all_block_infos();
-    let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
-
-    let insert_sql = format!(
-        "INSERT OR IGNORE INTO \"{VARIABLES_TABLE}\" \
-         (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), datetime('now'))"
-    );
-    let mut stmt = conn
-        .prepare(&insert_sql)
-        .context("prepare auto-generate statement")?;
-
-    let mut seed =
-        |key: &str, name: &str, description: &str, warning: &str| -> anyhow::Result<()> {
-            let mut bytes = [0u8; 32];
-            getrandom::getrandom(&mut bytes).context("generate random secret")?;
-            let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            let id = format!("var_{}", uuid::Uuid::new_v4());
-            let affected = stmt
-                .execute(rusqlite::params![
-                    id,
-                    key,
-                    name,
-                    description,
-                    secret,
-                    warning,
-                    1_i32
-                ])
-                .unwrap_or(0);
-            if affected > 0 {
-                tracing::warn!(key = %key, "auto-generated secret (not found in variables table)");
-            }
-            Ok(())
-        };
-
-    for var in &all_vars {
-        if !var.auto_generate {
-            continue;
-        }
-        seed(&var.key, &var.name, &var.description, &var.warning)?;
-    }
-
-    // JWT_SECRET is not declared as an `auto_generate: true` ConfigVar by
-    // the auth block (the block's mod.rs:124-130 comment notes this as a
-    // wafer-run config-keys gap). Seed it here so the strict empty-check
-    // in `run()` doesn't trip on a fresh DB. Hardcoded because the const
-    // is `pub` in solobase-core::blocks::auth, but the auto-gen pipeline
-    // is owned by the CLI crate and shouldn't grow a cross-crate scan.
-    seed(
-        solobase_core::blocks::auth::JWT_SECRET_KEY,
-        "JWT signing secret",
-        "256-bit secret used to sign access + refresh JWTs.",
-        "Rotating this secret invalidates every issued session.",
-    )?;
 
     Ok(())
 }
