@@ -2,9 +2,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 use wafer_sql_utils::{introspect, Backend};
 
-use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
-};
+use crate::http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
 
 /// Lightweight per-table summary: name + row count. Shared by the JSON
 /// `GET /admin/database/tables` handler and the SSR database page's

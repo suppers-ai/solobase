@@ -6,7 +6,8 @@ use maud::{html, Markup};
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{auth::repo::orgs, helpers::redirect},
+    blocks::auth::repo::orgs,
+    http::redirect,
     ui::{self, SiteConfig},
 };
 

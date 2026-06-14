@@ -19,7 +19,7 @@ pub(crate) use variables::TABLE as VARIABLES_TABLE;
 use wafer_run::{BlockEndpoint, BlockInfo, ConfigVar, InputType, InstanceMode};
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::err_not_found;
+use crate::http::err_not_found;
 
 /// The products block's own declared config vars. Single source of truth for
 /// both `BlockInfo::config_keys` and the admin settings page (which renders

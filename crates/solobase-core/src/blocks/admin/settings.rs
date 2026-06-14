@@ -6,8 +6,9 @@ use wafer_run::{
 };
 
 use super::ops::{self, MASKED_VALUE};
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
+use crate::{
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
+    util::{json_map, RecordExt},
 };
 
 /// Helpers for reading and writing the per-block `enabled` flag in
@@ -79,7 +80,7 @@ pub mod block_settings {
             // seed never overwrites it.
             "seed_defaults_hash": crate::features::USER_EDITED_SENTINEL,
         }));
-        super::helpers::stamp_updated(&mut data);
+        crate::util::stamp_updated(&mut data);
 
         db::upsert(
             ctx,
@@ -455,7 +456,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                         "value": seed_value,
                         "warning": var.warning,
                         "sensitive": sensitive,
-                        "created_at": helpers::now_rfc3339()
+                        "created_at": crate::util::now_rfc3339()
                     }));
                     let _ = db::create(ctx, VARIABLES_TABLE, data).await;
                 }
@@ -740,7 +741,7 @@ mod tests {
             "name": "Stripe secret",
             "sensitive": 0,
         }));
-        helpers::stamp_created(&mut data);
+        crate::util::stamp_created(&mut data);
         db::create(&ctx, VARIABLES_TABLE, data)
             .await
             .expect("seed secret var");

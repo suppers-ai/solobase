@@ -4,9 +4,9 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
-use crate::blocks::helpers::{
-    self, err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, json_map,
-    ok_json, RecordExt,
+use crate::{
+    http::{err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, ok_json},
+    util::{json_map, RecordExt},
 };
 
 /// Role definitions table (one row per named role).
@@ -120,7 +120,7 @@ async fn handle_update_role(ctx: &dyn Context, path: &str, input: InputStream) -
                     data.insert(key.to_string(), val.clone());
                 }
             }
-            helpers::stamp_updated(&mut data);
+            crate::util::stamp_updated(&mut data);
             return match db::update(ctx, ROLES_TABLE, id, data).await {
                 Ok(record) => ok_json(&record),
                 Err(e) => err_internal("Database error", e),
@@ -134,7 +134,7 @@ async fn handle_update_role(ctx: &dyn Context, path: &str, input: InputStream) -
             data.insert(key.to_string(), val.clone());
         }
     }
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
     match db::update(ctx, ROLES_TABLE, id, data).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
@@ -184,7 +184,7 @@ async fn handle_create_permission(ctx: &dyn Context, input: InputStream) -> Outp
         "resource": body.resource,
         "actions": body.actions
     }));
-    helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
     match db::create(ctx, PERMISSIONS_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal("Database error", e),
@@ -269,7 +269,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
     let data = json_map(serde_json::json!({
         "user_id": body.user_id,
         "role": body.role,
-        "assigned_at": helpers::now_rfc3339(),
+        "assigned_at": crate::util::now_rfc3339(),
         "assigned_by": msg.user_id()
     }));
     match db::create(ctx, USER_ROLES_TABLE, data).await {
@@ -314,7 +314,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
         return;
     }
 
-    let now = helpers::now_rfc3339();
+    let now = crate::util::now_rfc3339();
     for (name, desc) in &[
         ("admin", "Full access to all resources"),
         ("user", "Standard user access"),

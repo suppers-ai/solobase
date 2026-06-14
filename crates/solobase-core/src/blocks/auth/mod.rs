@@ -32,7 +32,7 @@ use std::{collections::HashMap, time::Duration};
 use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::{config as config_client, crypto, database as db};
 
-use super::helpers::{hex_encode, json_map};
+use crate::util::{hex_encode, json_map};
 
 /// Refresh-token lifetime (7 days). Mirrored in [`helpers::generate_tokens`]
 /// when signing the JWT and in [`helpers::store_refresh_token`] when writing
@@ -88,7 +88,7 @@ pub(crate) mod helpers {
         // both: the inline role is the bootstrap path, the table is the
         // legacy path. Dedup since both can produce "admin" for the
         // bootstrapped admin.
-        use crate::blocks::helpers::RecordExt;
+        use crate::util::RecordExt;
         let mut roles: Vec<String> = Vec::new();
         if let Ok(rec) = db::get(ctx, USERS_TABLE, user_id).await {
             let inline = rec.str_field("role");
@@ -154,7 +154,7 @@ pub(crate) mod helpers {
         let role_data = json_map(serde_json::json!({
             "user_id": user_id,
             "role": "admin",
-            "assigned_at": crate::blocks::helpers::now_rfc3339(),
+            "assigned_at": crate::util::now_rfc3339(),
         }));
         match db::create(ctx, USER_ROLES_TABLE, role_data).await {
             Ok(_) => {
@@ -514,7 +514,7 @@ pub async fn authenticate_api_key(
 ) {
     use wafer_run::*;
 
-    use crate::blocks::helpers::sha256_hex;
+    use crate::util::sha256_hex;
 
     let key_hash = sha256_hex(api_key.as_bytes());
 
@@ -535,7 +535,7 @@ pub async fn authenticate_api_key(
     if key_row.is_revoked() {
         return;
     }
-    if key_row.is_expired(&crate::blocks::helpers::now_rfc3339()) {
+    if key_row.is_expired(&crate::util::now_rfc3339()) {
         return;
     }
 

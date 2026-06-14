@@ -28,7 +28,7 @@ use wafer_run::{AuthLevel, BlockEndpoint, BlockInfo, ConfigVar, InputType, Insta
 use super::rate_limit::{
     check_route_limits, LimitKey, RateLimit, RateLimitOutcome, RouteLimit, UserRateLimiter,
 };
-use crate::{blocks::helpers::err_not_found, endpoint_match};
+use crate::{endpoint_match, http::err_not_found};
 
 pub const AUTH_UI_BLOCK_ID: &str = "suppers-ai/auth-ui";
 

@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn admin_msg_marks_admin_role() {
-        use crate::blocks::helpers::is_admin;
+        use crate::util::is_admin;
         let m = admin_msg("retrieve", "/b/admin/users");
         assert_eq!(m.user_id(), "admin_1");
         assert!(is_admin(&m));
@@ -478,7 +478,7 @@ mod tests {
 
     #[tokio::test]
     async fn output_status_reads_status_meta() {
-        use crate::blocks::helpers::ResponseBuilder;
+        use crate::http::ResponseBuilder;
         let out = ResponseBuilder::new()
             .status(302)
             .body(Vec::new(), "text/plain");
@@ -487,14 +487,14 @@ mod tests {
 
     #[tokio::test]
     async fn output_status_defaults_to_200_when_unset() {
-        use crate::blocks::helpers::ResponseBuilder;
+        use crate::http::ResponseBuilder;
         let out = ResponseBuilder::new().body(Vec::new(), "text/plain");
         assert_eq!(output_status(out).await, 200);
     }
 
     #[tokio::test]
     async fn output_header_reads_named_header() {
-        use crate::blocks::helpers::ResponseBuilder;
+        use crate::http::ResponseBuilder;
         let out = ResponseBuilder::new()
             .status(302)
             .set_header("Location", "/dashboard")
@@ -507,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn output_html_reads_body_as_utf8() {
-        use crate::blocks::helpers::ResponseBuilder;
+        use crate::http::ResponseBuilder;
         let out = ResponseBuilder::new()
             .status(200)
             .body(b"<h1>hi</h1>".to_vec(), "text/html");
@@ -516,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn output_json_parses_body() {
-        use crate::blocks::helpers::ResponseBuilder;
+        use crate::http::ResponseBuilder;
         let out = ResponseBuilder::new()
             .status(200)
             .body(br#"{"ok":true}"#.to_vec(), "application/json");
@@ -591,7 +591,7 @@ mod tests {
                 msg: Message,
                 _input: InputStream,
             ) -> OutputStream {
-                crate::blocks::helpers::ResponseBuilder::new()
+                crate::http::ResponseBuilder::new()
                     .status(200)
                     .body(msg.path().as_bytes().to_vec(), "text/plain")
             }

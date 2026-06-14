@@ -30,7 +30,7 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::{decode_hex, map_str, now_iso, RepoError};
-use crate::blocks::helpers::hex_encode;
+use crate::util::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__sessions";
 

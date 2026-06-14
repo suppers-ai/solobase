@@ -13,7 +13,6 @@ pub mod feature_block;
 pub mod fastembed;
 #[cfg(feature = "block-files")]
 pub mod files;
-pub mod helpers;
 #[cfg(feature = "block-legalpages")]
 pub mod legalpages;
 // The LLM feature block compiles on every target that enables `block-llm`,

@@ -5,7 +5,7 @@
 
 use maud::{html, Markup, PreEscaped};
 
-use super::super::helpers::{url_path_encode, RecordExt};
+use crate::util::{url_path_encode, RecordExt};
 
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.

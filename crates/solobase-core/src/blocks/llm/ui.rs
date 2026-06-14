@@ -24,7 +24,7 @@ use super::{
     LlmBlock,
 };
 use crate::{
-    blocks::helpers::err_internal,
+    http::err_internal,
     ui::{self, components},
 };
 

@@ -6,12 +6,11 @@ use wafer_core::clients::crypto;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::{brand_panel, repo::users},
-        helpers::{err_bad_request, err_internal, hex_encode, ok_json, sha256_hex},
-    },
+    blocks::auth::{brand_panel, repo::users},
+    http::{err_bad_request, err_internal, ok_json},
     ui,
     ui::templates::auth_split,
+    util::{hex_encode, sha256_hex},
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -126,7 +125,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     };
     let new_token_hash = sha256_hex(new_token.as_bytes());
 
-    let now = crate::blocks::helpers::now_rfc3339();
+    let now = crate::util::now_rfc3339();
     if let Err(e) = users::set_verification_token(ctx, &user.id, &new_token_hash, &now).await {
         return err_internal("Failed to update token", e.to_string());
     }

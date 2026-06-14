@@ -12,11 +12,9 @@ use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream}
 
 use super::service;
 use crate::{
-    blocks::helpers::{
-        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
-        ResponseBuilder,
-    },
+    http::{err_bad_request, err_internal, err_not_found, ok_json, ResponseBuilder},
     ui::{self, components, icons, settings_form},
+    util::{json_map, RecordExt},
 };
 
 const COLLECTION: &str = super::COLLECTION;
@@ -532,7 +530,7 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
         Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
-    let now = helpers::now_rfc3339();
+    let now = crate::util::now_rfc3339();
 
     // If editing a published document, create a new draft instead of modifying the live version
     let should_create_new = if body.doc_id.is_empty() {

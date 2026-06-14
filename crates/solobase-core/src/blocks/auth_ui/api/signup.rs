@@ -3,17 +3,20 @@
 use wafer_core::clients::{config, crypto, database as db};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use crate::blocks::{
-    auth::{
-        helpers::{
-            email_domain_allowed, initial_role_for, issue_tokens_and_cookie, password_min_length,
-            signup_allowed,
+use crate::{
+    blocks::{
+        auth::{
+            helpers::{
+                email_domain_allowed, initial_role_for, issue_tokens_and_cookie,
+                password_min_length, signup_allowed,
+            },
+            repo::{local_credentials, users},
+            USERS_TABLE,
         },
-        repo::{local_credentials, users},
-        USERS_TABLE,
+        errors::{error_response, ErrorCode},
     },
-    errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, hex_encode, json_map, sha256_hex, ResponseBuilder},
+    http::{err_bad_request, err_internal, ResponseBuilder},
+    util::{hex_encode, json_map, sha256_hex},
 };
 
 /// Returns `Ok(true)` when a user with `email_lower` already exists, `Ok(false)`
@@ -191,7 +194,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             "email_verified": !require_verification,
             "verification_token": stored_verification,
         }));
-        crate::blocks::helpers::stamp_updated(&mut upd);
+        crate::util::stamp_updated(&mut upd);
         if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, upd).await {
             tracing::warn!("Failed to set email_verified on signup: {e}");
         }

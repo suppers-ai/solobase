@@ -17,11 +17,13 @@ pub mod crypto;
 pub mod endpoint_match;
 pub mod features;
 pub mod flows;
+pub mod http;
 pub mod messages_schema;
 pub mod migration_helper;
 pub mod pipeline;
 pub mod routing;
 pub mod ui;
+pub mod util;
 
 // Exposed to the `tests/` integration-test crates (and any consumer that
 // wants the shared `TestContext` harness) behind the `test-support` feature,

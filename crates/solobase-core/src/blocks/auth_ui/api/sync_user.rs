@@ -3,9 +3,9 @@
 use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::{
-    auth::repo::users,
-    helpers::{err_bad_request, err_forbidden, err_internal, err_unauthorized, ok_json},
+use crate::{
+    blocks::auth::repo::users,
+    http::{err_bad_request, err_forbidden, err_internal, err_unauthorized, ok_json},
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {

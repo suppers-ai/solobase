@@ -6,10 +6,10 @@ use wafer_run::{
     Message, OutputStream,
 };
 
-use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
-    blocks::helpers::{err_forbidden, err_internal, err_not_found, ok_json},
+    http::{err_forbidden, err_internal, err_not_found, ok_json},
     ui::{self, components, icons, settings_form},
+    util::{parse_form_body, stamp_updated, RecordExt},
 };
 
 pub(crate) mod migrations;
@@ -259,7 +259,7 @@ async fn handle_update_profile(
 
     // Plain form POST → 303 See Other so the browser follows up with a GET
     // and the back/forward stack stays clean.
-    helpers::redirect(303, "/b/userportal/profile")
+    crate::http::redirect(303, "/b/userportal/profile")
 }
 
 // ---------------------------------------------------------------------------

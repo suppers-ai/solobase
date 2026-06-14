@@ -104,7 +104,7 @@ pub async fn find_by_id(ctx: &dyn Context, id: &str) -> Result<Option<UserRow>, 
 pub async fn is_email_verified(ctx: &dyn Context, user_id: &str) -> Result<bool, RepoError> {
     use wafer_block::ErrorCode;
 
-    use crate::blocks::helpers::RecordExt;
+    use crate::util::RecordExt;
 
     match db::get(ctx, TABLE, user_id).await {
         Ok(r) => Ok(r.bool_field("email_verified")),
@@ -126,7 +126,7 @@ pub async fn set_email_verified(
 ) -> Result<(), RepoError> {
     let mut data = std::collections::HashMap::new();
     data.insert("email_verified".to_string(), json!(verified));
-    crate::blocks::helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     db::update(ctx, TABLE, user_id, data)
         .await
@@ -170,7 +170,7 @@ pub async fn mark_email_verified(ctx: &dyn Context, user_id: &str) -> Result<(),
 pub async fn last_verification_sent(ctx: &dyn Context, user_id: &str) -> Result<String, RepoError> {
     use wafer_block::ErrorCode;
 
-    use crate::blocks::helpers::RecordExt;
+    use crate::util::RecordExt;
 
     match db::get(ctx, TABLE, user_id).await {
         Ok(r) => Ok(r.str_field("last_verification_sent").to_string()),
@@ -218,7 +218,7 @@ pub async fn find_by_reset_token(
 ) -> Result<Option<ResetTokenUser>, RepoError> {
     use wafer_block::ErrorCode;
 
-    use crate::blocks::helpers::RecordExt;
+    use crate::util::RecordExt;
 
     match db::get_by_field(ctx, TABLE, "reset_token", json!(token_hash)).await {
         Ok(rec) => Ok(Some(ResetTokenUser {
@@ -507,7 +507,7 @@ mod typed_client_tests {
         assert_eq!(updated.avatar_url.as_deref(), Some("https://a/b.png"));
         // The legacy `name` column is dual-written.
         let raw = db::get(&ctx, TABLE, &id).await.unwrap();
-        use crate::blocks::helpers::RecordExt;
+        use crate::util::RecordExt;
         assert_eq!(raw.str_field("name"), "New Name");
         assert_eq!(raw.str_field("display_name"), "New Name");
     }

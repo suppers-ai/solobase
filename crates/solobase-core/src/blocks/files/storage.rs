@@ -3,10 +3,8 @@ use wafer_core::clients::{database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
 use crate::{
-    blocks::helpers::{
-        self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
-    },
     endpoint_match::{self, EndpointRoute},
+    http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder},
 };
 
 /// Buckets table — user-created storage containers (one row per bucket).
@@ -181,7 +179,7 @@ pub(super) async fn is_bucket_access_denied(
     msg: &Message,
     bucket: &str,
 ) -> bool {
-    if helpers::is_admin(msg) {
+    if crate::util::is_admin(msg) {
         return false;
     }
     !bucket_owned_by(ctx, msg.user_id(), bucket).await
@@ -289,7 +287,7 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // a blob namespace, not a directory we enumerate here, so the admin list
     // no longer diverges from `store::list_folders`.
     let user_id = msg.user_id();
-    let filters = if helpers::is_admin(msg) {
+    let filters = if crate::util::is_admin(msg) {
         Vec::new()
     } else {
         vec![Filter {
@@ -344,11 +342,11 @@ async fn handle_create_bucket(
     // fails, compensate by deleting the just-created folder rather than
     // warn-and-continue (which would leave an orphan folder invisible to every
     // listing path, which now all read the table).
-    let data = helpers::json_map(serde_json::json!({
+    let data = crate::util::json_map(serde_json::json!({
         "name": body.name,
         "public": body.public,
         "created_by": msg.user_id(),
-        "created_at": helpers::now_rfc3339(),
+        "created_at": crate::util::now_rfc3339(),
     }));
     if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
         if let Err(cleanup) = store::delete_folder(ctx, &body.name).await {
@@ -445,11 +443,11 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Track view in DB
-    let data = helpers::json_map(serde_json::json!({
+    let data = crate::util::json_map(serde_json::json!({
         "bucket": bucket,
         "key": key,
         "user_id": msg.user_id(),
-        "viewed_at": helpers::now_rfc3339(),
+        "viewed_at": crate::util::now_rfc3339(),
     }));
     if let Err(e) = db::create(ctx, super::VIEWS_TABLE, data).await {
         tracing::warn!("Failed to track storage object view: {e}");
@@ -524,14 +522,14 @@ async fn handle_upload_object(
 
     // Insert a pending record BEFORE uploading so concurrent quota checks see it.
     // This closes the TOCTOU race between check_quota and the actual upload.
-    let pending_data = helpers::json_map(serde_json::json!({
+    let pending_data = crate::util::json_map(serde_json::json!({
         "bucket": bucket,
         "key": key,
         "size": body_bytes.len(),
         "content_type": content_type,
         "status": "pending",
         "uploaded_by": msg.user_id(),
-        "uploaded_at": helpers::now_rfc3339(),
+        "uploaded_at": crate::util::now_rfc3339(),
     }));
 
     let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
@@ -542,7 +540,7 @@ async fn handle_upload_object(
     match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
-            let update_data = helpers::json_map(serde_json::json!({ "status": "complete" }));
+            let update_data = crate::util::json_map(serde_json::json!({ "status": "complete" }));
             if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
@@ -814,11 +812,11 @@ mod integration_tests {
     use crate::test_support::{admin_msg, auth_msg, output_json, TestContext};
 
     async fn seed_bucket(ctx: &TestContext, name: &str, owner: &str) {
-        let data = helpers::json_map(json!({
+        let data = crate::util::json_map(json!({
             "name": name,
             "public": false,
             "created_by": owner,
-            "created_at": helpers::now_rfc3339(),
+            "created_at": crate::util::now_rfc3339(),
         }));
         db::create(ctx, BUCKETS_TABLE, data)
             .await

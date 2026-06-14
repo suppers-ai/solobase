@@ -4,14 +4,13 @@ use maud::{html, Markup};
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::{repo::sessions, service::hash_token},
-        helpers::{hex_encode, redirect, ResponseBuilder},
-    },
+    blocks::auth::{repo::sessions, service::hash_token},
+    http::{redirect, ResponseBuilder},
     ui::{
         components::{badge, BadgeVariant},
         SiteConfig,
     },
+    util::hex_encode,
 };
 
 pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

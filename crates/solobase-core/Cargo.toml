@@ -157,7 +157,6 @@ serde_json = { workspace = true }
 # `wafer_block_crypto::primitives` (single source of truth) — only the
 # hashing/encoding helpers used directly by feature blocks remain here.
 sha2 = { workspace = true }
-hex = { workspace = true }
 base64ct = { version = "1", features = ["alloc"] }
 getrandom = "0.2"
 

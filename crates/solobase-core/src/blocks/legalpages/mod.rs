@@ -11,14 +11,11 @@ use wafer_run::{
 };
 
 use crate::{
-    blocks::{
-        crud,
-        helpers::{
-            self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
-        },
-    },
+    blocks::crud,
     endpoint_match::{self, EndpointRoute},
+    http::{err_bad_request, err_internal, err_not_found, ok_json, ResponseBuilder},
     ui::{self, templates, SiteConfig},
+    util::json_map,
 };
 
 /// In-block dispatch targets, one per declared HTTP endpoint.
@@ -320,7 +317,7 @@ impl LegalPagesBlock {
             "version": 1,
             "created_by": msg.user_id()
         }));
-        helpers::stamp_created(&mut data);
+        crate::util::stamp_created(&mut data);
 
         match db::create(ctx, COLLECTION, data).await {
             Ok(record) => ok_json(&record),
@@ -329,7 +326,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
-        let id = helpers::path_param(msg, "id", API_DOC_PREFIX);
+        let id = crate::util::path_param(msg, "id", API_DOC_PREFIX);
         if id.is_empty() {
             return err_bad_request("Missing document ID");
         }
@@ -371,7 +368,7 @@ impl LegalPagesBlock {
             return;
         }
 
-        let now = helpers::now_rfc3339();
+        let now = crate::util::now_rfc3339();
         for (doc_type, title, content) in &[
             (
                 "terms",

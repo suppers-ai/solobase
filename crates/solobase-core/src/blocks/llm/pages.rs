@@ -12,13 +12,9 @@ use wafer_run::{context::Context, Message, OutputStream};
 
 use super::{DEFAULT_MODEL_VAR, DEFAULT_PROVIDER, DEFAULT_PROVIDER_VAR, SETTINGS_TABLE};
 use crate::{
-    blocks::helpers::RecordExt,
-    // Read messages-owned rows by table name. Constants live in a sibling
-    // module (not under `blocks::messages`) so the LLM block compiles
-    // without pulling in the messages block module — runtime WRAP grants
-    // declared by `MessagesBlock` still authorize the cross-block read.
     messages_schema::{CONTEXTS_TABLE, ENTRIES_TABLE},
     ui::{self, components, icons, shell::Crumb},
+    util::RecordExt,
 };
 
 // ---------------------------------------------------------------------------

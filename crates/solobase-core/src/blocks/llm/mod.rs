@@ -16,8 +16,9 @@ use wafer_run::{
 
 use self::provider_admin::ProviderAdmin;
 use crate::{
-    blocks::helpers::{self, err_bad_request, err_internal, err_not_found, json_map, ok_json},
     endpoint_match::{self, EndpointRoute},
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
+    util::json_map,
 };
 
 /// In-block dispatch targets, one per declared HTTP endpoint.
@@ -178,7 +179,7 @@ pub(super) async fn messages_create(
     };
 
     let resource = format!("/b/messages/api/contexts/{context_id}/entries");
-    let mut msg = helpers::block_request("create", "POST", &resource, original_msg);
+    let mut msg = crate::util::block_request("create", "POST", &resource, original_msg);
     msg.set_meta("req.content_type", "application/json");
 
     let out = ctx
@@ -197,7 +198,7 @@ pub(super) async fn messages_list(
     context_id: &str,
 ) -> Vec<serde_json::Value> {
     let resource = format!("/b/messages/api/contexts/{context_id}/entries?kind=message");
-    let msg = helpers::block_request("retrieve", "GET", &resource, original_msg);
+    let msg = crate::util::block_request("retrieve", "GET", &resource, original_msg);
 
     let out = ctx
         .call_block("suppers-ai/messages", msg, InputStream::empty())
@@ -346,7 +347,7 @@ impl LlmBlock {
                 if let Some(m) = body.model {
                     data.insert("model".to_string(), serde_json::json!(m));
                 }
-                helpers::stamp_updated(&mut data);
+                crate::util::stamp_updated(&mut data);
                 match db::update(ctx, SETTINGS_TABLE, &record.id, data).await {
                     Ok(r) => return ok_json(&r),
                     Err(e) => return err_internal("Database error", e),
@@ -358,7 +359,7 @@ impl LlmBlock {
                     "provider_block": body.provider_block.unwrap_or_default(),
                     "model": body.model.unwrap_or_default(),
                 }));
-                helpers::stamp_created(&mut data);
+                crate::util::stamp_created(&mut data);
                 match db::create(ctx, SETTINGS_TABLE, data).await {
                     Ok(r) => return ok_json(&r),
                     Err(e) => return err_internal("Database error", e),
@@ -510,7 +511,7 @@ impl Block for LlmBlock {
         // the matcher.
         if msg.action() == "retrieve" && msg.path() == "/b/llm/api/internal/default-target" {
             if ctx.caller_id().is_none() {
-                return crate::blocks::helpers::err_not_found("not found");
+                return crate::http::err_not_found("not found");
             }
             return self.handle_default_target(ctx).await;
         }

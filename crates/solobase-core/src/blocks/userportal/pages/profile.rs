@@ -7,11 +7,10 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::USERS_TABLE,
-        helpers::{redirect, RecordExt},
-    },
+    blocks::auth::USERS_TABLE,
+    http::redirect,
     ui::{components, SiteConfig, UserInfo},
+    util::RecordExt,
 };
 
 pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

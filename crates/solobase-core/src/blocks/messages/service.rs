@@ -8,12 +8,12 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, WaferError};
 
-use crate::blocks::helpers::{self, json_map};
 // Table-name constants live in `crate::messages_schema` so consumers
 // (e.g. the LLM chat UI) can reference them without compiling this module.
 // Re-exported here so existing `messages::service::{CONTEXTS_TABLE,
 // ENTRIES_TABLE}` references inside the messages block continue to resolve.
 pub use crate::messages_schema::{CONTEXTS_TABLE, ENTRIES_TABLE};
+use crate::util::json_map;
 
 /// Build an `Equal` filter for `field` when `value` is present. Mirrors the
 /// per-field `if let Some(...) { filters.push(...) }` pattern used across
@@ -55,7 +55,7 @@ pub async fn create_context(
         data.insert("parent_id".to_string(), serde_json::json!(pid));
     }
 
-    helpers::stamp_created(&mut data);
+    crate::util::stamp_created(&mut data);
 
     db::create(ctx, CONTEXTS_TABLE, data).await
 }
@@ -113,7 +113,7 @@ pub async fn update_context(
             data.insert(key.to_string(), v.clone());
         }
     }
-    helpers::stamp_updated(&mut data);
+    crate::util::stamp_updated(&mut data);
 
     db::update(ctx, CONTEXTS_TABLE, id, data).await
 }
@@ -149,7 +149,7 @@ pub async fn add_entry(
     let metadata = metadata.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
     let content_type = content_type.unwrap_or("text/plain");
 
-    let now = helpers::now_rfc3339();
+    let now = crate::util::now_rfc3339();
     let data = json_map(serde_json::json!({
         "context_id": context_id,
         "kind": kind,
@@ -166,7 +166,7 @@ pub async fn add_entry(
 
     // Bump parent context's updated_at
     let mut context_update = std::collections::HashMap::new();
-    helpers::stamp_updated(&mut context_update);
+    crate::util::stamp_updated(&mut context_update);
     if let Err(e) = db::update(ctx, CONTEXTS_TABLE, context_id, context_update).await {
         tracing::warn!("Failed to update context updated_at after add_entry: {e}");
     }

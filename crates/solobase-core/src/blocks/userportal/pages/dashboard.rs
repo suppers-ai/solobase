@@ -11,8 +11,9 @@ use wafer_core::clients::database::Record;
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::helpers::{redirect, RecordExt},
+    http::redirect,
     ui::{icons, sidebar::nav_icon, SiteConfig, UserInfo},
+    util::RecordExt,
 };
 
 struct DashboardButton {

@@ -130,7 +130,7 @@ pub fn is_htmx(msg: &wafer_run::Message) -> bool {
 
 /// Respond with full HTML page or htmx fragment depending on request type.
 pub fn html_response(markup: maud::Markup) -> wafer_run::OutputStream {
-    crate::blocks::helpers::ResponseBuilder::new().body(
+    crate::http::ResponseBuilder::new().body(
         markup.into_string().into_bytes(),
         "text/html; charset=utf-8",
     )
@@ -311,12 +311,10 @@ fn status_response(
         Some((primary_action.0.to_string(), primary_action.1.to_string())),
     );
     let markup = layout::page(page_title, &config, body);
-    crate::blocks::helpers::ResponseBuilder::new()
-        .status(status)
-        .body(
-            markup.into_string().into_bytes(),
-            "text/html; charset=utf-8",
-        )
+    crate::http::ResponseBuilder::new().status(status).body(
+        markup.into_string().into_bytes(),
+        "text/html; charset=utf-8",
+    )
 }
 
 /// Return styled 403 for browser requests, JSON for API requests.
@@ -332,7 +330,7 @@ pub fn forbidden_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
             ("Sign in", "/b/auth/login"),
         )
     } else {
-        crate::blocks::helpers::err_forbidden("admin access required")
+        crate::http::err_forbidden("admin access required")
     }
 }
 
@@ -349,7 +347,7 @@ pub fn not_found_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
             ("Go home", "/"),
         )
     } else {
-        crate::blocks::helpers::err_not_found("endpoint not found")
+        crate::http::err_not_found("endpoint not found")
     }
 }
 
@@ -366,7 +364,7 @@ pub fn server_error_response(msg: &wafer_run::Message) -> wafer_run::OutputStrea
             ("Go home", "/"),
         )
     } else {
-        crate::blocks::helpers::err_internal_no_cause("internal server error")
+        crate::http::err_internal_no_cause("internal server error")
     }
 }
 
@@ -389,7 +387,7 @@ pub fn html_response_with_toast(
         }
     })
     .to_string();
-    crate::blocks::helpers::ResponseBuilder::new()
+    crate::http::ResponseBuilder::new()
         .set_header("HX-Trigger", &trigger)
         .body(
             markup.into_string().into_bytes(),

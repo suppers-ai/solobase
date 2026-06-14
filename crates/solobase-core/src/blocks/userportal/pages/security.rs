@@ -5,10 +5,8 @@ use maud::html;
 use wafer_run::{context::Context, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::repo::{provider_links, users},
-        helpers::redirect,
-    },
+    blocks::auth::repo::{provider_links, users},
+    http::redirect,
     ui::SiteConfig,
 };
 

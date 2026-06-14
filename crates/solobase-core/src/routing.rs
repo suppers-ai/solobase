@@ -6,7 +6,7 @@
 
 use wafer_run::{context::Context, AuthLevel, BlockInfo, InputStream, Message, OutputStream};
 
-use crate::{blocks::helpers, endpoint_match, features::FeatureConfig};
+use crate::{endpoint_match, features::FeatureConfig};
 
 /// URL prefix for embedded static assets, served by `suppers-ai/system`.
 ///
@@ -70,7 +70,7 @@ pub enum RouteAccess {
     Public,
     /// `msg.user_id()` must be non-empty, or the request is rejected with 403.
     Authenticated,
-    /// User must have the `admin` role (per [`helpers::is_admin`]) or 403.
+    /// User must have the `admin` role (per [`crate::util::is_admin`]) or 403.
     Admin,
 }
 
@@ -259,7 +259,9 @@ fn check_access(access: RouteAccess, msg: &Message) -> Option<OutputStream> {
             Some(crate::ui::forbidden_response(msg))
         }
         RouteAccess::Authenticated => None,
-        RouteAccess::Admin if !helpers::is_admin(msg) => Some(crate::ui::forbidden_response(msg)),
+        RouteAccess::Admin if !crate::util::is_admin(msg) => {
+            Some(crate::ui::forbidden_response(msg))
+        }
         RouteAccess::Admin => None,
     }
 }
@@ -304,7 +306,7 @@ pub async fn route_to_block(
 
         // Feature gate
         if !features.is_block_enabled(route.block) {
-            return crate::blocks::helpers::err_not_found("endpoint not found");
+            return crate::http::err_not_found("endpoint not found");
         }
 
         // Access gate. The coarse prefix tier is a backstop; if the target
@@ -349,7 +351,7 @@ fn root_redirect(user_id_empty: bool) -> OutputStream {
     } else {
         "/b/userportal/"
     };
-    crate::blocks::helpers::ResponseBuilder::new()
+    crate::http::ResponseBuilder::new()
         .status(302)
         .set_header("Location", target)
         .body(Vec::new(), "text/plain")

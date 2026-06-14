@@ -29,7 +29,7 @@ use wafer_run::{
     context::Context, Block, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
 };
 
-use crate::blocks::helpers::err_internal;
+use crate::http::err_internal;
 
 /// Native ONNX embedding block.
 ///

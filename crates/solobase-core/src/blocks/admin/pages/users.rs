@@ -8,8 +8,8 @@ use crate::{
     blocks::{
         admin::{ops, ROLES_TABLE},
         auth::{API_KEYS_TABLE as API_KEYS, USERS_TABLE as USERS},
-        helpers::{parse_form_body, RecordExt, ResponseBuilder},
     },
+    http::ResponseBuilder,
     ui::{
         self,
         components::{self, pagination},
@@ -18,6 +18,7 @@ use crate::{
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
     },
+    util::{parse_form_body, RecordExt},
 };
 
 pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

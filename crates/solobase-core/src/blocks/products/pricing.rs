@@ -4,8 +4,9 @@ use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use super::{PRICING_TABLE, PRODUCTS_TABLE};
-use crate::blocks::helpers::{
-    err_bad_request, err_internal_no_cause, err_not_found, ok_json, RecordExt,
+use crate::{
+    http::{err_bad_request, err_internal_no_cause, err_not_found, ok_json},
+    util::RecordExt,
 };
 
 /// Pricing template table — reusable pricing rule definitions (formulas,

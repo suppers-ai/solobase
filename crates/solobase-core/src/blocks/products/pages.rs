@@ -7,9 +7,9 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use super::{repo, GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE};
 use crate::{
-    blocks::helpers::RecordExt,
     config_vars,
     ui::{self, components, icons, settings_form, settings_form::SettingsSection},
+    util::RecordExt,
 };
 
 // ---------------------------------------------------------------------------

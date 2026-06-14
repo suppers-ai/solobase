@@ -15,7 +15,6 @@
 //! `/* ... */` and `;` inside string literals are not supported — the
 //! canonical .sql files don't use either.
 
-use sha2::{Digest, Sha256};
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, ErrorCode, LifecycleEvent, LifecycleType, WaferError};
 use wafer_sql_utils::Backend;
@@ -358,10 +357,12 @@ pub(crate) async fn upsert_block_settings_fields(
 /// `admin::settings::seed_defaults`) that hash-gate against a payload other
 /// than SQL bytes but want to share the same digest algorithm with
 /// `apply_if_blessed`.
+///
+/// Delegates to the single canonical [`crate::util::sha256_hex`]
+/// (`wafer_block::hash`) — there is one SHA-256-hex implementation in
+/// solobase, not a private copy here.
 pub(crate) fn sha256_hex_bytes(payload: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(payload);
-    hex::encode(hasher.finalize())
+    crate::util::sha256_hex(payload)
 }
 
 fn sha256_hex(sql: &str) -> String {

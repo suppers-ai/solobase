@@ -7,9 +7,10 @@
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
-use crate::blocks::{
-    crud,
-    helpers::{err_bad_request, err_internal, err_not_found, ok_json, path_param},
+use crate::{
+    blocks::crud,
+    http::{err_bad_request, err_internal, err_not_found, ok_json},
+    util::path_param,
 };
 
 /// Path prefix preceding the context id in the REST routes.

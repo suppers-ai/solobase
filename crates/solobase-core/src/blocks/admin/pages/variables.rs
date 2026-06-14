@@ -3,11 +3,10 @@ use wafer_core::clients::database::{self as db};
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        admin::{ops, VARIABLES_TABLE as VARIABLES},
-        helpers::{err_not_found, parse_form_body, RecordExt},
-    },
+    blocks::admin::{ops, VARIABLES_TABLE as VARIABLES},
+    http::err_not_found,
     ui::{self, components, icons},
+    util::{parse_form_body, RecordExt},
 };
 
 /// Render JUST the variables settings body. The parent `settings_page`

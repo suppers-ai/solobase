@@ -23,7 +23,7 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::{now_iso, RepoError};
-use crate::blocks::helpers::{sha256_hex, RecordExt};
+use crate::util::{sha256_hex, RecordExt};
 
 pub const TABLE: &str = "suppers_ai__auth__tokens";
 
@@ -197,14 +197,8 @@ mod tests {
         data.insert("display_name".into(), json!(email));
         data.insert("role".into(), json!("user"));
         data.insert("email_verified".into(), json!(true));
-        data.insert(
-            "created_at".into(),
-            json!(crate::blocks::helpers::now_rfc3339()),
-        );
-        data.insert(
-            "updated_at".into(),
-            json!(crate::blocks::helpers::now_rfc3339()),
-        );
+        data.insert("created_at".into(), json!(crate::util::now_rfc3339()));
+        data.insert("updated_at".into(), json!(crate::util::now_rfc3339()));
         db::create(ctx, USERS_TABLE, data).await.unwrap();
     }
 

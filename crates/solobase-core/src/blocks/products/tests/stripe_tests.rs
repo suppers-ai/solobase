@@ -4,7 +4,7 @@ use wafer_block_crypto::primitives;
 use wafer_run::{ErrorCode, InputStream, Message};
 
 use super::harness::*;
-use crate::blocks::{helpers::hex_encode, products::stripe};
+use crate::{blocks::products::stripe, util::hex_encode};
 
 // ============================================================
 // Helpers

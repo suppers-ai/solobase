@@ -14,13 +14,15 @@
 use wafer_core::clients::{config, crypto};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
-use crate::blocks::{
-    auth::{
-        helpers::{ensure_admin_role, expected_issuer, issue_tokens_and_cookie},
-        repo::{tokens, users},
+use crate::{
+    blocks::{
+        auth::{
+            helpers::{ensure_admin_role, expected_issuer, issue_tokens_and_cookie},
+            repo::{tokens, users},
+        },
+        errors::{error_response, ErrorCode},
     },
-    errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, ResponseBuilder},
+    http::{err_bad_request, ResponseBuilder},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {

@@ -5,9 +5,10 @@ use wafer_block_crypto::primitives;
 use wafer_core::clients::config;
 use wafer_run::{context::Context, Message, OutputStream};
 
-use crate::blocks::{
-    auth::repo::oauth_pkce::{self, NewPkceState},
-    helpers::{err_bad_request, err_forbidden, err_internal, ok_json, urlencode},
+use crate::{
+    blocks::auth::repo::oauth_pkce::{self, NewPkceState},
+    http::{err_bad_request, err_forbidden, err_internal, ok_json},
+    util::urlencode,
 };
 
 /// PKCE state TTL: 10 minutes. OAuth round-trips complete in seconds; this
@@ -31,7 +32,7 @@ fn pkce_challenge(verifier: &str) -> String {
 /// bytes hex-encoded (64 chars) — fits any provider's state-length limit.
 fn generate_state_id() -> Result<String, String> {
     let bytes = primitives::random_bytes(32).map_err(|e| e.to_string())?;
-    Ok(crate::blocks::helpers::hex_encode(&bytes))
+    Ok(crate::util::hex_encode(&bytes))
 }
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {

@@ -3,10 +3,8 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
-    blocks::{
-        email::DEFAULT_MAILGUN_BASE_URL,
-        helpers::{err_bad_request, ok_json},
-    },
+    blocks::email::DEFAULT_MAILGUN_BASE_URL,
+    http::{err_bad_request, ok_json},
     ui::icons,
 };
 

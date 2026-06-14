@@ -14,11 +14,9 @@ use super::super::load_buttons;
 // to this block's table.
 use crate::blocks::userportal::TABLE;
 use crate::{
-    blocks::helpers::{
-        err_bad_request, err_internal, err_not_found, json_map, parse_form_body, stamp_created,
-        stamp_updated, RecordExt,
-    },
+    http::{err_bad_request, err_internal, err_not_found},
     ui::{self, components, icons, sidebar::nav_icon},
+    util::{json_map, parse_form_body, stamp_created, stamp_updated, RecordExt},
 };
 
 /// Known icon names available for button configuration.

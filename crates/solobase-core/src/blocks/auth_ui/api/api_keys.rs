@@ -7,12 +7,10 @@
 use wafer_core::clients::crypto;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
-use crate::blocks::{
-    auth::repo::api_keys,
-    helpers::{
-        self, err_bad_request, err_forbidden, err_internal, err_not_found, hex_encode, ok_json,
-        sha256_hex,
-    },
+use crate::{
+    blocks::auth::repo::api_keys,
+    http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
+    util::{hex_encode, sha256_hex},
 };
 
 pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -73,7 +71,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         expires_at: Option<String>,
     }
     let raw = input.collect_to_bytes().await;
-    let parsed = crate::blocks::helpers::parse_body_value(&raw);
+    let parsed = crate::util::parse_body_value(&raw);
     let body: CreateKeyReq = match serde_json::from_value(parsed) {
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
@@ -150,7 +148,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                     }
                 };
                 let trigger = r#"{"showToast":{"message":"API key created","type":"success"},"closeModal":{"id":"create-api-key"}}"#;
-                crate::blocks::helpers::ResponseBuilder::new()
+                crate::http::ResponseBuilder::new()
                     .set_header("HX-Trigger", trigger)
                     .body(
                         markup.into_string().into_bytes(),
@@ -182,7 +180,7 @@ pub async fn handle_revoke(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let Ok(Some(key)) = api_keys::find_by_id(ctx, id).await else {
         return err_not_found("API key not found");
     };
-    if key.user_id != user_id && !helpers::is_admin(msg) {
+    if key.user_id != user_id && !crate::util::is_admin(msg) {
         return err_forbidden("Cannot revoke another user's API key");
     }
 
@@ -204,7 +202,7 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let Ok(Some(key)) = api_keys::find_by_id(ctx, id).await else {
         return err_not_found("API key not found");
     };
-    if key.user_id != user_id && !helpers::is_admin(msg) {
+    if key.user_id != user_id && !crate::util::is_admin(msg) {
         return err_forbidden("Cannot delete another user's API key");
     }
 
