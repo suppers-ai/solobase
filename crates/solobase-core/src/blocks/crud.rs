@@ -21,7 +21,17 @@ use super::helpers::{
 
 /// Extract the record id that follows `path_prefix` in the request path.
 /// Returns `""` when the prefix doesn't match or nothing follows it.
+/// Extract the record id for a CRUD route. Prefers the router-populated
+/// `req.param.id` (set by `endpoint_match::dispatch` when the block uses the
+/// shared matcher) and falls back to stripping `path_prefix` off the resource
+/// path for callers/tests that build the message by hand. Mirrors
+/// [`crate::blocks::helpers::path_param`] but keeps the trailing-segment
+/// behaviour of the old prefix-strip for the fallback.
 fn id_from_path<'m>(msg: &'m Message, path_prefix: &str) -> &'m str {
+    let var = msg.var("id");
+    if !var.is_empty() {
+        return var;
+    }
     msg.path().strip_prefix(path_prefix).unwrap_or("")
 }
 
