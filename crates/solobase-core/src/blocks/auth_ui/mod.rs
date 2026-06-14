@@ -23,9 +23,7 @@ pub mod oauth;
 pub mod pages;
 pub mod redirect;
 
-use wafer_run::{
-    AuthLevel, BlockEndpoint, BlockInfo, ConfigVar, InputType, InstanceMode,
-};
+use wafer_run::{AuthLevel, BlockEndpoint, BlockInfo, ConfigVar, InputType, InstanceMode};
 
 use super::rate_limit::{
     check_route_limits, LimitKey, RateLimit, RateLimitOutcome, RouteLimit, UserRateLimiter,

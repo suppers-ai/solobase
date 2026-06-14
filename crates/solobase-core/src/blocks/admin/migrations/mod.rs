@@ -28,7 +28,8 @@ pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
 /// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`] one
 /// for one. Selected at runtime by `apply_migrations` and reused by
 /// [`ddl_files`] for the pre-wafer native CLI path.
-pub(crate) const POSTGRES_MIGRATIONS: &[&str] = &[SQL_001_POSTGRES, SQL_002_POSTGRES, SQL_003_POSTGRES];
+pub(crate) const POSTGRES_MIGRATIONS: &[&str] =
+    &[SQL_001_POSTGRES, SQL_002_POSTGRES, SQL_003_POSTGRES];
 
 /// Apply the admin schema through the shared migration-state gate.
 ///

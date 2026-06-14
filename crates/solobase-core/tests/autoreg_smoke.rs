@@ -116,7 +116,11 @@ fn all_block_infos_covers_the_manifest_set_plus_llm() {
     sorted.sort_unstable();
     let before = sorted.len();
     sorted.dedup();
-    assert_eq!(before, sorted.len(), "all_block_infos() has duplicate block names");
+    assert_eq!(
+        before,
+        sorted.len(),
+        "all_block_infos() has duplicate block names"
+    );
 
     // The framework auth block declares its config vars via
     // `shared_config_vars()` (not `BlockInfo::config_keys`), so it is

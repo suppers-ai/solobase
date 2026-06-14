@@ -59,11 +59,11 @@
 /// detail, not public API.
 #[doc(hidden)]
 pub mod __private {
+    pub use wafer_block::wafer_async_trait;
     pub use wafer_run::{
         context::Context, Block, BlockInfo, InputStream, LifecycleEvent, Message, OutputStream,
         WaferError,
     };
-    pub use wafer_block::wafer_async_trait;
 }
 
 /// Generate a solobase feature block's struct, constructor, `Default`, and
