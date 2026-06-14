@@ -5,7 +5,7 @@ use maud::{html, Markup};
 
 use super::{
     sidebar::{sidebar_grouped, NavGroup},
-    NavItem, UserInfo,
+    UserInfo,
 };
 
 /// One breadcrumb segment.
@@ -125,18 +125,19 @@ pub fn shell(
     }
 }
 
-/// Wraps a flat `Vec<NavItem>` into one unlabeled `NavGroup`. Used by tests
-/// and any caller that doesn't need group labels.
-pub fn one_group(items: Vec<NavItem>) -> Vec<NavGroup> {
-    vec![NavGroup { label: None, items }]
-}
-
 #[cfg(test)]
 mod tests {
     use maud::html;
 
     use super::*;
     use crate::ui::NavItem;
+
+    /// Wraps a flat `Vec<NavItem>` into one unlabeled `NavGroup` for the shell
+    /// render tests below. (Production shells always carry labeled groups via
+    /// `nav_groups::{admin,portal}`, so this only exists for the tests.)
+    fn one_group(items: Vec<NavItem>) -> Vec<NavGroup> {
+        vec![NavGroup { label: None, items }]
+    }
 
     fn item(label: &str, href: &str) -> NavItem {
         NavItem {

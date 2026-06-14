@@ -1,9 +1,8 @@
-//! Page layout components — full page wrapper and centered_page escape hatch.
+//! Page layout components — the full HTML page wrapper.
 //!
 //! `block_shell()` was removed in Phase 2 of the UI cleanup; pages now build
 //! chrome via `ui::Page::response()` which delegates to `ui::shell::shell()`
-//! + `ui::sidebar::sidebar_grouped()`. `centered_page()` is kept as the raw
-//! escape hatch for any future standalone (non-shelled, non-auth-split) page.
+//! + `ui::sidebar::sidebar_grouped()`.
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
@@ -35,18 +34,4 @@ pub fn page(title: &str, config: &SiteConfig, body: Markup) -> Markup {
             }
         }
     }
-}
-
-/// A simple centered page layout — escape hatch for standalone pages that
-/// don't use the shell or `auth_split` template.
-pub fn centered_page(title: &str, config: &SiteConfig, content: Markup) -> Markup {
-    page(
-        title,
-        config,
-        html! {
-            div .login-page {
-                (content)
-            }
-        },
-    )
 }
