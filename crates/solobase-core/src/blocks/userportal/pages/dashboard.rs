@@ -97,7 +97,7 @@ mod tests {
 
     async fn ctx_with_userportal() -> TestContext {
         let mut ctx = TestContext::with_userportal().await;
-        ctx.register_block("suppers-ai/userportal", Arc::new(UserPortalBlock));
+        ctx.register_block("suppers-ai/userportal", Arc::new(UserPortalBlock::new()));
         ctx
     }
 

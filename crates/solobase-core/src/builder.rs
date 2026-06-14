@@ -421,9 +421,9 @@ impl SolobaseBuilder {
             }
         }
 
-        // 5. All middleware blocks (cors, inspector, readonly-guard, router,
-        // security-headers, web) self-register via register_static_block! in
-        // their respective wafer-block-* crates. The `use wafer_block_xxx as _`
+        // 5. The wafer-run/* middleware blocks (cors, inspector, readonly-guard,
+        // router, security-headers, web) self-register via `register_static_block!`
+        // in their respective wafer-block-* crates. The `use wafer_block_xxx as _`
         // anchors at the top of this file ensure the linker includes those crate
         // .o files so the linkme distributed-slice entries land in the binary.
         //
@@ -454,15 +454,17 @@ impl SolobaseBuilder {
                 Arc::new(wafer_block_security_headers::SecurityHeadersBlock::new()),
             )?;
             wafer.register_block("wafer-run/web", Arc::new(wafer_block_web::WebBlock::new()))?;
-
-            // Solobase feature blocks (suppers-ai/*) self-register via
-            // `register_static_block!` on native, but linkme's distributed_slice
-            // doesn't emit on wasm32 — see `crate::blocks::register_all_static_blocks`
-            // for the full reasoning. Without this call the wasm runtime has only
-            // wafer-run/* middleware and the SolobaseRouter resolves every feature
-            // route to a `block 'suppers-ai/<name>' not found` error.
-            crate::blocks::register_all_static_blocks(&mut wafer)?;
         }
+
+        // 5a. Register every zero-arg solobase feature block (`suppers-ai/*`)
+        // from the single manifest in `crate::blocks`. The same call runs on
+        // native and wasm32 — there is no longer a linkme (native) /
+        // hand-synced-list (wasm32) split. Previously native relied on
+        // per-block `register_static_block!` (linkme) and wasm32 on a separate
+        // `register_all_static_blocks` list; both are gone. The three
+        // non-zero-arg blocks (`llm`, framework `auth`, wasm32
+        // `transformers-embed`) are registered explicitly below.
+        crate::blocks::register_feature_blocks(&mut wafer)?;
 
         wafer.add_block_config(
             "wafer-run/inspector",
@@ -474,22 +476,19 @@ impl SolobaseBuilder {
             wafer.add_block_config(&name, config);
         }
 
-        // 6. Register the framework AuthBlock — it can't self-register via
-        //    register_static_block! because its constructor takes
-        //    Arc<dyn AuthService>. The wrapped AuthServiceImpl picks up its
-        //    Context handle when the runtime fires the block's
-        //    lifecycle(Init) event.
+        // 6. Register the framework AuthBlock — not in the feature-block
+        //    manifest because its constructor takes `Arc<dyn AuthService>`. The
+        //    wrapped AuthServiceImpl picks up its Context handle when the
+        //    runtime fires the block's lifecycle(Init) event.
         crate::blocks::register_auth(&mut wafer)?;
 
-        // 6b. Register LlmBlock — it can't self-register via register_static_block!
-        //     because its constructor takes Arc<dyn ProviderAdmin>. All other solobase
-        //     blocks self-register via register_static_block! at link time.
+        // 6b. Register LlmBlock — not in the feature-block manifest because its
+        //     constructor takes `Arc<dyn ProviderAdmin>`.
         //
-        //     On wasm32 the block is registered inside `register_all_static_blocks`
-        //     above (with a `NoopProviderAdmin`); here we cover the native path.
-        //     With `feature = "llm"` the concrete `ProviderLlmService` (already on
-        //     the router under `"provider"`) doubles as the provider-admin handle;
-        //     a native `block-llm`-without-`llm` build falls back to the no-op.
+        //     Native (`not(wasm32)`): with `feature = "llm"` the concrete
+        //     `ProviderLlmService` (already on the router under `"provider"`)
+        //     doubles as the provider-admin handle; a native
+        //     `block-llm`-without-`llm` build falls back to the no-op.
         #[cfg(all(feature = "block-llm", not(target_arch = "wasm32")))]
         {
             use crate::blocks::llm::provider_admin::ProviderAdmin;
@@ -503,6 +502,17 @@ impl SolobaseBuilder {
                 Arc::new(crate::blocks::llm::provider_admin::NoopProviderAdmin);
             crate::blocks::register_llm(&mut wafer, provider_admin)?;
         }
+
+        // 6c. Register LlmBlock on wasm32 against a browser-supplied
+        //     `LlmService` (installed on the router via
+        //     `SolobaseBuilder::llm_service`). Provider CRUD / discovery have no
+        //     browser surface, so a `NoopProviderAdmin` stands in for the native
+        //     HTTP `ProviderLlmService`.
+        #[cfg(all(feature = "block-llm", target_arch = "wasm32"))]
+        crate::blocks::register_llm(
+            &mut wafer,
+            Arc::new(crate::blocks::llm::provider_admin::NoopProviderAdmin),
+        )?;
 
         // 7. Extra platform-specific blocks
         for (name, block) in self.extra_blocks {

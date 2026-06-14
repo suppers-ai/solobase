@@ -12,8 +12,8 @@ use std::{collections::HashMap, time::Duration};
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
 use wafer_run::{
-    context::Context, Block, BlockInfo, ConfigVar, InputStream, InputType, InstanceMode,
-    LifecycleEvent, LifecycleType, Message, OutputStream, WaferError,
+    context::Context, BlockInfo, ConfigVar, InputStream, InputType, InstanceMode, LifecycleType,
+    OutputStream,
 };
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
@@ -41,28 +41,12 @@ pub(crate) fn resolve_base_url(configured: &str) -> &str {
     }
 }
 
-pub struct EmailBlock {
-    limiter: UserRateLimiter,
-}
-
-impl EmailBlock {
-    pub fn new() -> Self {
-        Self {
-            limiter: UserRateLimiter::new(),
-        }
-    }
-}
-
-impl Default for EmailBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for EmailBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// Email sending via the Mailgun HTTP API (`suppers-ai/email`).
+    pub struct EmailBlock;
+    fields: { limiter: UserRateLimiter },
+    name: "suppers-ai/email",
+    info: |_this| {
         BlockInfo::new("suppers-ai/email", "0.0.1", "service@v1", "Email sending via Mailgun")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/network".into(), "wafer-run/config".into()])
@@ -112,21 +96,18 @@ impl Block for EmailBlock {
                 .name("Allowed Recipient Patterns")
                 .optional(),
             ])
-    }
-
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         match msg.kind.as_str() {
-            "email.send" => handle_send(&self.limiter, ctx, input).await,
-            "email.send_template" => handle_send_template(&self.limiter, ctx, input).await,
+            "email.send" => handle_send(&this.limiter, ctx, input).await,
+            "email.send_template" => handle_send_template(&this.limiter, ctx, input).await,
             _ => err_not_found(&format!("unknown email op: {}", msg.kind)),
         }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
+    },
+    lifecycle: |_this, ctx, event| {
+        // No schema — the email block is stateless. The only Init work is a
+        // config sanity warning (no migrations, so this does NOT go through
+        // `migration_helper::lifecycle_init`).
         if event.event_type == LifecycleType::Init {
             let patterns =
                 config::get_default(ctx, "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS", "").await;
@@ -138,7 +119,7 @@ impl Block for EmailBlock {
             }
         }
         Ok(())
-    }
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -576,9 +557,6 @@ async fn check_caller_rate_limit(
         Err(retry_after) => Err(super::rate_limit::rate_limited_response(retry_after)),
     }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/email", EmailBlock);
 
 // ---------------------------------------------------------------------------
 // Tests — SEC-051 rate limit + recipient allow-list + validation.

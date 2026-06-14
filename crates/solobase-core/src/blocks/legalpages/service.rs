@@ -168,10 +168,20 @@ mod tests {
     use crate::test_support::TestContext;
 
     async fn ctx_with_schema() -> TestContext {
+        use super::super::migrations;
         let ctx = TestContext::with_admin().await;
-        super::super::migrations::apply(&ctx)
-            .await
-            .expect("apply legalpages migrations");
+        let sqlite: Vec<&str> = migrations::SQLITE_MIGRATIONS
+            .iter()
+            .map(|(_, sql)| *sql)
+            .collect();
+        crate::migration_helper::apply_migrations(
+            &ctx,
+            "suppers-ai/legalpages",
+            &sqlite,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+        .expect("apply legalpages migrations");
         ctx
     }
 

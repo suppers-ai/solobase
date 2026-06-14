@@ -1251,9 +1251,21 @@ mod tests {
         use crate::test_support::TestContext;
 
         let mut ctx = TestContext::with_admin().await;
-        crate::blocks::llm::migrations::apply(&ctx)
+        {
+            use crate::blocks::llm::migrations;
+            let sqlite: Vec<&str> = migrations::SQLITE_MIGRATIONS
+                .iter()
+                .map(|(_, sql)| *sql)
+                .collect();
+            crate::migration_helper::apply_migrations(
+                &ctx,
+                "suppers-ai/llm",
+                &sqlite,
+                migrations::POSTGRES_MIGRATIONS,
+            )
             .await
             .expect("apply llm migrations");
+        }
 
         let config_svc = Arc::new(EnvConfigService::new());
         config_svc.set("SUPPERS_AI__LLM__OPENAI_KEY", "sk-resolved");

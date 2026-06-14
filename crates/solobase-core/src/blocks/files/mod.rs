@@ -16,36 +16,17 @@ pub(crate) use storage::{BUCKETS_TABLE, OBJECTS_TABLE};
 /// (`record_view`) — so the constant lives in mod.rs.
 pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
 
-use wafer_run::{
-    context::Context, Block, BlockEndpoint, BlockInfo, InputStream, InstanceMode, LifecycleEvent,
-    LifecycleType, Message, OutputStream, WaferError,
-};
+use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
 use super::rate_limit::{check_user_rate_limit_with, RateLimit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::err_not_found;
 
-pub struct FilesBlock {
-    limiter: UserRateLimiter,
-}
-
-impl Default for FilesBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FilesBlock {
-    pub fn new() -> Self {
-        Self {
-            limiter: UserRateLimiter::new(),
-        }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for FilesBlock {
-    fn info(&self) -> BlockInfo {
+crate::solobase_feature_block! {
+    /// File storage: buckets, objects, shares, quotas (`suppers-ai/files`).
+    pub struct FilesBlock;
+    fields: { limiter: UserRateLimiter },
+    name: "suppers-ai/files",
+    info: |_this| {
         use wafer_run::{AuthLevel, CollectionSchema};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
@@ -103,9 +84,8 @@ impl Block for FilesBlock {
             ])
             .admin_url("/b/storage/admin/")
             .can_disable(true)
-    }
-
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+    },
+    handle: |this, ctx, msg, input| {
         let path = msg.path().to_string();
 
         // Admin-block delegation: when the Admin block routes a request for
@@ -140,7 +120,7 @@ impl Block for FilesBlock {
         // per remote IP inside the handler to stop token enumeration / DOS.
         // Matches the REAL on-the-wire path (no `req.resource` rewrite).
         if path.starts_with("/b/storage/direct/") {
-            return share::handle_direct_access(ctx, &msg, &self.limiter).await;
+            return share::handle_direct_access(ctx, &msg, &this.limiter).await;
         }
 
         // Require authentication for all non-public endpoints
@@ -155,7 +135,7 @@ impl Block for FilesBlock {
         // to a streaming response would need platform-side middleware to
         // inject the headers after the handler returns its OutputStream.
         if let RateLimitOutcome::Limited(r) = check_user_rate_limit_with(
-            &self.limiter,
+            &this.limiter,
             ctx,
             &msg,
             Some((RateLimit::UPLOAD, "upload")),
@@ -214,27 +194,18 @@ impl Block for FilesBlock {
         }
 
         err_not_found("not found")
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            migrations::apply(ctx).await.map_err(|e| {
-                WaferError::new(
-                    wafer_run::ErrorCode::Internal,
-                    format!("files migrations: {e}"),
-                )
-            })?;
-        }
-        Ok(())
-    }
+    },
+    lifecycle: |_this, ctx, event| {
+        crate::migration_helper::lifecycle_init(
+            ctx,
+            &event,
+            "suppers-ai/files",
+            migrations::SQLITE_MIGRATIONS,
+            migrations::POSTGRES_MIGRATIONS,
+        )
+        .await
+    },
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_block::register_static_block!("suppers-ai/files", FilesBlock);
 
 #[cfg(test)]
 mod schema_tests {

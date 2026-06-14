@@ -1,28 +1,20 @@
-//! User portal block migrations. Applied from the block's `Init` lifecycle.
+//! User portal block migrations. Applied from the block's `Init` lifecycle
+//! via [`crate::migration_helper::lifecycle_init`].
 //!
 //! SQL files are embedded with `include_str!`. Backend dispatch + the
 //! `current_hash` / `blessed_hash` / `SOLOBASE_RUN_MIGRATIONS` gate live
 //! in [`crate::migration_helper::apply_migrations`].
 
-use wafer_run::context::Context;
-
-use crate::migration_helper;
-
-const USERPORTAL_BLOCK_NAME: &str = "suppers-ai/userportal";
-
 const SQL_001_SQLITE: &str = include_str!("001_userportal_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_userportal_schema.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `apply()` below and the
-/// Cloudflare-build D1 migration registry (`crate::migrations`).
+/// pairs. Single source for both the runtime `lifecycle_init` apply and the
+/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[("001_userportal_schema", SQL_001_SQLITE)];
 
-pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let sqlite: Vec<&str> = SQLITE_MIGRATIONS.iter().map(|(_, sql)| *sql).collect();
-    migration_helper::apply_migrations(ctx, USERPORTAL_BLOCK_NAME, &sqlite, &[SQL_001_POSTGRES])
-        .await
-}
+/// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`].
+pub(crate) const POSTGRES_MIGRATIONS: &[&str] = &[SQL_001_POSTGRES];
 
 #[cfg(test)]
 mod tests {

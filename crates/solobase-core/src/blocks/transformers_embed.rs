@@ -11,11 +11,8 @@ use wafer_core::interfaces::vector::{
     handler::handle_embedding_message, service::EmbeddingService,
 };
 use wafer_run::{
-    common::ServiceOp, context::Context, Block, BlockInfo, InputStream, LifecycleEvent, Message,
-    OutputStream, WaferError,
+    context::Context, Block, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
 };
-
-use crate::blocks::helpers::err_internal;
 
 /// Browser-side embedding block backed by an injected `EmbeddingService`.
 ///
@@ -31,8 +28,7 @@ impl TransformersEmbedBlock {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[wafer_block::wafer_async_trait]
 impl Block for TransformersEmbedBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo::new(
@@ -41,24 +37,22 @@ impl Block for TransformersEmbedBlock {
             "embedding@v1",
             "Browser text embedding via Transformers.js",
         )
+        // Singleton, in lockstep with `FastembedBlock`: the injected
+        // `BrowserEmbeddingService` wraps a single Transformers.js model
+        // instance and must not be re-created per node/flow. Previously this
+        // declaration was omitted (defaulting to per-node) — the drift this
+        // package closes.
+        .instance_mode(InstanceMode::Singleton)
         .category(wafer_run::BlockCategory::Service)
     }
 
     async fn handle(&self, _ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let body = input.collect_to_bytes().await;
-        match msg.kind.as_str() {
-            ServiceOp::EMBEDDING_EMBED => {
-                handle_embedding_message(self.service.as_ref(), &msg, &body).await
-            }
-            other => err_internal("unsupported op", other),
-        }
-    }
-
-    async fn lifecycle(
-        &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        Ok(())
+        // Delegate the whole message — `handle_embedding_message` validates the
+        // op (EMBEDDING_EMBED / EMBEDDING_COUNT_TOKENS, `Unimplemented`
+        // otherwise). The previous hand-rolled `ServiceOp::EMBEDDING_EMBED`-only
+        // match rejected the valid `EMBEDDING_COUNT_TOKENS` op and diverged from
+        // `FastembedBlock`; both wrappers now delegate identically.
+        handle_embedding_message(self.service.as_ref(), &msg, &body).await
     }
 }
