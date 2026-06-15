@@ -661,13 +661,14 @@ pub trait BootHooks {
 /// registration) onto `wafer` before calling this. After it returns, the
 /// caller dispatches requests / stores the runtime handle as appropriate.
 ///
-/// Native uses `Wafer::start_with_priority` instead of this funnel: its
+/// Native uses this funnel too, then runs the native-only
+/// [`Wafer::run_start_lifecycle`] + [`Wafer::bind_all`] steps afterwards: its
 /// HTTP-listener block binds the TCP socket in the `Start`-lifecycle `bind()`
-/// pass that `start_with_priority` performs atomically, and its immutable
-/// `Argon2JwtCryptoService` needs the JWT secret before `build()` — so native
-/// seeds pre-wafer and there is no public hook to inject a seed step mid-way
-/// through `start_with_priority`. Native still shares the seed *functions*
-/// above; only its lifecycle differs.
+/// pass, which the stateless targets omit (they dispatch per-request via
+/// `wafer.run`). Native still seeds pre-wafer — its immutable
+/// `Argon2JwtCryptoService` and config snapshot need the variables before
+/// `build()` — so its `seed_after_admin_init` is a no-op, mirroring how
+/// Cloudflare reads its config pre-build and only runs the auto-gen pass here.
 pub async fn boot(
     wafer: &mut Wafer,
     storage_block: &SolobaseStorageBlock,
