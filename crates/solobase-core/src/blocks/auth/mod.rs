@@ -10,7 +10,7 @@
 //!
 //! What lives in this module after the split:
 //!
-//! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
+//! - Module decls for the supporting layers (`bootstrap`, `config`,
 //!   `migrations`, `repo`, `service`).
 //! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
 //!   the four `*_TABLE` re-exports from `repo/{api_keys,rate_limits,tokens,
@@ -21,7 +21,6 @@
 //!   meta from an `Authorization: Bearer <api-key>` header.
 
 pub mod bootstrap;
-pub mod cache;
 pub mod config;
 pub mod migrations;
 pub mod repo;
