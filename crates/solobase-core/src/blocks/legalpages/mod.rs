@@ -151,6 +151,7 @@ pub(crate) fn config_vars() -> Vec<ConfigVar> {
             "",
         )
         .name("Footer Text")
+        .input_type(InputType::Textarea)
         .optional(),
     ]
 }

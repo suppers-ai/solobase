@@ -116,6 +116,16 @@ fn render_field(var: &ConfigVar, value: &str) -> Markup {
                 }
             }
         },
+        InputType::Textarea => html! {
+            div .form-group style="margin-bottom:1.25rem" {
+                label .form-label for=(var.key) { (label) }
+                textarea .form-input #(var.key) name=(var.key) rows="4"
+                    placeholder=(var.default) { (value) }
+                @if !var.description.is_empty() {
+                    p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (var.description) }
+                }
+            }
+        },
         InputType::Url | InputType::Text => html! {
             div .form-group style="margin-bottom:1.25rem" {
                 label .form-label for=(var.key) { (label) }
@@ -272,6 +282,21 @@ mod tests {
         assert!(on.contains("checked"));
         let off = render_field(&v, "false").into_string();
         assert!(!off.contains("checked"));
+    }
+
+    #[test]
+    fn textarea_field_renders_multiline_with_value_as_content() {
+        let v = var("X__FOOTER", "Footer Text", InputType::Textarea);
+        let s = render_field(&v, "© 2026 Me").into_string();
+        assert!(s.contains("<textarea"), "should render a textarea: {s}");
+        assert!(s.contains(r#"name="X__FOOTER""#));
+        // A textarea carries its value as element content, not a value= attr.
+        assert!(s.contains("© 2026 Me"));
+        assert!(
+            !s.contains(r#"type="text""#),
+            "textarea must not be a text input: {s}"
+        );
+        assert!(s.contains(">Footer Text<"));
     }
 
     #[test]
