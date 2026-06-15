@@ -15,14 +15,10 @@ use wafer_core::interfaces::auth::service::{
 };
 use wafer_run::{context::Context, Message};
 
-use super::{
-    cache::OrgAdminCache,
-    repo::{orgs, pats, sessions, users},
-};
+use super::repo::{pats, sessions, users};
 
 /// Per-block state. Holds a lazy [`Context`] handle so service methods can
-/// dispatch messages to `wafer-run/database` etc., and the shared
-/// `OrgAdminCache`.
+/// dispatch messages to `wafer-run/database` etc.
 ///
 /// `ctx` is populated lazily because `AuthServiceImpl` is constructed at
 /// block-registration time (when no `Context` exists yet) and the framework
@@ -35,10 +31,6 @@ pub struct BlockState {
     /// the framework AuthBlock's `lifecycle(Init)` hook; tests pre-populate
     /// via [`BlockState::for_test`].
     pub ctx: Arc<OnceLock<Arc<dyn Context>>>,
-    /// Shared in-process cache for `verify_org_admin` results. Cloned
-    /// cheaply (it's `Arc` internally) into the handler layer so the
-    /// logout handler can invalidate a user's entries.
-    pub org_admin_cache: OrgAdminCache,
 }
 
 impl BlockState {
@@ -48,7 +40,6 @@ impl BlockState {
     pub fn new() -> Self {
         Self {
             ctx: Arc::new(OnceLock::new()),
-            org_admin_cache: OrgAdminCache::default(),
         }
     }
 
@@ -59,15 +50,7 @@ impl BlockState {
         let _ = cell.set(ctx);
         Self {
             ctx: Arc::new(cell),
-            org_admin_cache: OrgAdminCache::default(),
         }
-    }
-
-    /// Attach a shared [`OrgAdminCache`]. The production wiring uses this
-    /// so the logout handler and the service share the same cache instance.
-    pub fn with_org_admin_cache(mut self, cache: OrgAdminCache) -> Self {
-        self.org_admin_cache = cache;
-        self
     }
 }
 
@@ -364,62 +347,6 @@ impl AuthService for AuthServiceImpl {
         } else {
             Err(AuthError::Forbidden)
         }
-    }
-
-    async fn verify_org_admin(
-        &self,
-        user: UserId,
-        provider: &str,
-        org_ref: &str,
-    ) -> Result<bool, AuthError> {
-        let cache = &self.state.org_admin_cache;
-
-        // 1) Cache hit? Cached values (both true and false) are authoritative
-        //    until TTL expires or the user logs out.
-        if let Some(cached) = cache.get(&user, provider, org_ref) {
-            return Ok(cached);
-        }
-
-        let ctx = self.ctx()?;
-
-        // 2) Look up the org by name. No row → not an admin. Reserved orgs
-        //    are identified by name (migration 002 seeds them); claimed orgs
-        //    are keyed on name plus (verified_via, verified_ref).
-        let Some(org) = orgs::find_by_name(ctx, org_ref)
-            .await
-            .map_err(|e| AuthError::Internal(e.to_string()))?
-        else {
-            cache.insert(&user, provider, org_ref, false);
-            return Ok(false);
-        };
-
-        // 3) Reserved orgs (spec §3): site-admin only.
-        if org.is_reserved {
-            let row = users::find_by_id(ctx, &user.0)
-                .await
-                .map_err(|e| AuthError::Internal(e.to_string()))?
-                .ok_or(AuthError::NotFound)?;
-            let is_admin = row.role == "admin";
-            cache.insert(&user, provider, org_ref, is_admin);
-            return Ok(is_admin);
-        }
-
-        // 4) Non-reserved org but the caller's provider doesn't match the
-        //    org's verified_via (e.g. google caller asking about a
-        //    github-verified org) → not an admin. Owner short-circuit only
-        //    applies when the provider matches.
-        if org.verified_via.as_deref() != Some(provider) {
-            cache.insert(&user, provider, org_ref, false);
-            return Ok(false);
-        }
-
-        // 5) Owner short-circuit: the original claimant is always an admin.
-        //    Without an `OAuthProvider` registry there is no upstream
-        //    membership check, so non-owner members of a claimed org are
-        //    not granted admin from here.
-        let is_owner = org.owner_user_id.as_deref() == Some(user.0.as_str());
-        cache.insert(&user, provider, org_ref, is_owner);
-        Ok(is_owner)
     }
 
     async fn user_profile(&self, user: UserId) -> Result<UserProfile, AuthError> {
