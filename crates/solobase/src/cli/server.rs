@@ -54,13 +54,13 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
     let env_vars = filter_to_declared_keys(collect_app_env_vars());
 
     // 5. Construct the platform database service up front. Native seeds the
-    //    variables / block_settings tables BEFORE the wafer exists — it needs
-    //    the JWT secret to construct its immutable crypto service, and
-    //    `start_with_priority` (which binds the HTTP socket in the atomic
-    //    Start pass) leaves no public hook to seed mid-lifecycle the way the
-    //    stateless targets do via `solobase_core::builder::boot`. The same
-    //    `Arc` is handed to the builder below, so seeding and the runtime
-    //    share one connection/pool.
+    //    variables / block_settings tables BEFORE the wafer exists because its
+    //    immutable crypto service + config snapshot need the JWT secret and the
+    //    seeded values at `build()` time — exactly like the Cloudflare target
+    //    reads its config pre-build. Boot then runs through the shared
+    //    `solobase_core::builder::boot` funnel (below), so the post-admin-init
+    //    seed hook is a no-op. The same `Arc` is handed to the builder below,
+    //    so seeding and the runtime share one connection/pool.
     let database = solobase_native::make_database_service(
         &infra.db_type,
         &infra.db_path,
@@ -192,26 +192,29 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         wafer.add_wrap_grants(db_grants);
     }
 
-    // 11. Start runtime. We init the admin block first so its migrations
-    //     (which create suppers_ai__admin__block_settings + the variables
-    //     table) finish before any other block's Init tries to write to
-    //     block_settings via migration_helper. Without this, HashMap key-
+    // 11. Boot through the shared funnel, then run the native-only Start
+    //     lifecycle + socket bind. `builder::boot` owns the invariant
+    //     seal → init_block(admin) → seed-hook → init_all_blocks → post_start
+    //     ordering shared with the Cloudflare/browser targets, replacing the
+    //     bespoke `start_with_priority(&[admin])`. Admin-first init guarantees
+    //     admin's migrations (which create suppers_ai__admin__block_settings +
+    //     the variables table) run before any other block's Init writes to
+    //     block_settings via migration_helper. Without it, HashMap key-
     //     iteration order could put another block first, hit a hard
-    //     'no such table' error (since solobase #182 made write_state
-    //     propagate strictly), and the cascade would skip auth's bootstrap
-    //     — manifesting as a login 401 on the freshly-booted server in
-    //     CI E2E.
+    //     'no such table' error (solobase #182 made write_state propagate
+    //     strictly), skip auth's bootstrap, and surface as a login 401 on the
+    //     freshly-booted server in CI E2E.
     //
-    //     Mirrors the CF runner's seal → init_block(admin) → init_all_blocks
-    //     sequence (solobase #186); the runtime API for this ordering hook
-    //     landed in wafer-run #143.
-    let wafer = wafer
-        .start_with_priority(&[solobase_core::blocks::admin::ADMIN_BLOCK_ID])
+    //     `boot` runs `post_start` (WRAP-grant injection into storage) for us.
+    //     Native then runs the Start lifecycle and binds the HTTP socket — the
+    //     steps `boot` deliberately omits because the stateless targets
+    //     dispatch per-request instead of binding (wafer-run #239 exposed them
+    //     as `run_start_lifecycle` + `bind_all`).
+    builder::boot(&mut wafer, &storage_block, &NativeBootHooks)
         .await
-        .context("start WAFER runtime")?;
-
-    // 12. Inject WRAP grants into storage block
-    builder::post_start(&wafer, &storage_block);
+        .context("boot WAFER runtime")?;
+    wafer.run_start_lifecycle().await;
+    let wafer = wafer.bind_all();
     tracing::info!("WAFER runtime started — all blocks resolved");
 
     // 13. Wait for shutdown signal, then graceful shutdown
@@ -221,4 +224,21 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
     tracing::info!("solobase shutdown complete");
 
     Ok(())
+}
+
+/// Native [`BootHooks`](builder::BootHooks). Native seeds the variables /
+/// block_settings tables pre-wafer (its immutable crypto service and config
+/// snapshot need the values at `build()` time), so — like the Cloudflare hook
+/// after its eager pre-build config reads — there is nothing left to seed once
+/// admin's `Init` has run. The shared `boot` funnel still owns the admin-first
+/// ordering and `post_start`; native only needs an empty hook to satisfy the
+/// signature, plus the native-only `run_start_lifecycle` + `bind_all` steps
+/// it runs after `boot` returns.
+struct NativeBootHooks;
+
+#[wafer_block::wafer_async_trait]
+impl builder::BootHooks for NativeBootHooks {
+    async fn seed_after_admin_init(&self, _wafer: &wafer_run::Wafer) -> Result<(), String> {
+        Ok(())
+    }
 }

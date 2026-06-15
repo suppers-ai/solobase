@@ -4608,6 +4608,7 @@ name = "solobase"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "getrandom 0.2.17",
  "glob",
@@ -4622,6 +4623,7 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
+ "wafer-block",
  "wafer-core",
  "wafer-run",
 ]
