@@ -71,15 +71,6 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__personal_access_tokens (
 CREATE INDEX IF NOT EXISTS suppers_ai__auth__personal_access_tokens_user_id_idx
     ON suppers_ai__auth__personal_access_tokens (user_id);
 
-CREATE TABLE IF NOT EXISTS suppers_ai__auth__cli_exchange_codes (
-    code_hash      BYTEA PRIMARY KEY,
-    user_id        TEXT NOT NULL REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
-    created_at     TEXT NOT NULL,
-    expires_at     TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS suppers_ai__auth__cli_exchange_codes_expires_at_idx
-    ON suppers_ai__auth__cli_exchange_codes (expires_at);
-
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__bootstrap_tokens (
     id             TEXT PRIMARY KEY,
     token_hash     TEXT NOT NULL UNIQUE,

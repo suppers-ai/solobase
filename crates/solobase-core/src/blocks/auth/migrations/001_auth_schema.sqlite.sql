@@ -77,16 +77,6 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__personal_access_tokens (
 CREATE INDEX IF NOT EXISTS suppers_ai__auth__personal_access_tokens_user_id_idx
     ON suppers_ai__auth__personal_access_tokens (user_id);
 
--- CLI exchange codes (15-min one-time)
-CREATE TABLE IF NOT EXISTS suppers_ai__auth__cli_exchange_codes (
-    code_hash      BLOB PRIMARY KEY,
-    user_id        TEXT NOT NULL REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
-    created_at     TEXT NOT NULL,
-    expires_at     TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS suppers_ai__auth__cli_exchange_codes_expires_at_idx
-    ON suppers_ai__auth__cli_exchange_codes (expires_at);
-
 -- Bootstrap tokens (first-run admin seeding). token_hash stored as hex-encoded
 -- TEXT (lowercase, 64 chars for sha256) so the typed db::* client can use the
 -- synthetic id PK; the hash is unique per token, indexed for is_valid lookups.
