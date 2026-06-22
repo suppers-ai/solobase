@@ -110,13 +110,25 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
             .detail-rows td { background: var(--bg-secondary, #f8fafc); font-size: 12px; }
             .detail-rows[hidden] { display: none; }
         ")) }
+        // Delegated click handler — the row carries `data-detail-*` attributes
+        // (maud-escaped) instead of an `onclick` JS-string literal, which maud
+        // does NOT escape and so let an attacker-controlled request path break
+        // out and run script in an admin's session. Bound once per document.
         script { (maud::PreEscaped("
-            function toggleDetail(rowId, url) {
-                var detail = document.getElementById(rowId);
-                var row = detail.closest('tr');
-                if (!row.hidden) { row.hidden = true; return; }
-                row.hidden = false;
-                if (!detail.innerHTML) htmx.ajax('GET', url, {target: '#' + rowId, swap: 'innerHTML'});
+            if (!window.__networkDetailBound) {
+                window.__networkDetailBound = true;
+                document.addEventListener('click', function (e) {
+                    var row = e.target.closest('.expand-row[data-detail-target]');
+                    if (!row) return;
+                    var detail = document.getElementById(row.dataset.detailTarget);
+                    if (!detail) return;
+                    var dr = detail.closest('tr');
+                    if (!dr.hidden) { dr.hidden = true; return; }
+                    dr.hidden = false;
+                    if (!detail.innerHTML) {
+                        htmx.ajax('GET', row.dataset.detailUrl, {target: '#' + row.dataset.detailTarget, swap: 'innerHTML'});
+                    }
+                });
             }
         ")) }
 
@@ -146,34 +158,52 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                         @let avg_ms = row.data.get("avg_ms").and_then(|v| v.as_i64()).unwrap_or(0);
                         @let errors = row.data.get("errors").and_then(|v| v.as_i64()).unwrap_or(0);
                         @let last_seen = row.data.get("last_seen").and_then(|v| v.as_str()).unwrap_or("");
-                        @let row_id = format!("inbound-{}-{}", method, path.replace('/', "_"));
-                        @let detail_url = format!("/b/admin/network/detail/inbound?method={method}&path={path}");
-                        tr .expand-row
-                            onclick={"toggleDetail('" (row_id) "','" (detail_url) "')"}
-                        {
-                            td .text-muted { (icons::chevron_right()) }
-                            td .text-sm .font-medium { (method.to_uppercase()) }
-                            td .text-sm { (path) }
-                            td .text-sm {
-                                span .badge .badge-info { (cnt) }
-                            }
-                            td .text-muted .text-sm { (avg_ms) "ms" }
-                            td .text-sm {
-                                @if errors > 0 {
-                                    span .badge .badge-danger { (errors) }
-                                } @else {
-                                    span .text-muted { "0" }
-                                }
-                            }
-                            td .text-muted .text-sm { (last_seen.get(..19).unwrap_or(last_seen)) }
-                        }
-                        tr .detail-rows hidden {
-                            td colspan="7" style="padding:0" {
-                                div id=(row_id) {}
-                            }
-                        }
+                        (inbound_row(method, path, cnt, avg_ms, errors, last_seen))
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Render one inbound-summary row: the clickable row plus its lazily-loaded
+/// detail row. `method`/`path` come from the request log and are
+/// attacker-controlled (any HTTP request with a crafted path is logged), so
+/// they appear only in maud-escaped attribute/text contexts. The row carries
+/// `data-detail-target`/`data-detail-url` that the delegated click handler
+/// reads — never an `onclick` JS-string literal (maud doesn't escape JS-string
+/// context, which was a stored-XSS sink).
+fn inbound_row(
+    method: &str,
+    path: &str,
+    cnt: i64,
+    avg_ms: i64,
+    errors: i64,
+    last_seen: &str,
+) -> Markup {
+    let row_id = format!("inbound-{}-{}", method, path.replace('/', "_"));
+    let detail_url = format!("/b/admin/network/detail/inbound?method={method}&path={path}");
+    html! {
+        tr .expand-row data-detail-target=(row_id) data-detail-url=(detail_url) {
+            td .text-muted { (icons::chevron_right()) }
+            td .text-sm .font-medium { (method.to_uppercase()) }
+            td .text-sm { (path) }
+            td .text-sm {
+                span .badge .badge-info { (cnt) }
+            }
+            td .text-muted .text-sm { (avg_ms) "ms" }
+            td .text-sm {
+                @if errors > 0 {
+                    span .badge .badge-danger { (errors) }
+                } @else {
+                    span .text-muted { "0" }
+                }
+            }
+            td .text-muted .text-sm { (last_seen.get(..19).unwrap_or(last_seen)) }
+        }
+        tr .detail-rows hidden {
+            td colspan="7" style="padding:0" {
+                div id=(row_id) {}
             }
         }
     }
@@ -277,4 +307,49 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
         }
     };
     crate::ui::html_response(markup)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inbound_row_has_no_js_string_xss_sink() {
+        // Attacker-controlled request path crafted to break out of the old
+        // `onclick="toggleDetail('…')"` JS-string literal.
+        let html = inbound_row(
+            "GET",
+            "'); alert(document.cookie); //",
+            1,
+            2,
+            0,
+            "2026-01-01T00:00:00Z",
+        )
+        .into_string();
+
+        // The JS-string sink is gone entirely.
+        assert!(
+            !html.contains("onclick"),
+            "must not emit an onclick JS-string sink: {html}"
+        );
+        // Replaced by maud-escaped data-* attributes the delegated handler reads.
+        assert!(
+            html.contains("data-detail-target="),
+            "row must carry data-detail-target: {html}"
+        );
+        assert!(
+            html.contains("data-detail-url="),
+            "row must carry data-detail-url: {html}"
+        );
+        // maud escapes the attribute value (e.g. the URL's `&`), proving the
+        // path lands in escaped attribute context, not a raw/JS sink.
+        assert!(
+            html.contains("method=GET&amp;path="),
+            "detail URL must be HTML-escaped in the attribute: {html}"
+        );
+        assert!(
+            !html.contains("method=GET&path="),
+            "a raw unescaped query would mean an injection sink survived: {html}"
+        );
+    }
 }
