@@ -21,7 +21,6 @@ const EXPECTED_TABLES: &[&str] = &[
     "suppers_ai__auth__orgs",
     "suppers_ai__auth__sessions",
     "suppers_ai__auth__personal_access_tokens",
-    "suppers_ai__auth__cli_exchange_codes",
     "suppers_ai__auth__bootstrap_tokens",
 ];
 
