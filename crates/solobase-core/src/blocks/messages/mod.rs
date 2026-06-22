@@ -1,4 +1,3 @@
-pub(crate) mod a2a;
 pub(crate) mod migrations;
 pub mod pages;
 pub mod rest;
@@ -122,7 +121,7 @@ crate::solobase_feature_block! {
         .category(wafer_run::BlockCategory::Feature)
         .description(
             "Protocol-agnostic context + entry system. Supports chat conversations, \
-             A2A task lifecycle, notifications, and future protocols. Contexts are \
+             notifications, and future protocols. Contexts are \
              containers (conversations, tasks, channels). Entries are the universal \
              primitive (messages, artifacts, notifications, status changes).",
         )
@@ -242,26 +241,11 @@ crate::solobase_feature_block! {
                 .summary("Delete entry")
                 .auth(AuthLevel::Authenticated)
                 .tags(&["entries"]),
-            // A2A JSON-RPC endpoint — routed from the shared pipeline. Auth
-            // is enforced by the JSON-RPC method handlers themselves.
-            BlockEndpoint::post("/a2a")
-                .summary("A2A JSON-RPC endpoint")
-                .description("JSON-RPC dispatch for SendMessage, GetTask, ListTasks, CancelTask")
-                .tags(&["a2a"]),
         ])
         .can_disable(true)
         .default_enabled(true)
     },
     handle: |_this, ctx, msg, input| {
-        // A2A JSON-RPC endpoint — protocol-public (auth handled by the
-        // JSON-RPC method handlers themselves). It does NOT pass through the
-        // central router's prefix table: the shared pipeline dispatches `/a2a`
-        // straight here via `ctx.call_block("suppers-ai/messages", ...)`, so
-        // the block keeps this entry point.
-        if msg.path() == "/a2a" {
-            return a2a::handle_a2a(ctx, msg, input).await;
-        }
-
         // Auth is enforced centrally by `route_to_block` from the declared
         // endpoint `AuthLevel` (UI pages → Admin, API → Authenticated), so no
         // per-handler `user_id`/`is_admin` preamble is needed here. Dispatch
@@ -294,4 +278,23 @@ crate::solobase_feature_block! {
         )
         .await
     },
+}
+
+#[cfg(test)]
+mod tests {
+    /// The `/a2a` JSON-RPC endpoint dispatched fully unauthenticated (no method
+    /// handler checked the caller) and was removed. Guard against re-exposing it
+    /// without an auth gate by asserting the real registered block info has no
+    /// such endpoint.
+    #[test]
+    fn messages_block_does_not_expose_a2a_endpoint() {
+        let info = crate::blocks::all_block_infos()
+            .into_iter()
+            .find(|i| i.name == "suppers-ai/messages")
+            .expect("messages block must be in all_block_infos()");
+        assert!(
+            !info.endpoints.iter().any(|e| e.path == "/a2a"),
+            "/a2a must not be exposed — it dispatched unauthenticated; re-add behind auth first"
+        );
+    }
 }

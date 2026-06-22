@@ -1,7 +1,7 @@
 //! Service layer for the messages block.
 //!
-//! Plain async functions — no HTTP awareness. Shared by the REST, A2A,
-//! and SSR-page handlers. Pure-CRUD REST shells with no business logic
+//! Plain async functions — no HTTP awareness. Shared by the REST and
+//! SSR-page handlers. Pure-CRUD REST shells with no business logic
 //! (get context/entry, delete entry) go through `blocks::crud` instead.
 
 use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
