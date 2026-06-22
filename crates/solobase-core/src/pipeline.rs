@@ -104,14 +104,6 @@ pub async fn handle_request(
         }
     }
 
-    // A2A JSON-RPC endpoint — dispatch into the messages block via
-    // `call_block` so WRAP sees the call as cross-block (pipeline → messages)
-    // and so the route can be feature-gated alongside the rest of the
-    // messages block in Phase 0b PR-2.
-    if msg.path() == "/a2a" {
-        return ctx.call_block("suppers-ai/messages", msg, input).await;
-    }
-
     // Capture request info before routing (for logging)
     let method = msg.action().to_string();
     let path = msg.path().to_string();
