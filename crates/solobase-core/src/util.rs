@@ -204,6 +204,78 @@ pub fn url_path_encode(s: &str) -> String {
     percent_encoding::utf8_percent_encode(s, PATH_SEGMENT).to_string()
 }
 
+/// Validate a URL-type config value against SSRF attacks.
+///
+/// Empty values are allowed (clears the setting). Relative paths starting with
+/// a single `/` are allowed. Otherwise the value must be HTTPS (or
+/// `http://localhost` for local development), must not contain newlines (header
+/// injection), and must not resolve to a private/internal/loopback IP.
+///
+/// Single source of truth for the `InputType::Url` write rule, shared by every
+/// config-value write surface — the admin variables page (`blocks::admin::ops`)
+/// and the generic settings form (`ui::settings_form::save_settings`) — so a
+/// value one surface rejects can't be smuggled in through another.
+pub(crate) fn validate_url_value(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Ok(());
+    }
+    // Allow relative paths.
+    if value.starts_with('/') && !value.starts_with("//") {
+        return Ok(());
+    }
+    // Block newlines (header injection).
+    if value.contains('\n') || value.contains('\r') {
+        return Err("URL must not contain newlines".to_string());
+    }
+    // Must be https:// or http://localhost for dev.
+    let is_localhost = value.starts_with("http://localhost");
+    if !value.starts_with("https://") && !is_localhost {
+        return Err("URL must use HTTPS (or http://localhost for development)".to_string());
+    }
+    // Extract hostname and check for private/internal IPs.
+    let host = value
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|authority| {
+            // Handle [IPv6]:port
+            if authority.starts_with('[') {
+                authority.strip_prefix('[')?.split(']').next()
+            } else {
+                authority.split(':').next()
+            }
+        })
+        .unwrap_or("");
+
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
+                    || v4.is_loopback()                // 127.x
+                    || v4.is_link_local()              // 169.254.x
+                    || v4.octets()[0] == 0; // 0.0.0.0/8
+                if is_blocked && !is_localhost {
+                    return Err("URL must not point to private/internal IP addresses".to_string());
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                if v6.is_loopback() {
+                    return Err("URL must not point to loopback address".to_string());
+                }
+                // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
+                if let Some(v4) = v6.to_ipv4_mapped() {
+                    if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
+                        return Err(
+                            "URL must not point to private/internal IP addresses".to_string()
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Percent-encode a string for use as an OAuth / `application/x-www-form-urlencoded`
 /// query parameter or form-body value. Delegates to
 /// [`url::form_urlencoded::byte_serialize`] which encodes spaces as `+` and
@@ -561,5 +633,19 @@ mod tests {
         // Absent fields are not materialized as empty strings.
         assert_eq!(msg.get_meta("auth.user_email"), "");
         assert_eq!(msg.get_meta("auth.user_roles"), "");
+    }
+
+    #[test]
+    fn validate_url_value_blocks_ssrf_and_allows_safe() {
+        assert!(validate_url_value("").is_ok());
+        assert!(validate_url_value("/relative/path").is_ok());
+        assert!(validate_url_value("https://example.com/ok").is_ok());
+        assert!(validate_url_value("http://localhost:8080").is_ok());
+        // SSRF vectors.
+        assert!(validate_url_value("http://example.com").is_err()); // not https
+        assert!(validate_url_value("https://10.0.0.1/admin").is_err());
+        assert!(validate_url_value("https://192.168.1.1").is_err());
+        assert!(validate_url_value("https://127.0.0.1").is_err());
+        assert!(validate_url_value("https://example.com\r\nHost: evil").is_err());
     }
 }
