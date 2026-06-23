@@ -557,16 +557,10 @@ async fn load_index_metadata(
     // `{prefixed}_fts` when keyword_search is enabled and nothing when it
     // isn't, so the row count for that exact name is a reliable signal.
     let fts_name = format!("{prefixed_index}_fts");
-    // Direct `sqlite_master` lookup — the vector block is SQLite-only by
-    // design (sqlite-vec extension), so no dialect-portable equivalent is
-    // needed. `wafer-sql-utils::introspect` doesn't expose a "table exists"
-    // single-name probe; adding one is out of scope for this PR.
-    let fts_rows = db::query_raw(
-        ctx,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?1",
-        &[serde_json::Value::String(fts_name)],
-    )
-    .await?;
+    // "Table exists" probe via the sql-utils introspect builder (portable
+    // across backends) instead of a hand-written `sqlite_master` query.
+    let (sql, params) = introspect::build_table_exists(&fts_name, crate::db_backend(ctx).await);
+    let fts_rows = db::query_raw(ctx, &sql, &params).await?;
     let keyword_search = !fts_rows.is_empty();
 
     Ok((DEFAULT_MODEL.to_string(), keyword_search))

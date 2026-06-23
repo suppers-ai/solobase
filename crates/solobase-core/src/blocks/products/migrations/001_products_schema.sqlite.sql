@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS suppers_ai__products__purchases (
     metadata                    TEXT NOT NULL DEFAULT '{}',
     stripe_payment_intent_id    TEXT NOT NULL DEFAULT '',
     provider_payment_intent_id  TEXT NOT NULL DEFAULT '',
+    provider_session_id         TEXT NOT NULL DEFAULT '',
     approved_at                 TEXT,
     refunded_at                 TEXT,
     refunded_by                 TEXT NOT NULL DEFAULT '',
