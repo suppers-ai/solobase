@@ -334,6 +334,13 @@ pub async fn route_to_block(
             continue;
         }
 
+        // Feature gate — downstream-registered routes honor the admin disable
+        // toggle exactly like the built-in `ROUTES` loop above (which they
+        // bypassed before). Keep this gate in sync with that one.
+        if !features.is_block_enabled(&route.block_name) {
+            return crate::http::err_not_found("endpoint not found");
+        }
+
         if let Some(denied) = check_access(route.access, &msg) {
             return denied;
         }
@@ -526,6 +533,74 @@ mod tests {
         "suppers-ai/legalpages",
         "suppers-ai/userportal",
     ];
+
+    #[tokio::test]
+    async fn extra_routes_honor_the_feature_gate() {
+        use async_trait::async_trait;
+        use wafer_run::{Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent, WaferError};
+
+        use crate::test_support::{anon_msg, TestContext};
+
+        struct EchoBlock;
+        #[async_trait]
+        impl RunBlock for EchoBlock {
+            fn info(&self) -> BlockInfo {
+                BlockInfo::new("test/extra", "0.0.1", "echo@v1", "extra route target")
+                    .category(BlockCategory::Service)
+            }
+            async fn handle(
+                &self,
+                _ctx: &dyn Context,
+                _msg: Message,
+                _input: InputStream,
+            ) -> OutputStream {
+                crate::http::ResponseBuilder::new()
+                    .status(200)
+                    .body(b"DISPATCHED".to_vec(), "text/plain")
+            }
+            async fn lifecycle(
+                &self,
+                _ctx: &dyn Context,
+                _e: LifecycleEvent,
+            ) -> Result<(), WaferError> {
+                Ok(())
+            }
+        }
+
+        async fn dispatched(features: &dyn FeatureConfig) -> bool {
+            let mut ctx = TestContext::new().await;
+            ctx.register_block("test/extra", std::sync::Arc::new(EchoBlock));
+            let extra = vec![ExtraRoute {
+                prefix: "/x/extra".to_string(),
+                access: RouteAccess::Public,
+                block_name: "test/extra".to_string(),
+            }];
+            let out = route_to_block(
+                &ctx,
+                anon_msg("retrieve", "/x/extra/thing"),
+                InputStream::empty(),
+                features,
+                &[],
+                &extra,
+            )
+            .await;
+            out.collect_buffered()
+                .await
+                .map(|b| b.body == b"DISPATCHED")
+                .unwrap_or(false)
+        }
+
+        // Enabled → dispatched; disabled → feature-gated (NOT dispatched), the
+        // gap this fix closes for downstream-registered routes.
+        assert!(
+            dispatched(&AllEnabled).await,
+            "enabled extra route should dispatch"
+        );
+        assert!(
+            !dispatched(&NoneEnabled).await,
+            "disabled extra route must be feature-gated, not dispatched"
+        );
+    }
 
     #[test]
     fn feature_gating_all_enabled() {
