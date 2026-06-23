@@ -2,7 +2,7 @@
 --
 -- Mirror of 001_products_schema.sqlite.sql. INTEGER (not BOOLEAN) is used
 -- for boolean-like columns to match the JSON-value round-trips used by
--- block code. DOUBLE PRECISION is used for the float price columns.
+-- block code. DOUBLE PRECISION is used for the float `base_price` column.
 -- CREATE TABLE IF NOT EXISTS makes this idempotent across repeated `Init`
 -- lifecycle events.
 --
@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS suppers_ai__products__products (
     name                  TEXT NOT NULL,
     description           TEXT NOT NULL DEFAULT '',
     slug                  TEXT NOT NULL DEFAULT '',
-    price                 DOUBLE PRECISION NOT NULL DEFAULT 0,
     base_price            DOUBLE PRECISION NOT NULL DEFAULT 0,
     currency              TEXT NOT NULL DEFAULT 'USD',
     status                TEXT NOT NULL DEFAULT 'draft',

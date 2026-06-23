@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS suppers_ai__products__products (
     name                  TEXT NOT NULL,
     description           TEXT NOT NULL DEFAULT '',
     slug                  TEXT NOT NULL DEFAULT '',
-    price                 REAL NOT NULL DEFAULT 0,
     base_price            REAL NOT NULL DEFAULT 0,
     currency              TEXT NOT NULL DEFAULT 'USD',
     status                TEXT NOT NULL DEFAULT 'draft',
