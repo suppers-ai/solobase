@@ -535,11 +535,14 @@ async fn load_models(ctx: &dyn Context) -> Vec<ModelInfo> {
 
 /// Render the `<option>` list for the remote-model picker.
 ///
-/// Each option's `value` is `"{backend_id}:{model_id}"` — a single string so
-/// the existing thread-setting shape (single `model` field) stays compatible.
-/// The visible label prefers `display_name`, falling back to `model_id`. The
-/// `backend_id` is appended in parens when non-empty so users can disambiguate
-/// the same model id hosted on different backends.
+/// Each option carries the bare `model_id` as its `value` and the `backend_id`
+/// as a `data-backend-id` attribute — two separate fields, NOT a
+/// `"{backend_id}:{model_id}"` composite. The composite was ambiguous (model
+/// ids such as `llama3:8b` contain colons) and was forwarded to the backend
+/// verbatim as the model id; the JS now sends `model` + `provider` separately.
+/// The visible label prefers `display_name`, falling back to `model_id`, with
+/// `backend_id` appended in parens to disambiguate the same model on different
+/// backends.
 ///
 /// Entries with an empty `model_id` are skipped — the resulting
 /// `<option value="">` would collide with the "Default (remote)" entry and
@@ -550,19 +553,15 @@ fn render_model_picker(models: &[ModelInfo], default_model: &str) -> Markup {
             @let backend_id = m.backend_id.as_str();
             @let model_id = m.model_id.as_str();
             @if !model_id.is_empty() {
-                @let value = if backend_id.is_empty() {
-                    model_id.to_string()
-                } else {
-                    format!("{backend_id}:{model_id}")
-                };
                 @let display = if m.display_name.is_empty() {
                     model_id
                 } else {
                     m.display_name.as_str()
                 };
                 option
-                    value=(value)
-                    selected[value == default_model]
+                    value=(model_id)
+                    data-backend-id=(backend_id)
+                    selected[model_id == default_model]
                 {
                     (display)
                     @if !backend_id.is_empty() {
@@ -601,15 +600,15 @@ mod tests {
     }
 
     /// A typical aggregated `Vec<ModelInfo>` payload renders one option per
-    /// entry with the `"{backend_id}:{model_id}"` value and `display_name`
-    /// label.
+    /// entry with the bare `model_id` value, a `data-backend-id` attribute, and
+    /// the `display_name` label.
     #[test]
     fn render_model_picker_typical_list_emits_one_option_per_model() {
         let models = vec![
             mi("openai", "gpt-4o", "GPT-4o"),
             mi("anthropic", "claude-3-5-sonnet", "Claude 3.5 Sonnet"),
         ];
-        let markup = render_model_picker(&models, "anthropic:claude-3-5-sonnet");
+        let markup = render_model_picker(&models, "claude-3-5-sonnet");
         let html = markup.into_string();
 
         // One <option> per model entry.
@@ -618,14 +617,15 @@ mod tests {
             2,
             "expected 2 <option> tags, got: {html}"
         );
-        // Composite value uses `backend_id:model_id`.
+        // Value is the bare model_id; backend_id rides in data-backend-id —
+        // never a `backend:model` composite.
         assert!(
-            html.contains(r#"value="openai:gpt-4o""#),
-            "missing openai value: {html}"
+            html.contains(r#"value="gpt-4o" data-backend-id="openai""#),
+            "missing openai option shape: {html}"
         );
         assert!(
-            html.contains(r#"value="anthropic:claude-3-5-sonnet""#),
-            "missing anthropic value: {html}"
+            !html.contains(r#"value="openai:gpt-4o""#),
+            "must not emit the ambiguous composite value: {html}"
         );
         // Human label comes from display_name.
         assert!(html.contains("GPT-4o"), "missing GPT-4o label: {html}");
@@ -635,9 +635,9 @@ mod tests {
         );
         // Backend id is appended in parens for disambiguation.
         assert!(html.contains("(openai)"), "missing backend suffix: {html}");
-        // The entry matching the default_model string is pre-selected.
+        // The entry whose model_id matches default_model is pre-selected.
         assert!(
-            html.contains(r#"value="anthropic:claude-3-5-sonnet" selected"#),
+            html.contains(r#"value="claude-3-5-sonnet" data-backend-id="anthropic" selected"#),
             "expected selected attr on matching default_model entry: {html}"
         );
     }
@@ -666,16 +666,18 @@ mod tests {
             2,
             "expected 2 <option> tags, got: {html}"
         );
-        // Empty display_name falls back to model id as the visible label.
+        // Empty display_name falls back to model id as the visible label; the
+        // value is the bare model_id with backend_id in data-backend-id.
         assert!(
-            html.contains(r#"value="openai:gpt-4o-mini""#),
-            "expected openai:gpt-4o-mini value: {html}"
+            html.contains(r#"value="gpt-4o-mini" data-backend-id="openai""#),
+            "expected gpt-4o-mini option shape: {html}"
         );
         assert!(
             html.contains("gpt-4o-mini"),
             "expected gpt-4o-mini label fallback: {html}"
         );
-        // No backend_id — value is the bare model_id, no `(...)` suffix.
+        // No backend_id — value is the bare model_id, empty data-backend-id, no
+        // `(...)` suffix.
         assert!(
             html.contains(r#"value="solo-model""#),
             "expected bare-model value when backend_id is missing: {html}"
