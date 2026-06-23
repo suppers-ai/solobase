@@ -204,6 +204,12 @@
 
     var picker = document.getElementById('model-picker');
     var model = picker ? picker.value : '';
+    // The selected option carries the bare model id as its value and the
+    // backend id in data-backend-id, so model + provider go as separate fields
+    // (the old "backend:model" composite was ambiguous and mis-sent the model).
+    var backendId = (picker && picker.selectedOptions[0])
+      ? (picker.selectedOptions[0].dataset.backendId || '')
+      : '';
 
     var chatPromise;
     if (model.startsWith('local:')) {
@@ -215,7 +221,7 @@
         return handleLocalChat(threadId, model.slice(6));
       });
     } else {
-      chatPromise = handleRemoteChat(threadId, userText, model);
+      chatPromise = handleRemoteChat(threadId, userText, model, backendId);
     }
 
     chatPromise.catch(function (err) {
@@ -275,7 +281,7 @@
       });
   }
 
-  function handleRemoteChat(threadId, userText, model) {
+  function handleRemoteChat(threadId, userText, model, backendId) {
     var card = appendMessageCard('assistant', '', { id: 'streaming-msg' });
     var contentDiv = card ? card.querySelector('div:last-child') : null;
     if (contentDiv) contentDiv.innerHTML = '<span class="text-muted" style="animation:pulse 1.5s infinite">Thinking...</span>';
@@ -283,6 +289,7 @@
 
     var body = { thread_id: threadId, message: userText };
     if (model) body.model = model;
+    if (backendId) body.provider = backendId;
 
     return fetch('/b/llm/api/chat', {
       method: 'POST',
