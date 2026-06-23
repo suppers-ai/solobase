@@ -194,11 +194,22 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal_no_cause("Failed to parse Stripe response"),
+        Err(_) => {
+            // Revert so the purchase doesn't stay stuck in checkout_started
+            // (claim_for_checkout only re-claims `pending`).
+            let _ = repo::purchases::revert_checkout_claim(ctx, &body.purchase_id).await;
+            return err_internal_no_cause("Failed to parse Stripe response");
+        }
     };
 
     let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let checkout_url = session.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    if session_id.is_empty() || checkout_url.is_empty() {
+        // No usable checkout session — revert the claim, same as the parse/4xx
+        // paths, rather than returning an empty/broken checkout URL.
+        let _ = repo::purchases::revert_checkout_claim(ctx, &body.purchase_id).await;
+        return err_internal_no_cause("Stripe response missing session id or checkout url");
+    }
 
     // Update purchase with Stripe session ID
     let mut upd = HashMap::new();

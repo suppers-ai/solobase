@@ -49,7 +49,7 @@ pub async fn insert(
     data.insert("id".into(), json!(id));
     data.insert("user_id".into(), json!(user_id));
     data.insert("password_hash".into(), json!(password_hash));
-    data.insert("must_reset".into(), json!(if must_reset { 1 } else { 0 }));
+    data.insert("must_reset".into(), json!(must_reset));
     data.insert("created_at".into(), json!(now));
 
     db::create(ctx, TABLE, data)

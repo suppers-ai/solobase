@@ -11,14 +11,18 @@
 //! Request body is `application/x-www-form-urlencoded` (the GET page
 //! submits a plain HTML form — no JS).
 
+use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::{
-    blocks::auth::{
-        bootstrap,
-        helpers::issue_tokens_and_cookie,
-        repo::{bootstrap_tokens, users},
-        service::hash_token,
+    blocks::{
+        auth::{
+            bootstrap,
+            helpers::issue_tokens_and_cookie,
+            repo::{bootstrap_tokens, users},
+            service::hash_token,
+        },
+        auth_ui::redirect::is_safe_local_redirect,
     },
     http::{
         err_bad_request, err_internal, err_internal_no_cause, err_unauthorized, ResponseBuilder,
@@ -90,13 +94,22 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             Err(r) => return r,
         };
 
-    // 6. Set the auth cookie + redirect to the dashboard. The form is a
-    //    plain HTML POST (no JS), so a 302 with Set-Cookie is the right
-    //    completion signal.
+    // 6. Set the auth cookie + redirect to a real post-login destination. The
+    //    form is a plain HTML POST (no JS), so a 302 with Set-Cookie is the
+    //    right completion signal. Honor SOLOBASE_SHARED__POST_LOGIN_REDIRECT
+    //    (validated) like login/oauth, defaulting to the admin home — the old
+    //    `/b/auth/dashboard` target is not a registered route (404).
+    let post_login_raw =
+        config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;
+    let dest = if is_safe_local_redirect(&post_login_raw) {
+        post_login_raw
+    } else {
+        "/b/admin/".to_string()
+    };
     ResponseBuilder::new()
         .status(302)
         .set_cookie(&issued.cookie)
-        .set_header("Location", "/b/auth/dashboard")
+        .set_header("Location", &dest)
         .empty()
 }
 
@@ -192,5 +205,33 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(bootstrap_tokens::is_valid(&ctx, &hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn redeems_valid_token_redirects_to_a_real_route() {
+        use wafer_run::{MetaGet, META_RESP_STATUS};
+        let ctx = ctx_with_crypto().await;
+        let raw = "redirect-token";
+        let hash = hash_token(raw);
+        let expires = (chrono::Utc::now() + chrono::Duration::hours(24))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        bootstrap_tokens::insert(&ctx, hash, &expires)
+            .await
+            .unwrap();
+
+        let form = format!("token={raw}&email=admin@example.com&password=test1234");
+        let buf = handle(&ctx, InputStream::from_bytes(form.into_bytes()))
+            .await
+            .collect_buffered()
+            .await
+            .expect("redirect response");
+        assert_eq!(MetaGet::get(&buf.meta, META_RESP_STATUS), Some("302"));
+        // Defaults to the admin home (no POST_LOGIN_REDIRECT configured); the
+        // old `/b/auth/dashboard` target was an unregistered route (404).
+        assert_eq!(
+            MetaGet::get(&buf.meta, "resp.header.Location"),
+            Some("/b/admin/")
+        );
     }
 }
