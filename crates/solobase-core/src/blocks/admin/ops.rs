@@ -45,75 +45,12 @@ pub(super) fn is_sensitive_key(key: &str, sensitive_flag: i64) -> bool {
     sensitive_flag == 1 || key.ends_with("_SECRET") || key.ends_with("_KEY")
 }
 
-/// Validate a URL-type config value against SSRF attacks.
-///
-/// Empty values are allowed (clears the setting). Relative paths starting with
-/// a single `/` are allowed. Otherwise the value must be HTTPS (or
-/// `http://localhost` for local development), must not contain newlines (header
-/// injection), and must not resolve to a private/internal/loopback IP.
-///
-/// Used by every variable create/update path — JSON **and** SSR — so a value an
-/// admin can't set through the API can't be smuggled in through the page form.
-pub(super) fn validate_url_value(value: &str) -> Result<(), String> {
-    if value.is_empty() {
-        return Ok(());
-    }
-    // Allow relative paths.
-    if value.starts_with('/') && !value.starts_with("//") {
-        return Ok(());
-    }
-    // Block newlines (header injection).
-    if value.contains('\n') || value.contains('\r') {
-        return Err("URL must not contain newlines".to_string());
-    }
-    // Must be https:// or http://localhost for dev.
-    let is_localhost = value.starts_with("http://localhost");
-    if !value.starts_with("https://") && !is_localhost {
-        return Err("URL must use HTTPS (or http://localhost for development)".to_string());
-    }
-    // Extract hostname and check for private/internal IPs.
-    let host = value
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .and_then(|authority| {
-            // Handle [IPv6]:port
-            if authority.starts_with('[') {
-                authority.strip_prefix('[')?.split(']').next()
-            } else {
-                authority.split(':').next()
-            }
-        })
-        .unwrap_or("");
-
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
-                    || v4.is_loopback()                // 127.x
-                    || v4.is_link_local()              // 169.254.x
-                    || v4.octets()[0] == 0; // 0.0.0.0/8
-                if is_blocked && !is_localhost {
-                    return Err("URL must not point to private/internal IP addresses".to_string());
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                if v6.is_loopback() {
-                    return Err("URL must not point to loopback address".to_string());
-                }
-                // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
-                if let Some(v4) = v6.to_ipv4_mapped() {
-                    if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
-                        return Err(
-                            "URL must not point to private/internal IP addresses".to_string()
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
+/// SSRF URL validator for `InputType::Url` writes. The single implementation
+/// lives in [`crate::util::validate_url_value`]; re-exported here so the admin
+/// variable create/update paths and the generic settings form
+/// (`ui::settings_form::save_settings`) validate through the exact same impl and
+/// can't diverge on what a URL value is allowed to be.
+pub(super) use crate::util::validate_url_value;
 
 /// Bulk-fetch the roles assigned to each of `user_ids` in a single `In`-filter
 /// query, bucketed back into a `user_id -> [role]` map.
@@ -504,20 +441,6 @@ mod tests {
         assert!(is_sensitive_key("JWT_KEY", 0));
         // Neither flag nor suffix → not sensitive.
         assert!(!is_sensitive_key("SITE_NAME", 0));
-    }
-
-    #[test]
-    fn validate_url_value_blocks_ssrf_and_allows_safe() {
-        assert!(validate_url_value("").is_ok());
-        assert!(validate_url_value("/relative/path").is_ok());
-        assert!(validate_url_value("https://example.com/ok").is_ok());
-        assert!(validate_url_value("http://localhost:8080").is_ok());
-        // SSRF vectors.
-        assert!(validate_url_value("http://example.com").is_err()); // not https
-        assert!(validate_url_value("https://10.0.0.1/admin").is_err());
-        assert!(validate_url_value("https://192.168.1.1").is_err());
-        assert!(validate_url_value("https://127.0.0.1").is_err());
-        assert!(validate_url_value("https://example.com\r\nHost: evil").is_err());
     }
 
     // --- End-to-end regression tests for the security drifts this module

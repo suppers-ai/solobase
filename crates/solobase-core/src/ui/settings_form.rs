@@ -24,7 +24,10 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, InputStream, OutputStream};
 pub use wafer_run::{ConfigVar, InputType};
 
-use crate::http::{err_bad_request, ok_json};
+use crate::{
+    http::{err_bad_request, err_internal, ok_json},
+    util::validate_url_value,
+};
 
 /// One titled group of settings within a form (e.g. "Stripe", "OAuth Providers").
 pub struct SettingsSection<'a> {
@@ -221,10 +224,25 @@ pub async fn save_settings(
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
+    // Validate every URL-typed value up front so one bad URL can't leave a
+    // half-applied save. `is_url()` (InputType::Url) is the declared rule, and
+    // `validate_url_value` is the same SSRF check the admin variables page runs —
+    // shared so the two write surfaces can't accept divergent inputs.
+    for var in allowed {
+        if var.is_url() {
+            if let Some(value) = body.get(&var.key) {
+                if let Err(e) = validate_url_value(value) {
+                    return err_bad_request(&format!("{}: {e}", var.key));
+                }
+            }
+        }
+    }
     for var in allowed {
         if let Some(value) = body.get(&var.key) {
+            // Surface the first write failure instead of reporting a false
+            // "saved" — htmx clients branch on the status, not a 200 body.
             if let Err(e) = config::set(ctx, &var.key, value).await {
-                tracing::warn!(error = %e, key = %var.key, block = block_label, "failed to set config value");
+                return err_internal(&format!("Failed to save {block_label} settings"), e);
             }
         }
     }
@@ -313,5 +331,63 @@ mod tests {
         // a quote in the url must not break out of the string literal
         let js2 = submit_js(r#"/x"); alert(1);//"#);
         assert!(!js2.contains(r#"fetch("/x");"#));
+    }
+
+    // --- save_settings: URL validation (M16) + error surfacing (M24) ---
+    use wafer_run::{streams::output::TerminalNotResponse, InputStream};
+
+    use crate::test_support::TestContext;
+
+    async fn run_save(
+        ctx: &TestContext,
+        allowed: &[ConfigVar],
+        body: serde_json::Value,
+    ) -> OutputStream {
+        let input = InputStream::from_bytes(serde_json::to_vec(&body).unwrap());
+        save_settings(ctx, input, allowed, "test").await
+    }
+
+    #[tokio::test]
+    async fn save_settings_rejects_ssrf_url_for_url_typed_var() {
+        let ctx = TestContext::new().await;
+        let allowed = [var(
+            "SOLOBASE_SHARED__BRANDING__LOGO_URL",
+            "Logo",
+            InputType::Url,
+        )];
+        let out = run_save(
+            &ctx,
+            &allowed,
+            serde_json::json!({"SOLOBASE_SHARED__BRANDING__LOGO_URL": "https://10.0.0.1/logo.png"}),
+        )
+        .await;
+        assert!(
+            matches!(
+                out.collect_buffered().await,
+                Err(TerminalNotResponse::Error(_))
+            ),
+            "an SSRF/private-IP URL must be rejected, not silently saved"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_settings_surfaces_config_set_failure() {
+        // No `wafer-run/config` block registered → config::set fails. Before the
+        // fix the loop swallowed the error and reported success anyway.
+        let ctx = TestContext::new().await;
+        let allowed = [var("SOLOBASE_SHARED__APP_NAME", "App", InputType::Text)];
+        let out = run_save(
+            &ctx,
+            &allowed,
+            serde_json::json!({"SOLOBASE_SHARED__APP_NAME": "MyApp"}),
+        )
+        .await;
+        assert!(
+            matches!(
+                out.collect_buffered().await,
+                Err(TerminalNotResponse::Error(_))
+            ),
+            "a failed config::set must surface as an error, not a 'saved' success"
+        );
     }
 }
