@@ -185,6 +185,11 @@ pub fn evaluate_formula(formula: &str, variables: &HashMap<String, f64>) -> Resu
     let tokens = tokenize(formula)?;
     let mut pos = 0;
     let result = parse_expression(&tokens, &mut pos, variables)?;
+    // Reject input the parser stopped short on (e.g. "2 3", "(1+2))",
+    // "base_price 5") instead of silently returning a partial result.
+    if pos != tokens.len() {
+        return Err("Unexpected trailing tokens in formula".to_string());
+    }
     Ok(result)
 }
 
@@ -354,5 +359,38 @@ fn parse_factor(
             Ok(-val)
         }
         _ => Err(format!("Unexpected token at position {}", pos)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vars() -> HashMap<String, f64> {
+        HashMap::from([
+            ("base_price".to_string(), 10.0),
+            ("quantity".to_string(), 3.0),
+        ])
+    }
+
+    #[test]
+    fn evaluate_formula_computes_valid_expression() {
+        assert_eq!(
+            evaluate_formula("base_price * quantity", &vars()).unwrap(),
+            30.0
+        );
+        assert_eq!(evaluate_formula("(1 + 2) * 4", &vars()).unwrap(), 12.0);
+    }
+
+    #[test]
+    fn evaluate_formula_rejects_trailing_tokens() {
+        // Each parses a valid leading sub-expression but leaves tokens behind;
+        // before the fix these silently returned the partial result.
+        for bad in ["2 3", "(1+2))", "base_price 5", "1 + 2 foo"] {
+            assert!(
+                evaluate_formula(bad, &vars()).is_err(),
+                "formula {bad:?} must be rejected, not silently truncated"
+            );
+        }
     }
 }

@@ -125,9 +125,10 @@ pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), WaferErro
         operator: FilterOp::Equal,
         value: serde_json::Value::String(id.to_string()),
     }];
-    if let Err(e) = db::delete_by_filters(ctx, ENTRIES_TABLE, filters).await {
-        tracing::warn!("Failed to cascade delete entries for context {id}: {e}");
-    }
+    // Propagate a cascade failure instead of swallowing it: returning early
+    // here leaves the context (and its entries) intact, whereas the old
+    // `Ok`-on-warn deleted the parent and orphaned the entries.
+    db::delete_by_filters(ctx, ENTRIES_TABLE, filters).await?;
 
     db::delete(ctx, CONTEXTS_TABLE, id).await
 }
