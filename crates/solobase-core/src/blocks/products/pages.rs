@@ -95,7 +95,7 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         vec![
                             html! { span .font-medium { (record.str_field("name")) } },
                             components::status_badge(record.str_field("status")),
-                            html! { (record.str_field("price")) " " span .text-muted { (record.str_field("currency")) } },
+                            html! { (record.str_field("base_price")) " " span .text-muted { (record.str_field("currency")) } },
                             html! { span .text-muted .text-sm { @if group_id.is_empty() { "—" } @else { (group_id.get(..8).unwrap_or(group_id)) } } },
                             html! { span .text-muted .text-sm { (created.get(..10).unwrap_or(created)) } },
                         ]
@@ -335,7 +335,7 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     @let rows: Vec<Vec<maud::Markup>> = list.records.iter().map(|r| vec![
                         html! { span .font-medium { (r.str_field("name")) } },
                         components::status_badge(r.str_field("status")),
-                        html! { (r.str_field("price")) " " span .text-muted { (r.str_field("currency")) } },
+                        html! { (r.str_field("base_price")) " " span .text-muted { (r.str_field("currency")) } },
                         html! { span .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) } },
                     ]).collect();
                     (components::data_table(&cols, rows, None::<fn(usize) -> Option<String>>, html! { p .text-muted { "No products yet" } }))
