@@ -75,9 +75,8 @@ fn render_page_body(
 
         // Pulse animation for thinking indicator + blinking cursor.
         style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
-        // marked.js for markdown rendering. CDN dependency preserved
-        // (separate cleanup; out of scope for Phase 5a).
-        script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
+        // marked.js for markdown rendering — self-hosted (vendored), content-hashed.
+        script src=(crate::ui::assets::marked_js_url()) {}
 
         // Server-rendered initial state for the chat module. Carrier is
         // type="application/json" so the browser does NOT parse the body as JS —
