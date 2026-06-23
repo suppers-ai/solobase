@@ -4,6 +4,7 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
+use super::logs::audit_log;
 use crate::{
     http::{err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, ok_json},
     util::{json_map, RecordExt},
@@ -266,6 +267,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
         Err(e) => return err_internal("Database error", e),
     }
 
+    let assigned = format!("users/{}/roles/{}", body.user_id, body.role);
     let data = json_map(serde_json::json!({
         "user_id": body.user_id,
         "role": body.role,
@@ -273,7 +275,19 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
         "assigned_by": msg.user_id()
     }));
     match db::create(ctx, USER_ROLES_TABLE, data).await {
-        Ok(record) => ok_json(&record),
+        Ok(record) => {
+            // Audit-log like every other admin mutation (this JSON path used to
+            // write zero audit rows).
+            audit_log(
+                ctx,
+                msg.user_id(),
+                "user_role.assign",
+                &assigned,
+                msg.remote_addr(),
+            )
+            .await;
+            ok_json(&record)
+        }
         Err(e) => err_internal("Database error", e),
     }
 }
@@ -302,7 +316,17 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message, path: &str) -> Out
     }
 
     match db::delete(ctx, USER_ROLES_TABLE, id).await {
-        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+        Ok(()) => {
+            audit_log(
+                ctx,
+                msg.user_id(),
+                "user_role.remove",
+                &format!("user_roles/{id}"),
+                msg.remote_addr(),
+            )
+            .await;
+            ok_json(&serde_json::json!({"deleted": true}))
+        }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User-role assignment not found"),
         Err(e) => err_internal("Database error", e),
     }
