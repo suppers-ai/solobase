@@ -34,6 +34,22 @@ pub async fn worker_request_to_message(req: &Request) -> Result<(Message, InputS
     // Read body (with size limit). A read error here would otherwise be
     // swallowed and turned into an empty body, silently corrupting POST/PUT.
     const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+
+    // Reject oversized bodies on the declared Content-Length *before* buffering
+    // them into the (128 MB) Worker isolate. The post-read check below is the
+    // backstop for chunked / absent-length requests where the header can't be
+    // trusted.
+    if let Some(len) = req
+        .headers()
+        .get("content-length")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        if len > MAX_BODY_SIZE {
+            return Err("request body too large".into());
+        }
+    }
     let mut req_clone = req.clone()?;
     let body = req_clone.bytes().await?;
     if body.len() > MAX_BODY_SIZE {
