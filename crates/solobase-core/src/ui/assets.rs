@@ -160,6 +160,24 @@ pub fn htmx_js_url() -> &'static str {
     })
 }
 
+/// marked.js (markdown parser), vendored from marked@14 — self-hosted instead of
+/// a jsdelivr CDN `<script>` so there's no external runtime fetch (CSP-friendly,
+/// no third-party availability/supply-chain dependency at page load).
+pub fn marked_js() -> &'static str {
+    include_str!("assets/marked.min.js")
+}
+
+/// marked.js URL with content hash, e.g. `/b/static/marked-a1b2c3d4.min.js`
+pub fn marked_js_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        format!(
+            "{STATIC_PREFIX}marked-{}.min.js",
+            short_hash(marked_js().as_bytes())
+        )
+    })
+}
+
 const LLM_CHAT_JS: &str = include_str!("assets/llm-chat.js");
 
 /// Embedded vanilla-JS bundle for the LLM chat surface — markdown, message
