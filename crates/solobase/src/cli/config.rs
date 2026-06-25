@@ -250,6 +250,9 @@ boot_redirect = "/"
 extra_bypass_exact = ["/", "/index.html"]
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.assets.extra_bypass_exact, vec!["/".to_string(), "/index.html".to_string()]);
+        assert_eq!(
+            cfg.assets.extra_bypass_exact,
+            vec!["/".to_string(), "/index.html".to_string()]
+        );
     }
 }

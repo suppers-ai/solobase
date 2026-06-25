@@ -29,9 +29,18 @@ fn exact_bypass_renders_into_sw() {
     run(tmp.path(), tmp.path(), app).expect("bundler ok");
 
     let sw = fs::read_to_string(tmp.path().join("sw.js")).unwrap();
-    assert!(sw.contains("url.pathname === '/'"), "sw.js missing exact '/' bypass = {sw}");
-    assert!(sw.contains("url.pathname === '/index.html'"), "sw.js missing exact '/index.html' bypass");
-    assert!(!sw.contains("__EXTRA_BYPASS_EXACT__"), "placeholder not substituted");
+    assert!(
+        sw.contains("url.pathname === '/'"),
+        "sw.js missing exact '/' bypass = {sw}"
+    );
+    assert!(
+        sw.contains("url.pathname === '/index.html'"),
+        "sw.js missing exact '/index.html' bypass"
+    );
+    assert!(
+        !sw.contains("__EXTRA_BYPASS_EXACT__"),
+        "placeholder not substituted"
+    );
 }
 
 #[test]
@@ -109,10 +118,7 @@ fn empty_exact_leaves_production_sw_bypass_unchanged() {
     copy_dir(&fixture_path(), tmp.path());
 
     // Overwrite the fixture stub with the real production template.
-    let prod_tmpl = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/assets/sw.js.tmpl"
-    ));
+    let prod_tmpl = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sw.js.tmpl"));
     fs::write(tmp.path().join("sw.js.tmpl"), prod_tmpl).unwrap();
 
     // default_app has both extra_bypass_prefix and extra_bypass_exact empty.
@@ -121,8 +127,14 @@ fn empty_exact_leaves_production_sw_bypass_unchanged() {
     let sw = fs::read_to_string(tmp.path().join("sw.js")).unwrap();
 
     // Placeholders must be fully substituted.
-    assert!(!sw.contains("__EXTRA_BYPASS_EXACT__"), "placeholder not substituted in sw.js");
-    assert!(!sw.contains("__EXTRA_BYPASS__"), "placeholder not substituted in sw.js");
+    assert!(
+        !sw.contains("__EXTRA_BYPASS_EXACT__"),
+        "placeholder not substituted in sw.js"
+    );
+    assert!(
+        !sw.contains("__EXTRA_BYPASS__"),
+        "placeholder not substituted in sw.js"
+    );
     // No injected exact-match bypass clause (the bundler emits " || url.pathname === '<path>'"
     // for each entry; the template itself uses "=== '" for its own static pathname checks but
     // never prefixed with "|| url.pathname").
