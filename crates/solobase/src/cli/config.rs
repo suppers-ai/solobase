@@ -44,6 +44,8 @@ pub struct AssetsConfig {
     #[serde(default)]
     pub extra_bypass_prefix: Vec<String>,
     #[serde(default)]
+    pub extra_bypass_exact: Vec<String>,
+    #[serde(default)]
     pub overlay: Vec<OverlayEntry>,
     /// Whether `loader.js`'s recovery path wipes OPFS when the SW
     /// self-destructs. Defaults to **false** — apps that store user data
@@ -234,5 +236,23 @@ boot_redirect = "/"
         let err = find_and_load(tmp.path()).unwrap_err().to_string();
         assert!(err.contains("solobase.toml"));
         assert!(err.contains("no"));
+    }
+
+    #[test]
+    fn parses_extra_bypass_exact() {
+        let toml = r#"
+[app]
+name = "x"
+title = "y"
+boot_redirect = "/"
+
+[assets]
+extra_bypass_exact = ["/", "/index.html"]
+"#;
+        let cfg: Config = toml::from_str(toml).unwrap();
+        assert_eq!(
+            cfg.assets.extra_bypass_exact,
+            vec!["/".to_string(), "/index.html".to_string()]
+        );
     }
 }

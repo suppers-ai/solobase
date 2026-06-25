@@ -40,6 +40,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
             app_title: Some(c.app.title.clone()),
             boot_redirect: Some(c.app.boot_redirect.clone()),
             extra_bypass_prefix: c.assets.extra_bypass_prefix.clone(),
+            extra_bypass_exact: c.assets.extra_bypass_exact.clone(),
             opfs_wipe_on_recovery: c.assets.opfs_wipe_on_recovery,
         },
         None => solobase_bundle::bundle::AppConfig {
@@ -47,6 +48,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
             app_title: None,
             boot_redirect: None,
             extra_bypass_prefix: vec![],
+            extra_bypass_exact: vec![],
             opfs_wipe_on_recovery: false,
         },
     };
