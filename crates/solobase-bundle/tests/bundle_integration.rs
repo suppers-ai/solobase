@@ -12,8 +12,36 @@ fn default_app() -> AppConfig {
         app_title: None,
         boot_redirect: None,
         extra_bypass_prefix: Vec::new(),
+        extra_bypass_exact: Vec::new(),
         opfs_wipe_on_recovery: false,
     }
+}
+
+#[test]
+fn exact_bypass_renders_into_sw() {
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&fixture_path(), tmp.path());
+
+    let app = AppConfig {
+        extra_bypass_exact: vec!["/".to_string(), "/index.html".to_string()],
+        ..default_app()
+    };
+    run(tmp.path(), tmp.path(), app).expect("bundler ok");
+
+    let sw = fs::read_to_string(tmp.path().join("sw.js")).unwrap();
+    assert!(sw.contains("url.pathname === '/'"), "sw.js missing exact '/' bypass = {sw}");
+    assert!(sw.contains("url.pathname === '/index.html'"), "sw.js missing exact '/index.html' bypass");
+    assert!(!sw.contains("__EXTRA_BYPASS_EXACT__"), "placeholder not substituted");
+}
+
+#[test]
+fn exact_bypass_empty_leaves_sw_unchanged() {
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&fixture_path(), tmp.path());
+    run(tmp.path(), tmp.path(), default_app()).expect("bundler ok");
+    let sw = fs::read_to_string(tmp.path().join("sw.js")).unwrap();
+    assert!(!sw.contains("__EXTRA_BYPASS_EXACT__"));
+    assert!(!sw.contains("=== '/'"));
 }
 
 #[test]

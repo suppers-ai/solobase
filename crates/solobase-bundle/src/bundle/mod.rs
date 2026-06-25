@@ -28,6 +28,12 @@ pub struct AppConfig {
     /// `url.pathname.startsWith(<prefix>)` clause via the `__EXTRA_BYPASS__`
     /// placeholder.
     pub extra_bypass_prefix: Vec<String>,
+    /// Additional exact URL paths the Service Worker's fetch handler should
+    /// bypass. Unlike `extra_bypass_prefix` (rendered as `startsWith`), each
+    /// entry renders as `url.pathname === <path>` via the
+    /// `__EXTRA_BYPASS_EXACT__` placeholder — needed for `/` and
+    /// `/index.html`, which cannot be expressed as a prefix.
+    pub extra_bypass_exact: Vec<String>,
     /// Whether loader.js's recovery path should wipe OPFS when the Service
     /// Worker self-destructs. **Default: false** — for production apps that
     /// store user data in OPFS (chat history, generated assets, settings),
@@ -295,6 +301,19 @@ fn build_template_vars(
         out
     };
 
+    let extra_bypass_exact = if app.extra_bypass_exact.is_empty() {
+        String::new()
+    } else {
+        let mut out = String::new();
+        for path in &app.extra_bypass_exact {
+            let escaped = path.replace('\\', "\\\\").replace('\'', "\\'");
+            out.push_str(" || url.pathname === '");
+            out.push_str(&escaped);
+            out.push_str("'");
+        }
+        out
+    };
+
     let mut vars: BTreeMap<String, String> = BTreeMap::new();
     vars.insert("BUILD_ID".to_string(), build_id);
     vars.insert("WASM_JS".to_string(), wasm_js);
@@ -304,6 +323,7 @@ fn build_template_vars(
     vars.insert("APP_TITLE".to_string(), app_title);
     vars.insert("BOOT_REDIRECT".to_string(), boot_redirect);
     vars.insert("EXTRA_BYPASS".to_string(), extra_bypass);
+    vars.insert("EXTRA_BYPASS_EXACT".to_string(), extra_bypass_exact);
     vars.insert(
         "OPFS_WIPE_ON_RECOVERY".to_string(),
         if app.opfs_wipe_on_recovery {
