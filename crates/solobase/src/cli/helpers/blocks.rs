@@ -28,6 +28,14 @@ pub fn discover_blocks(repo_root: &Path) -> Result<Vec<PathBuf>> {
 /// when possible) so the operator can tell which block of N broke without
 /// having to scroll the streamed `wafer build` output.
 pub async fn build_all(repo_root: &Path) -> Result<()> {
+    if matches!(
+        std::env::var("SOLOBASE_SKIP_BLOCK_BUILD").as_deref(),
+        Ok("1" | "true" | "TRUE" | "yes" | "YES")
+    ) {
+        println!("SOLOBASE_SKIP_BLOCK_BUILD set — using existing blocks/*/target/block.wasm artifacts");
+        return Ok(());
+    }
+
     use anyhow::Context;
     use tokio::process::Command;
     for block in discover_blocks(repo_root)? {
