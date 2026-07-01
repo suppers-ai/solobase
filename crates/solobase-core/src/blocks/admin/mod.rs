@@ -21,7 +21,7 @@ pub use settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 pub const ADMIN_BLOCK_ID: &str = "suppers-ai/admin";
 
 /// WRAP grant rows (block-to-resource access tokens).
-pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
+pub const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
 use wafer_run::{
     context::Context, BlockEndpoint, BlockInfo, InputStream, InstanceMode, Message, OutputStream,
