@@ -181,6 +181,10 @@ where
         Arc<dyn StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
+    if req.path() == "/_deploy/init" {
+        return deploy_init_endpoint(req, env, register_blocks, register_post_build).await;
+    }
+
     // Audit rows are queued during dispatch and flushed off the response path
     // below, so the D1 write never adds latency to the request.
     solobase_core::pipeline::set_request_log_mode(solobase_core::pipeline::RequestLogMode::Queued);
@@ -208,6 +212,77 @@ where
             worker::Response::error(format!("solobase: {e}"), 500)
         }
     }
+}
+
+/// Deploy-time init: runs the full migrate+seed funnel once, invoked by
+/// `solobase deploy` against the freshly-uploaded version (pre-promote).
+/// Auth: sha256-compare of `X-Deploy-Token` against the `DEPLOY_TOKEN`
+/// wrangler secret (hash-then-compare sidesteps timing on raw bytes).
+async fn deploy_init_endpoint<F, G>(
+    req: worker::Request,
+    env: worker::Env,
+    register_blocks: F,
+    register_post_build: G,
+) -> worker::Result<worker::Response>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(
+        &mut wafer_run::Wafer,
+        Arc<dyn StorageService>,
+    ) -> Result<(), Box<dyn std::error::Error>>,
+{
+    if req.method() != worker::Method::Post {
+        return worker::Response::error("method not allowed", 405);
+    }
+    let Ok(secret) = env.secret("DEPLOY_TOKEN") else {
+        // Secret unset ⇒ endpoint disabled entirely.
+        return worker::Response::error("not found", 404);
+    };
+    let presented = req.headers().get("x-deploy-token")?.unwrap_or_default();
+    if presented.is_empty() || sha256_hex(&presented) != sha256_hex(&secret.to_string()) {
+        return worker::Response::error("unauthorized", 401);
+    }
+
+    // Fresh runtime (never the request cache) with run_migrations forced on,
+    // so slot-cached pre-migration outcomes can't leak into the funnel.
+    let out = async {
+        let mut built = build_runtime(&env, register_blocks, register_post_build, true).await?;
+        let db_grants = solobase_core::boot::load_wrap_grants_from_db(&built.db).await;
+        if !db_grants.is_empty() {
+            built.wafer.add_wrap_grants(db_grants);
+        }
+        let report = solobase_core::deploy_init::deploy_init(
+            &mut built.wafer,
+            &built.storage_block,
+            &CfBootHooks {
+                db: built.db.clone(),
+            },
+        )
+        .await
+        .map_err(|e| format!("deploy_init: {e}"))?;
+        Ok::<_, Box<dyn std::error::Error>>(report)
+    }
+    .await;
+
+    match out {
+        Ok(report) => {
+            let status = if report.ok { 200 } else { 500 };
+            let body = serde_json::to_string_pretty(&report)
+                .unwrap_or_else(|e| format!("{{\"serialize_error\":\"{e}\"}}"));
+            Ok(worker::Response::ok(body)?.with_status(status))
+        }
+        Err(e) => {
+            worker::console_log!("deploy_init failed: {e}");
+            worker::Response::error(format!("deploy_init: {e}"), 500)
+        }
+    }
+}
+
+fn sha256_hex(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Everything [`build_runtime`] produces: a sealed-but-not-yet-booted runtime
@@ -426,9 +501,8 @@ const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KE
 /// has added the `variables.block` column.
 ///
 /// Not constructed on the request path — the per-isolate cache seals without a
-/// boot funnel. Held for Task 8's `/_deploy/init`, which runs the full boot
-/// (migrations + seeds) on demand at deploy time.
-#[allow(dead_code)]
+/// boot funnel. Constructed by `deploy_init_endpoint` (`/_deploy/init`), which
+/// runs the full boot (migrations + seeds) on demand at deploy time.
 struct CfBootHooks {
     db: Arc<dyn DatabaseService>,
 }
