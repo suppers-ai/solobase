@@ -6,8 +6,10 @@
 use serde::Serialize;
 use wafer_run::{RuntimeError, Wafer};
 
-use crate::blocks::storage::SolobaseStorageBlock;
-use crate::builder::{post_start, BootHooks};
+use crate::{
+    blocks::storage::SolobaseStorageBlock,
+    builder::{post_start, BootHooks},
+};
 
 #[derive(Debug, Serialize)]
 pub struct StepOutcome {

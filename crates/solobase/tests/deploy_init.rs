@@ -13,8 +13,10 @@
 
 use std::{collections::HashMap, path::Path, sync::Arc};
 
-use solobase_core::builder::{BootHooks, SolobaseBuilder};
-use solobase_core::deploy_init::deploy_init;
+use solobase_core::{
+    builder::{BootHooks, SolobaseBuilder},
+    deploy_init::deploy_init,
+};
 use wafer_core::interfaces::{config::service::ConfigService, database::service::DatabaseService};
 use wafer_run::Wafer;
 

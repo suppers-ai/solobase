@@ -426,11 +426,10 @@ async fn collect_buffered_with_prelude(
 
 #[cfg(test)]
 mod request_log_mode_tests {
-    use crate::blocks::admin;
-
     use super::{
         drain_queued_request_logs, enqueue_request_log, set_request_log_mode, RequestLogMode,
     };
+    use crate::blocks::admin;
 
     #[test]
     fn default_mode_is_inline_and_drain_is_empty() {
