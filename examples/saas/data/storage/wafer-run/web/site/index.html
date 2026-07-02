@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudDeploy - SaaS Platform</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; }
+    .hero { background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%); color: white; padding: 80px 20px; text-align: center; }
+    .hero h1 { font-size: 3rem; margin-bottom: 16px; }
+    .hero p { font-size: 1.25rem; opacity: 0.9; max-width: 600px; margin: 0 auto 32px; }
+    .btn { display: inline-block; padding: 14px 32px; border-radius: 8px; font-weight: 600; text-decoration: none; }
+    .btn-primary { background: white; color: #6366f1; }
+    .features { padding: 60px 20px; max-width: 960px; margin: 0 auto; }
+    .features h2 { text-align: center; font-size: 2rem; margin-bottom: 40px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; }
+    .card { background: #f8f9fa; border-radius: 12px; padding: 24px; }
+    .card h3 { margin-bottom: 8px; }
+    .card p { color: #555; line-height: 1.6; }
+    .pricing { padding: 60px 20px; background: #f1f5f9; }
+    .pricing h2 { text-align: center; font-size: 2rem; margin-bottom: 40px; }
+    .pricing .grid { max-width: 800px; margin: 0 auto; }
+    .pricing .card { background: white; text-align: center; }
+    .pricing .card .price { font-size: 2.5rem; font-weight: 700; color: #6366f1; margin: 16px 0; }
+    .pricing .card .price span { font-size: 1rem; color: #888; }
+    footer { text-align: center; padding: 24px; color: #888; border-top: 1px solid #eee; }
+    footer a { color: #6366f1; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>CloudDeploy</h1>
+    <p>Deploy your apps instantly. Subscription plans, team management, and one-click deployments powered by Solobase.</p>
+    <a href="/auth/signup" class="btn btn-primary">Start Free Trial</a>
+  </div>
+  <section class="features">
+    <h2>Platform Features</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>One-Click Deploy</h3>
+        <p>Spin up new deployments in seconds. Choose your region, configure your stack, and launch.</p>
+      </div>
+      <div class="card">
+        <h3>Subscription Plans</h3>
+        <p>Flexible recurring billing with Stripe. Free, Pro, and Enterprise tiers with usage-based pricing.</p>
+      </div>
+      <div class="card">
+        <h3>Team Management</h3>
+        <p>Role-based access control with admin panel. Manage users, roles, policies, and audit logs.</p>
+      </div>
+      <div class="card">
+        <h3>API Keys</h3>
+        <p>Generate scoped API keys for CI/CD integration. Automate deployments from your pipeline.</p>
+      </div>
+      <div class="card">
+        <h3>System Logs</h3>
+        <p>Full observability with system logs, message traces, and audit trails for compliance.</p>
+      </div>
+      <div class="card">
+        <h3>Open Source</h3>
+        <p>Built on Solobase and the WAFER runtime. Self-host or use our managed cloud.</p>
+      </div>
+    </div>
+  </section>
+  <section class="pricing">
+    <h2>Simple Pricing</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Starter</h3>
+        <div class="price">$0<span>/mo</span></div>
+        <p>1 deployment, community support</p>
+      </div>
+      <div class="card">
+        <h3>Pro</h3>
+        <div class="price">$29<span>/mo</span></div>
+        <p>10 deployments, priority support</p>
+      </div>
+      <div class="card">
+        <h3>Enterprise</h3>
+        <div class="price">$99<span>/mo</span></div>
+        <p>Unlimited deployments, SLA</p>
+      </div>
+    </div>
+  </section>
+  <footer>
+    <p>Powered by <a href="https://github.com/nichochar/solobase">Solobase</a> | <a href="/ext/legalpages/terms">Terms</a> | <a href="/ext/legalpages/privacy">Privacy</a></p>
+  </footer>
+  <div id="app"></div>
+</body>
+</html>
