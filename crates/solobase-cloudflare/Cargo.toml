@@ -70,9 +70,6 @@ serde_json = { workspace = true }
 # Crypto (wasm-compatible). JWT + argon2 policy delegates to
 # wafer-block-crypto's pure-Rust primitives — same engine as native.
 wafer-block-crypto = { workspace = true }
-# sha256 hash-then-compare for the `/_deploy/init` `X-Deploy-Token` check
-# (sidesteps timing comparisons on raw secret bytes).
-sha2 = { workspace = true }
 getrandom = { workspace = true, features = ["js"] }
 # uuid needs the "js" feature for wasm (uses js_sys random); inherit v4+v7 from workspace
 uuid = { workspace = true, features = ["js"] }

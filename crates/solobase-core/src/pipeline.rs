@@ -50,7 +50,8 @@ thread_local! {
 }
 
 /// Select the request-log persistence mode for this thread (isolate).
-/// Called once at platform init; native never calls it.
+/// The Cloudflare target sets it (idempotently) at the top of every request;
+/// native never calls it.
 pub fn set_request_log_mode(mode: RequestLogMode) {
     REQUEST_LOG_MODE.with(|m| m.set(mode));
 }

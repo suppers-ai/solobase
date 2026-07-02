@@ -75,7 +75,7 @@ pub fn new_version_stamp() -> String {
     let mut buf = [0u8; 16];
     // getrandom's js feature routes to crypto.getRandomValues on wasm.
     getrandom::getrandom(&mut buf).expect("getrandom");
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    wafer_run::hex_encode(&buf)
 }
 
 /// Wraps a [`DatabaseService`] with a write-through-invalidated KV cache

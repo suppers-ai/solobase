@@ -239,7 +239,10 @@ where
         return worker::Response::error("not found", 404);
     };
     let presented = req.headers().get("x-deploy-token")?.unwrap_or_default();
-    if presented.is_empty() || sha256_hex(&presented) != sha256_hex(&secret.to_string()) {
+    if presented.is_empty()
+        || wafer_run::sha256_hex(presented.as_bytes())
+            != wafer_run::sha256_hex(secret.to_string().as_bytes())
+    {
         return worker::Response::error("unauthorized", 401);
     }
 
@@ -247,10 +250,7 @@ where
     // so slot-cached pre-migration outcomes can't leak into the funnel.
     let out = async {
         let mut built = build_runtime(&env, register_blocks, register_post_build, true).await?;
-        let db_grants = solobase_core::boot::load_wrap_grants_from_db(&built.db).await;
-        if !db_grants.is_empty() {
-            built.wafer.add_wrap_grants(db_grants);
-        }
+        apply_db_wrap_grants(&mut built).await;
         let report = solobase_core::deploy_init::deploy_init(
             &mut built.wafer,
             &built.storage_block,
@@ -278,13 +278,6 @@ where
     }
 }
 
-fn sha256_hex(s: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(s.as_bytes());
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// Everything [`build_runtime`] produces: a built-but-not-sealed-or-booted
 /// runtime plus the service handles Tasks 7-8 need (per-isolate build
 /// caching, the `/_deploy/init` endpoint) that would otherwise be locked
@@ -292,13 +285,22 @@ fn sha256_hex(s: &str) -> String {
 struct BuiltRuntime {
     wafer: wafer_run::Wafer,
     storage_block: Arc<solobase_core::blocks::storage::SolobaseStorageBlock>,
-    // Not read by this task's `run_inner` — held for Task 7 (per-isolate
-    // build cache) and Task 8 (`/_deploy/init`) to consume.
-    #[allow(dead_code)]
-    bucket: Arc<dyn StorageService>,
     db: Arc<dyn DatabaseService>,
-    #[allow(dead_code)]
+    /// KV backend the DB service is cached through — reused by the per-isolate
+    /// runtime cache (`runtime_cache`) to probe the config-version stamp
+    /// without re-deriving a second `KvStore` handle from `env`.
     kv: Arc<dyn kv_cached_db::KvBackend>,
+}
+
+/// Register any admin-created WRAP grants loaded from D1 onto the built
+/// runtime. MUST run BEFORE `wafer.seal()` — grants added after seal are
+/// ignored. Shared by the request-path per-isolate cache
+/// (`runtime_cache::get_or_build`) and the `/_deploy/init` boot funnel.
+pub(crate) async fn apply_db_wrap_grants(built: &mut BuiltRuntime) {
+    let db_grants = solobase_core::boot::load_wrap_grants_from_db(&built.db).await;
+    if !db_grants.is_empty() {
+        built.wafer.add_wrap_grants(db_grants);
+    }
 }
 
 /// Build (but do not seal or boot) the WAFER runtime for a request: wire the
@@ -309,6 +311,14 @@ struct BuiltRuntime {
 /// snapshot regardless of the worker env var — used by the `/_deploy/init`
 /// endpoint (Task 8) to force a migration pass on demand. The normal request
 /// path passes `false` and keeps honoring the env var exactly as before.
+///
+/// Missing-table tolerance is an invariant here: on a first-ever deploy
+/// `/_deploy/init` builds this runtime BEFORE any migration has run, so every
+/// eager D1 read in this function MUST tolerate a not-yet-created table
+/// (`block_settings` → default map; `wrap_grants` → empty vec, applied in the
+/// callers via [`apply_db_wrap_grants`]). A non-tolerant eager read would
+/// error out and deadlock first deploys before migrations can create the
+/// tables.
 async fn build_runtime<F, G>(
     env: &worker::Env,
     register_blocks: F,
@@ -434,18 +444,14 @@ where
     wafer.set_config_snapshot(snapshot);
 
     // 6b. Consumer post-build hook (override flows / configs before start).
-    //     Receives the R2-backed StorageService so consumers can register
-    //     blocks that need direct un-namespaced bucket access. Cloned so the
-    //     bucket handle also survives into the returned `BuiltRuntime` — the
-    //     hook only borrows it to register additional blocks, it doesn't need
-    //     exclusive ownership.
-    register_post_build(&mut wafer, bucket.clone())
-        .map_err(|e| format!("register_post_build: {e}"))?;
+    //     Receives the R2-backed StorageService (moved in — the builder above
+    //     already holds its own clone) so consumers can register blocks that
+    //     need direct un-namespaced bucket access.
+    register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
 
     Ok(BuiltRuntime {
         wafer,
         storage_block,
-        bucket,
         db,
         kv,
     })

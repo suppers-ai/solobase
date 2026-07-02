@@ -21,6 +21,10 @@ use wafer_core::interfaces::database::service::DatabaseService;
 pub(crate) struct ReadyRuntime {
     pub wafer: wafer_run::Wafer,
     pub db: Arc<dyn DatabaseService>,
+    /// KV backend this runtime was built with. Held so the config-version
+    /// probe on the request hot path reuses it instead of constructing a fresh
+    /// `KvStore` handle from `env` on every request.
+    pub kv: Arc<dyn crate::kv_cached_db::KvBackend>,
     pub version: String,
 }
 
@@ -75,25 +79,32 @@ where
         Arc<dyn wafer_core::interfaces::storage::service::StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
-    // Cheap probe first: one KV read per request.
-    // (Build a KV backend from env to read the version even on the hit path.)
-    let kv = crate::make_kv_backend(env, crate::runner::KV_BINDING)?;
-    let version = current_version(&kv).await;
-
-    if let Some(rt) = cached() {
+    // Hit path: probe the config-version through the CACHED runtime's own KV
+    // backend — no fresh `KvStore` construction on the request hot path. One
+    // KV `get` per request. On a version move we reuse this probed value to
+    // tag the rebuild, so the mismatch path still costs a single KV `get`.
+    let probed_version = if let Some(rt) = cached() {
+        let version = current_version(&rt.kv).await;
         if rt.version == version {
             return Ok(rt);
         }
         tracing::info!(old = %rt.version, new = %version, "config version moved; rebuilding runtime");
-    }
+        Some(version)
+    } else {
+        None
+    };
 
     let mut built = crate::build_runtime(env, register_blocks, register_post_build, false).await?;
 
+    // Cold isolate: nothing was cached to probe through, so read the version
+    // now via the freshly-built runtime's own backend (still one KV `get`).
+    let version = match probed_version {
+        Some(v) => v,
+        None => current_version(&built.kv).await,
+    };
+
     // Dynamic WRAP grants must be registered before seal.
-    let db_grants = solobase_core::boot::load_wrap_grants_from_db(&built.db).await;
-    if !db_grants.is_empty() {
-        built.wafer.add_wrap_grants(db_grants);
-    }
+    crate::apply_db_wrap_grants(&mut built).await;
 
     built.wafer.seal().await.map_err(|e| format!("seal: {e}"))?;
     solobase_core::builder::post_start(&built.wafer, &built.storage_block);
@@ -101,6 +112,7 @@ where
     let rt = Rc::new(ReadyRuntime {
         wafer: built.wafer,
         db: built.db,
+        kv: built.kv,
         version,
     });
     store(rt.clone());
