@@ -527,9 +527,11 @@ const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KE
 const ALLOW_WORKERS_DEV_KEY: &str = "SOLOBASE_ALLOW_WORKERS_DEV";
 
 /// True when the request's host is a `*.workers.dev` host (ASCII
-/// case-insensitive). Drives the preview-host lockdown in [`run`]; a request
-/// with no parseable host is treated as not-workers.dev (fail open to normal
-/// handling — a hostless request can't be a public preview URL).
+/// case-insensitive). Drives the preview-host lockdown in [`run`]. Two
+/// distinct failure modes: a malformed request URL fails via `?` and
+/// propagates as an error (the caller turns it into a 500); a well-formed
+/// URL with no host (`host_str()` returns `None`) fails open to normal
+/// handling — a hostless request can't be a public preview URL.
 fn host_is_workers_dev(req: &worker::Request) -> worker::Result<bool> {
     Ok(req
         .url()?

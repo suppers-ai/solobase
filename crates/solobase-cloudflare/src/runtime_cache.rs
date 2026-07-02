@@ -79,29 +79,38 @@ where
         Arc<dyn wafer_core::interfaces::storage::service::StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
-    // Hit path: probe the config-version through the CACHED runtime's own KV
-    // backend — no fresh `KvStore` construction on the request hot path. One
-    // KV `get` per request. On a version move we reuse this probed value to
-    // tag the rebuild, so the mismatch path still costs a single KV `get`.
+    // Every path probes the config-version BEFORE building, so the stored
+    // ReadyRuntime is always tagged with a version no newer than the config
+    // generation it was actually built from. Version stamps are monotonic,
+    // so a pre-build probe is safe: worst case the stamp moves again between
+    // the probe and the build, and the next request pays one harmless extra
+    // rebuild. Probing AFTER the build would risk the opposite — stamping a
+    // runtime built from stale config with a fresh version, which would
+    // never self-heal until the next bump.
+    //
+    // Hit / mismatch path: probe through the CACHED runtime's own KV
+    // backend — no fresh `KvStore` construction on the request hot path.
     let probed_version = if let Some(rt) = cached() {
         let version = current_version(&rt.kv).await;
         if rt.version == version {
             return Ok(rt);
         }
         tracing::info!(old = %rt.version, new = %version, "config version moved; rebuilding runtime");
-        Some(version)
+        version
     } else {
-        None
+        // Cold isolate: nothing cached to probe through. Construct a
+        // standalone KV backend (cold path only — the hit/mismatch branch
+        // above never constructs one) and probe it now, before
+        // `build_runtime` runs. `build_runtime` constructs its own KV
+        // backend internally (`built.kv`, used for the D1 read-cache), but
+        // that handle isn't available yet and isn't reused for this probe —
+        // the whole point is to probe before the build starts. Either way
+        // this is exactly one KV `get` for the version stamp.
+        let kv = crate::make_kv_backend(env, crate::runner::KV_BINDING)?;
+        current_version(&kv).await
     };
 
     let mut built = crate::build_runtime(env, register_blocks, register_post_build, false).await?;
-
-    // Cold isolate: nothing was cached to probe through, so read the version
-    // now via the freshly-built runtime's own backend (still one KV `get`).
-    let version = match probed_version {
-        Some(v) => v,
-        None => current_version(&built.kv).await,
-    };
 
     // Dynamic WRAP grants must be registered before seal.
     crate::apply_db_wrap_grants(&mut built).await;
@@ -113,7 +122,7 @@ where
         wafer: built.wafer,
         db: built.db,
         kv: built.kv,
-        version,
+        version: probed_version,
     });
     store(rt.clone());
     Ok(rt)
