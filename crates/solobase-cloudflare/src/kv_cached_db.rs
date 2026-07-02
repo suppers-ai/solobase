@@ -65,8 +65,10 @@ use wafer_core::interfaces::database::service::{
     Column, DatabaseError, DatabaseService, Record, RecordList, Table,
 };
 
-/// KV TTL applied to every cache PUT (24 h).
-const CACHE_TTL_SECS: u64 = 86_400;
+/// KV TTL applied to every cache PUT (24 h). Also the TTL the per-isolate
+/// runtime cache stamps a freshly-minted config-version with (see
+/// `runtime_cache::current_version`).
+pub(crate) const CACHE_TTL_SECS: u64 = 86_400;
 
 /// Fresh opaque config-version stamp (16 random bytes, lowercase hex).
 pub fn new_version_stamp() -> String {

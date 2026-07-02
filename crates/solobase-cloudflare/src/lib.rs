@@ -18,6 +18,7 @@ pub mod kv_cached_db;
 pub mod logger_service;
 pub mod network_service;
 mod runner;
+mod runtime_cache;
 pub mod storage;
 
 // ---------------------------------------------------------------------------
@@ -79,14 +80,25 @@ fn make_kv_cached_database_service_with_backend(
     kv_binding: &str,
 ) -> Result<(Arc<dyn DatabaseService>, Arc<dyn kv_cached_db::KvBackend>), worker::Error> {
     let inner = make_d1_database_service(env, d1_binding)?;
-    let kv_store = env.kv(kv_binding)?;
-    let backend: Arc<dyn kv_cached_db::KvBackend> =
-        Arc::new(kv_cached_db::WorkerKvBackend(kv_store));
+    let backend = make_kv_backend(env, kv_binding)?;
     let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::new(
         inner,
         backend.clone(),
     ));
     Ok((db, backend))
+}
+
+/// Construct a raw [`KvBackend`](kv_cached_db::KvBackend) from a worker `Env`
+/// and a KV binding name. Single construction path shared by the KV-cached DB
+/// factory above and the per-isolate runtime cache's config-version probe
+/// (`runtime_cache::get_or_build`), so both derive the `KvStore` handle the
+/// same way.
+pub(crate) fn make_kv_backend(
+    env: &worker::Env,
+    binding: &str,
+) -> Result<Arc<dyn kv_cached_db::KvBackend>, worker::Error> {
+    let kv_store = env.kv(binding)?;
+    Ok(Arc::new(kv_cached_db::WorkerKvBackend(kv_store)))
 }
 
 /// Construct an R2-backed [`StorageService`] from a worker `Env` and the R2
@@ -158,7 +170,7 @@ use solobase_core::builder::SolobaseBuilder;
 pub async fn run<F, G>(
     req: worker::Request,
     env: worker::Env,
-    _ctx: worker::Context,
+    ctx: worker::Context,
     register_blocks: F,
     register_post_build: G,
 ) -> worker::Result<worker::Response>
@@ -169,7 +181,27 @@ where
         Arc<dyn StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
-    match run_inner(req, env, register_blocks, register_post_build).await {
+    // Audit rows are queued during dispatch and flushed off the response path
+    // below, so the D1 write never adds latency to the request.
+    solobase_core::pipeline::set_request_log_mode(solobase_core::pipeline::RequestLogMode::Queued);
+    let result = run_inner(req, env, register_blocks, register_post_build).await;
+
+    // Persist any audit rows queued during this dispatch off the response
+    // path. Rows are self-contained data; attaching them to *this* request's
+    // waitUntil is correct even if they were queued by an interleaved one.
+    if let Some(rt) = runtime_cache::peek() {
+        let rows = solobase_core::pipeline::drain_queued_request_logs();
+        if !rows.is_empty() {
+            let db = rt.db.clone();
+            ctx.wait_until(async move {
+                for row in rows {
+                    let _ = db.create(row.table, row.data).await;
+                }
+            });
+        }
+    }
+
+    match result {
         Ok(response) => Ok(response),
         Err(e) => {
             worker::console_log!("solobase-cloudflare run error: {e}");
@@ -375,24 +407,11 @@ where
         Arc<dyn StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
-    let mut built = build_runtime(&env, register_blocks, register_post_build, false).await?;
-
-    // Run the shared boot funnel: seal → init_block(admin) →
-    // seed_after_admin_init → init_all_blocks → post_start. The hook seeds
-    // `auto_generate` ConfigVars once admin's migration 002 has added the
-    // `variables.block` column. block_settings was already loaded eagerly in
-    // `build_runtime` (the router consumes its enablement map at build time).
-    solobase_core::builder::boot(
-        &mut built.wafer,
-        &built.storage_block,
-        &CfBootHooks {
-            db: built.db.clone(),
-        },
-    )
-    .await
-    .map_err(|e| format!("boot: {e}"))?;
-
-    dispatch(&built.wafer, req).await
+    // Reuse the per-isolate runtime; rebuild only when the KV config-version
+    // stamp has moved. No boot funnel here — migrations/seeds run at deploy
+    // time via `/_deploy/init`, not on the request path.
+    let rt = runtime_cache::get_or_build(&env, register_blocks, register_post_build).await?;
+    dispatch(&rt.wafer, req).await
 }
 
 /// Worker `Env` bindings that override D1 variables (set via
@@ -405,6 +424,11 @@ const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KE
 /// enablement map at build time); the only post-admin-init seed step is the
 /// shared auto-generated-secret pass, which must run after admin migration 002
 /// has added the `variables.block` column.
+///
+/// Not constructed on the request path — the per-isolate cache seals without a
+/// boot funnel. Held for Task 8's `/_deploy/init`, which runs the full boot
+/// (migrations + seeds) on demand at deploy time.
+#[allow(dead_code)]
 struct CfBootHooks {
     db: Arc<dyn DatabaseService>,
 }
