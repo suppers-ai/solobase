@@ -1,32 +1,135 @@
-//! Deploy subprocess orchestration: `wrangler deploy`, R2 asset upload,
-//! D1 migrations. All commands inherit stdout/stderr; errors propagate
-//! verbatim.
+//! Deploy subprocess orchestration: atomic versioned `wrangler` deploys
+//! (`versions upload` → `/_deploy/init` gate → `versions deploy` promote),
+//! plus R2 asset upload. The version-upload/promote helpers inherit
+//! stdio for interactive progress except `wrangler_versions_upload`,
+//! which captures stdout to parse the version id and preview URL.
 
-use std::{path::Path, process::Command};
+use std::{
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use anyhow::{bail, Context, Result};
 
 use super::assets::mime_for_path;
 
-pub fn wrangler_deploy(wrangler_toml: &Path) -> Result<()> {
-    wrangler_deploy_with_vars(wrangler_toml, &[])
+/// Output of `wrangler versions upload` (unpromoted deployment).
+pub struct VersionUpload {
+    pub version_id: String,
+    pub preview_url: String,
 }
 
-/// `wrangler deploy` plus zero or more `--var KEY:VALUE` flags injected
-/// into the Worker's runtime env. Used by the Solobase CLI to plumb
-/// `solobase deploy --run-migrations` through to the Worker's
-/// `apply_if_blessed` hash-gated migration sweep.
-pub fn wrangler_deploy_with_vars(wrangler_toml: &Path, vars: &[(&str, &str)]) -> Result<()> {
-    let mut cmd = Command::new("wrangler");
-    cmd.args(["deploy", "--config"]).arg(wrangler_toml);
-    for (k, v) in vars {
-        cmd.args(["--var", &format!("{k}:{v}")]);
+/// Upload a new worker version WITHOUT routing traffic to it. Captures
+/// stdout (unlike the inherit-stdio helpers) to parse the version id and
+/// preview URL.
+pub fn wrangler_versions_upload(wrangler_toml: &Path) -> Result<VersionUpload> {
+    let output = Command::new("wrangler")
+        .args(["versions", "upload", "--config"])
+        .arg(wrangler_toml)
+        .output()
+        .context("run wrangler versions upload")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    print!("{stdout}");
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    if !output.status.success() {
+        bail!(
+            "wrangler versions upload failed (exit {:?})",
+            output.status.code()
+        );
     }
-    let status = cmd.status().context("run wrangler deploy")?;
+    // wrangler prints lines like:
+    //   Worker Version ID: 8e3c...-....
+    //   Version Preview URL: https://<hash>-<worker>.<subdomain>.workers.dev
+    let version_id = parse_labeled_line(&stdout, "Version ID:")
+        .context("parse Version ID from wrangler versions upload output")?;
+    let preview_url = parse_labeled_line(&stdout, "Preview URL:")
+        .context("parse Preview URL (enable preview_urls in wrangler.toml)")?;
+    Ok(VersionUpload {
+        version_id,
+        preview_url,
+    })
+}
+
+fn parse_labeled_line(stdout: &str, label: &str) -> Option<String> {
+    stdout
+        .lines()
+        .find_map(|l| l.split(label).nth(1))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Promote an uploaded version to 100% of traffic.
+pub fn wrangler_versions_promote(version_id: &str, wrangler_toml: &Path) -> Result<()> {
+    let status = Command::new("wrangler")
+        .args([
+            "versions",
+            "deploy",
+            &format!("{version_id}@100%"),
+            "--yes",
+            "--config",
+        ])
+        .arg(wrangler_toml)
+        .status()
+        .context("run wrangler versions deploy")?;
     if !status.success() {
-        bail!("wrangler deploy failed (exit {:?})", status.code());
+        bail!("wrangler versions deploy failed (exit {:?})", status.code());
     }
     Ok(())
+}
+
+/// POST /_deploy/init on the preview URL. Returns (ok, report_body).
+pub async fn call_deploy_init(preview_url: &str, token: &str) -> Result<(bool, String)> {
+    let url = format!("{}/_deploy/init", preview_url.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .header("x-deploy-token", token)
+        .send()
+        .await
+        .with_context(|| format!("POST {url}"))?;
+    let ok = resp.status().is_success();
+    let body = resp.text().await.unwrap_or_default();
+    Ok((ok, body))
+}
+
+/// Set a worker secret via `wrangler secret put <NAME> --config <toml>`,
+/// piping the value on stdin (never as an argv arg, which would leak it into
+/// the process table). Stdout/stderr inherit so wrangler's own confirmation
+/// shows through. One-time provisioning helper behind `solobase deploy secret`.
+pub fn wrangler_secret_put(wrangler_toml: &Path, name: &str, value: &str) -> Result<()> {
+    let mut child = Command::new("wrangler")
+        .args(["secret", "put", name, "--config"])
+        .arg(wrangler_toml)
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("spawn wrangler secret put")?;
+    child
+        .stdin
+        .take()
+        .context("wrangler secret put stdin unavailable")?
+        .write_all(value.as_bytes())
+        .context("write secret value to wrangler stdin")?;
+    let status = child.wait().context("wait for wrangler secret put")?;
+    if !status.success() {
+        bail!(
+            "wrangler secret put {name} failed (exit {:?})",
+            status.code()
+        );
+    }
+    Ok(())
+}
+
+/// Resolve a secret value for `solobase deploy secret`: reuse a caller-provided
+/// value (from the same-named env var) when present and non-empty, otherwise
+/// generate one by hex-encoding `random_bytes`. Returns `(value, generated)`
+/// where `generated` is `true` when the value was freshly minted (so the CLI
+/// can print an export reminder for the deploy token). Pure — the impure env
+/// lookup and randomness are supplied by the caller so this stays host-testable.
+pub fn resolve_secret(from_env: Option<String>, random_bytes: &[u8]) -> (String, bool) {
+    match from_env {
+        Some(v) if !v.is_empty() => (v, false),
+        _ => (solobase_core::util::hex_encode(random_bytes), true),
+    }
 }
 
 pub fn r2_upload_dir(bucket: &str, assets_root: &Path) -> Result<usize> {
@@ -53,25 +156,6 @@ pub fn r2_upload_dir(bucket: &str, assets_root: &Path) -> Result<usize> {
     Ok(uploaded)
 }
 
-pub fn d1_migrate_remote(database_name: &str, wrangler_toml: &Path) -> Result<()> {
-    let status = Command::new("wrangler")
-        .args([
-            "d1",
-            "migrations",
-            "apply",
-            database_name,
-            "--remote",
-            "--config",
-        ])
-        .arg(wrangler_toml)
-        .status()
-        .context("run wrangler d1 migrations apply --remote")?;
-    if !status.success() {
-        bail!("wrangler d1 migrations apply --remote failed");
-    }
-    Ok(())
-}
-
 fn walk_files<F>(root: &Path, f: &mut F) -> Result<()>
 where
     F: FnMut(&Path) -> Result<()>,
@@ -87,4 +171,50 @@ where
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_labeled_line, resolve_secret};
+
+    #[test]
+    fn resolve_secret_prefers_non_empty_env() {
+        let (value, generated) = resolve_secret(Some("from-env".to_string()), &[0xab, 0xcd]);
+        assert_eq!(value, "from-env");
+        assert!(!generated);
+    }
+
+    #[test]
+    fn resolve_secret_generates_when_env_absent() {
+        let (value, generated) = resolve_secret(None, &[0x00, 0xff, 0x0a, 0xbc]);
+        // Hex-encoded random bytes, lowercase zero-padded.
+        assert_eq!(value, "00ff0abc");
+        assert!(generated);
+    }
+
+    #[test]
+    fn resolve_secret_generates_when_env_empty() {
+        // An empty env var is treated as unset — generate instead.
+        let (value, generated) = resolve_secret(Some(String::new()), &[0x01, 0x02]);
+        assert_eq!(value, "0102");
+        assert!(generated);
+    }
+
+    #[test]
+    fn parses_wrangler_version_lines() {
+        let out = "Total Upload: 4210 KiB\nWorker Version ID: abc-123\nVersion Preview URL: https://x-y.z.workers.dev\n";
+        assert_eq!(
+            parse_labeled_line(out, "Version ID:").as_deref(),
+            Some("abc-123")
+        );
+        assert_eq!(
+            parse_labeled_line(out, "Preview URL:").as_deref(),
+            Some("https://x-y.z.workers.dev")
+        );
+    }
+
+    #[test]
+    fn missing_label_returns_none() {
+        assert_eq!(parse_labeled_line("no labels here", "Version ID:"), None);
+    }
 }

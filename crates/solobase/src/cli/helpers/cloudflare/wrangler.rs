@@ -67,6 +67,10 @@ fn base_toml(cfg: &CloudflareConfig) -> toml::Value {
         "compatibility_date".into(),
         Value::String(cfg.compatibility_date.clone()),
     );
+    // Required so `wrangler versions upload` prints a "Version Preview
+    // URL" line — `solobase deploy` parses that URL to call the new
+    // version's own `/_deploy/init` before promoting it.
+    root.insert("preview_urls".into(), Value::Boolean(true));
 
     let mut build = toml::map::Map::new();
     // Pin to ^0.7 — worker-build 0.8.x rejects consumers using

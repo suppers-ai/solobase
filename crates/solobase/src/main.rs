@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use solobase::cli::{
-    cli_args::{Cli, Command, Target},
+    cli_args::{Cli, Command, DeployAction, Target},
     flows::{embed_cloudflare, embed_native, embed_web, sealed_native, sealed_web},
     mode::{default_target, detect_mode, Mode, ModeContext},
 };
@@ -65,10 +65,13 @@ async fn run() -> anyhow::Result<()> {
         Command::Deploy {
             target,
             release,
-            run_migrations,
+            action,
         } => {
             let target = default_target(&ctx, target)?;
-            dispatch_deploy(&ctx, target, release, run_migrations).await
+            match action {
+                Some(DeployAction::Secret) => dispatch_deploy_secret(&ctx, target).await,
+                None => dispatch_deploy(&ctx, target, release).await,
+            }
         }
     }
 }
@@ -117,20 +120,28 @@ async fn dispatch_serve(
     }
 }
 
-async fn dispatch_deploy(
-    ctx: &ModeContext,
-    target: Target,
-    release: bool,
-    run_migrations: bool,
-) -> anyhow::Result<()> {
+async fn dispatch_deploy(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
     let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Embed, Target::Cloudflare) => {
-            embed_cloudflare::deploy(repo_root, release, run_migrations).await
-        }
+        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy(repo_root, release).await,
         (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
             "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
         ),
         _ => anyhow::bail!("solobase deploy is only implemented for --target cloudflare in v1"),
+    }
+}
+
+async fn dispatch_deploy_secret(ctx: &ModeContext, target: Target) -> anyhow::Result<()> {
+    let repo_root = &ctx.cwd;
+    match (detect_mode(ctx), target) {
+        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy_secret(repo_root).await,
+        (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
+            "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
+        ),
+        _ => {
+            anyhow::bail!(
+                "solobase deploy secret is only implemented for --target cloudflare in v1"
+            )
+        }
     }
 }

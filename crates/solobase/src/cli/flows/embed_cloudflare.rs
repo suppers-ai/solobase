@@ -123,36 +123,44 @@ pub async fn serve(
     Ok(())
 }
 
-pub async fn deploy(repo_root: &Path, release: bool, run_migrations: bool) -> Result<()> {
+pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
     let _ = env::require_api_token()?; // account_id already validated by load()
+    let token_key = solobase_core::config_vars::DEPLOY_TOKEN_KEY;
+    let deploy_token = std::env::var(token_key).map_err(|_| {
+        anyhow::anyhow!(
+            "{token_key} is not set. Provision it with `solobase deploy secret` \
+             (or `wrangler secret put {token_key}`) and export it for deploys."
+        )
+    })?;
 
     build(repo_root, release).await?;
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
     let wrangler_toml = out_dir.join("wrangler.toml");
 
-    // Apply D1 migrations BEFORE pushing the worker bundle. The new code
-    // expects tables to exist (no more lazy ensure_table()), so migrations
-    // must land first.
-    let migrations_dir = out_dir.join("migrations");
-    if migrations_dir.is_dir() {
-        cf_deploy::d1_migrate_remote(&cfg.d1.database_name, &wrangler_toml)?;
-        println!("-> D1 migrations applied to {}", cfg.d1.database_name);
+    // 1. Upload an unpromoted version (no traffic routed yet).
+    let upload = cf_deploy::wrangler_versions_upload(&wrangler_toml)?;
+    println!(
+        "-> uploaded version {} (preview {})",
+        upload.version_id, upload.preview_url
+    );
+
+    // 2. Run migrations + seeds through the new version's own code, against
+    //    the shared production D1 (additive migrations keep the still-live
+    //    old version safe). Abort pre-promote on failure.
+    let (ok, report) = cf_deploy::call_deploy_init(&upload.preview_url, &deploy_token).await?;
+    println!("{report}");
+    if !ok {
+        bail!(
+            "deploy init failed — version {} NOT promoted",
+            upload.version_id
+        );
     }
 
-    // Block-SQL migrations (the in-Worker hash-gated `apply_if_blessed`
-    // sweep) gate on `SOLOBASE_RUN_MIGRATIONS=1` in the Worker env. The
-    // D1-side schema migrations above run during `wrangler d1 migrations
-    // apply` and are independent of this flag.
-    cf_deploy::wrangler_deploy_with_vars(
-        &wrangler_toml,
-        if run_migrations {
-            &[("SOLOBASE_RUN_MIGRATIONS", "1")]
-        } else {
-            &[]
-        },
-    )?;
+    // 3. Promote.
+    cf_deploy::wrangler_versions_promote(&upload.version_id, &wrangler_toml)?;
+    println!("-> promoted {}", upload.version_id);
 
     let assets_root = out_dir.join("assets");
     let n = cf_deploy::r2_upload_dir(&cfg.r2.bucket_name, &assets_root)?;
@@ -163,5 +171,48 @@ pub async fn deploy(repo_root: &Path, release: bool, run_migrations: bool) -> Re
 
     println!();
     println!("deploy complete");
+    Ok(())
+}
+
+/// `solobase deploy secret`: provision the one-time-per-environment worker
+/// secrets (`SOLOBASE_DEPLOY_TOKEN` + the auth JWT secret) via
+/// `wrangler secret put`. Each value is taken from the same-named env var when
+/// set, otherwise a fresh 32-byte hex token is generated. Requires the
+/// generated `wrangler.toml` (run `solobase build --target cloudflare` first).
+pub async fn deploy_secret(repo_root: &Path) -> Result<()> {
+    let out_dir = repo_root.join("target/solobase-cloudflare");
+    let wrangler_toml = out_dir.join("wrangler.toml");
+    if !wrangler_toml.exists() {
+        bail!(
+            "wrangler.toml not found at {}. Run `solobase build --target cloudflare` first.",
+            wrangler_toml.display()
+        );
+    }
+
+    let deploy_token_key = solobase_core::config_vars::DEPLOY_TOKEN_KEY;
+    for name in [
+        deploy_token_key,
+        solobase_core::blocks::auth::JWT_SECRET_KEY,
+    ] {
+        // 32 random bytes → 64 hex chars. getrandom is already a dependency
+        // (used for variable seeding); no new crate for randomness.
+        let mut buf = [0u8; 32];
+        getrandom::getrandom(&mut buf).map_err(|e| anyhow::anyhow!("getrandom: {e}"))?;
+        let (value, generated) = cf_deploy::resolve_secret(std::env::var(name).ok(), &buf);
+
+        cf_deploy::wrangler_secret_put(&wrangler_toml, name, &value)?;
+
+        if generated {
+            println!("-> generated and set worker secret {name}");
+            if name == deploy_token_key {
+                println!(
+                    "   IMPORTANT: export this for future `solobase deploy` runs:\n     \
+                     export {name}={value}"
+                );
+            }
+        } else {
+            println!("-> set worker secret {name} (from env {name})");
+        }
+    }
     Ok(())
 }

@@ -311,23 +311,59 @@ pub async fn load_wrap_grants_from_db(
     {
         Ok(list) => list.records,
         Err(e) => {
-            tracing::debug!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
+            // Missing table is expected on a fresh boot before migrations
+            // have run — stays `debug!`. Any other failure (e.g. a
+            // transient D1 error) silently yields a grant-less,
+            // WRAP-denying runtime on the Cloudflare path, so it's surfaced
+            // as `warn!` instead. Backends surface a missing table as a
+            // driver message containing "no such table" (see
+            // `solobase-cloudflare::database::is_no_such_table`); there's
+            // no structured `DatabaseError` variant for it, hence the
+            // string match.
+            if e.to_string().contains("no such table") {
+                tracing::debug!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
+            } else {
+                tracing::warn!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
+            }
             return Vec::new();
         }
     };
     rows.into_iter()
         .filter_map(|r| {
-            let grantee = r.data.get("grantee")?.as_str()?.to_string();
-            let resource = r.data.get("resource")?.as_str()?.to_string();
+            let grantee = match r.data.get("grantee").and_then(|v| v.as_str()) {
+                Some(g) => g.to_string(),
+                None => {
+                    tracing::warn!(id = %r.id, "wrap_grants row missing/non-string `grantee`; dropped");
+                    return None;
+                }
+            };
+            let resource = match r.data.get("resource").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => {
+                    tracing::warn!(id = %r.id, grantee = %grantee, "wrap_grants row missing/non-string `resource`; dropped");
+                    return None;
+                }
+            };
             // sqlite stores booleans as 0/1 integers.
             let write = match r.data.get("write") {
-                Some(v) => v.as_i64().map(|n| n != 0).or_else(|| v.as_bool())?,
-                None => return None,
+                Some(v) => match v.as_i64().map(|n| n != 0).or_else(|| v.as_bool()) {
+                    Some(w) => w,
+                    None => {
+                        tracing::warn!(id = %r.id, grantee = %grantee, resource = %resource, "wrap_grants row has non-bool/non-int `write`; dropped");
+                        return None;
+                    }
+                },
+                None => {
+                    tracing::warn!(id = %r.id, grantee = %grantee, resource = %resource, "wrap_grants row missing `write`; dropped");
+                    return None;
+                }
             };
             // Mirrors `cli/server_config.rs::load_wrap_grants`'s
             // `ResourceType::parse` call: the wire value is the lowercase
             // `ResourceType` Display string ("db", "config", …); empty or
             // unrecognized values parse to `None` (wildcard — all types).
+            // Absent/unrecognized `resource_type` is a legitimate wildcard
+            // grant, not malformed data, so it does not warn.
             let resource_type = r
                 .data
                 .get("resource_type")

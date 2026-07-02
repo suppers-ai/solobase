@@ -4612,6 +4612,7 @@ dependencies = [
  "clap",
  "getrandom 0.2.17",
  "glob",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
