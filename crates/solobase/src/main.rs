@@ -62,13 +62,9 @@ async fn run() -> anyhow::Result<()> {
             let target = default_target(&ctx, target)?;
             dispatch_serve(&ctx, target, release, port, run_migrations).await
         }
-        Command::Deploy {
-            target,
-            release,
-            run_migrations,
-        } => {
+        Command::Deploy { target, release } => {
             let target = default_target(&ctx, target)?;
-            dispatch_deploy(&ctx, target, release, run_migrations).await
+            dispatch_deploy(&ctx, target, release).await
         }
     }
 }
@@ -117,17 +113,10 @@ async fn dispatch_serve(
     }
 }
 
-async fn dispatch_deploy(
-    ctx: &ModeContext,
-    target: Target,
-    release: bool,
-    run_migrations: bool,
-) -> anyhow::Result<()> {
+async fn dispatch_deploy(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
     let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Embed, Target::Cloudflare) => {
-            embed_cloudflare::deploy(repo_root, release, run_migrations).await
-        }
+        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy(repo_root, release).await,
         (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
             "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
         ),

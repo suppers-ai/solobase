@@ -45,20 +45,18 @@ pub enum Command {
     },
     /// Build the app and deploy it to the target's hosting environment.
     /// (v1: only `--target cloudflare` is supported.)
+    ///
+    /// Cloudflare deploys are atomic: an unpromoted version is uploaded,
+    /// migrations + seeds run against it via an authenticated
+    /// `/_deploy/init` call, and only on success is the version promoted
+    /// to 100% traffic. There is no `--run-migrations` flag here (unlike
+    /// `serve`) — every deploy always runs the init funnel.
     Deploy {
         #[arg(long)]
         target: Option<Target>,
 
         #[arg(long)]
         release: bool,
-
-        /// Apply pending block migrations on deploy.
-        /// Required after adding or modifying migration SQL in any block.
-        /// The first deploy after upgrading solobase must pass this flag.
-        /// For --target cloudflare, threads `SOLOBASE_RUN_MIGRATIONS=1` to
-        /// the deployed Worker via `wrangler deploy --var`.
-        #[arg(long)]
-        run_migrations: bool,
     },
 }
 

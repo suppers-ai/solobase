@@ -123,36 +123,43 @@ pub async fn serve(
     Ok(())
 }
 
-pub async fn deploy(repo_root: &Path, release: bool, run_migrations: bool) -> Result<()> {
+pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
     let _ = env::require_api_token()?; // account_id already validated by load()
+    let deploy_token = std::env::var("SOLOBASE_DEPLOY_TOKEN").map_err(|_| {
+        anyhow::anyhow!(
+            "SOLOBASE_DEPLOY_TOKEN is not set. Generate one, store it as a worker \
+             secret (`wrangler secret put DEPLOY_TOKEN`), and export it for deploys."
+        )
+    })?;
 
     build(repo_root, release).await?;
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
     let wrangler_toml = out_dir.join("wrangler.toml");
 
-    // Apply D1 migrations BEFORE pushing the worker bundle. The new code
-    // expects tables to exist (no more lazy ensure_table()), so migrations
-    // must land first.
-    let migrations_dir = out_dir.join("migrations");
-    if migrations_dir.is_dir() {
-        cf_deploy::d1_migrate_remote(&cfg.d1.database_name, &wrangler_toml)?;
-        println!("-> D1 migrations applied to {}", cfg.d1.database_name);
+    // 1. Upload an unpromoted version (no traffic routed yet).
+    let upload = cf_deploy::wrangler_versions_upload(&wrangler_toml)?;
+    println!(
+        "-> uploaded version {} (preview {})",
+        upload.version_id, upload.preview_url
+    );
+
+    // 2. Run migrations + seeds through the new version's own code, against
+    //    the shared production D1 (additive migrations keep the still-live
+    //    old version safe). Abort pre-promote on failure.
+    let (ok, report) = cf_deploy::call_deploy_init(&upload.preview_url, &deploy_token).await?;
+    println!("{report}");
+    if !ok {
+        bail!(
+            "deploy init failed — version {} NOT promoted",
+            upload.version_id
+        );
     }
 
-    // Block-SQL migrations (the in-Worker hash-gated `apply_if_blessed`
-    // sweep) gate on `SOLOBASE_RUN_MIGRATIONS=1` in the Worker env. The
-    // D1-side schema migrations above run during `wrangler d1 migrations
-    // apply` and are independent of this flag.
-    cf_deploy::wrangler_deploy_with_vars(
-        &wrangler_toml,
-        if run_migrations {
-            &[("SOLOBASE_RUN_MIGRATIONS", "1")]
-        } else {
-            &[]
-        },
-    )?;
+    // 3. Promote.
+    cf_deploy::wrangler_versions_promote(&upload.version_id, &wrangler_toml)?;
+    println!("-> promoted {}", upload.version_id);
 
     let assets_root = out_dir.join("assets");
     let n = cf_deploy::r2_upload_dir(&cfg.r2.bucket_name, &assets_root)?;

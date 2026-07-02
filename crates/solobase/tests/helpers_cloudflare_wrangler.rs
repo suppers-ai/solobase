@@ -41,6 +41,11 @@ fn generate_writes_wrangler_toml_with_required_fields() {
     assert!(body.contains(r#"binding = "STORAGE""#));
     assert!(body.contains(r#"bucket_name = "wafer-site-assets""#));
     assert!(body.contains(r#"main = "../../build/worker/shim.mjs""#));
+    assert!(
+        body.contains("preview_urls = true"),
+        "preview_urls must be enabled so `wrangler versions upload` prints a \
+         Version Preview URL for `solobase deploy` to parse:\n{body}"
+    );
 }
 
 #[test]

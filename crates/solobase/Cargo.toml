@@ -80,6 +80,9 @@ async-trait = { workspace = true }
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 
+# HTTP client for `solobase deploy`'s post-upload `/_deploy/init` gate call.
+reqwest = { workspace = true }
+
 # Observability
 tracing = { workspace = true }
 
