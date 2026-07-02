@@ -57,7 +57,24 @@ pub enum Command {
 
         #[arg(long)]
         release: bool,
+
+        /// Optional subaction. Bare `solobase deploy` runs the full deploy;
+        /// `solobase deploy secret` provisions worker secrets instead.
+        #[command(subcommand)]
+        action: Option<DeployAction>,
     },
+}
+
+/// Subactions of `solobase deploy`.
+#[derive(Subcommand, Debug)]
+pub enum DeployAction {
+    /// Provision the one-time-per-environment worker secrets
+    /// (`SOLOBASE_DEPLOY_TOKEN` + the auth JWT secret) via
+    /// `wrangler secret put`. Each value is taken from the same-named env var
+    /// if set, otherwise a fresh 32-byte hex token is generated. Requires a
+    /// generated `wrangler.toml` (run `solobase build --target cloudflare`
+    /// first).
+    Secret,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

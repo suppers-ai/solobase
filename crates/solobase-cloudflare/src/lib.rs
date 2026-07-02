@@ -185,6 +185,26 @@ where
         return deploy_init_endpoint(req, env, register_blocks, register_post_build).await;
     }
 
+    // Lock down `*.workers.dev` preview hosts. Version preview URLs
+    // (`https://<hash>-<worker>.<subdomain>.workers.dev`) expose the full app
+    // on a public workers.dev host during the atomic deploy window; this guard
+    // returns a plain 404 there so only the deploy endpoint is reachable.
+    // Runs AFTER the `/_deploy/init` intercept above, so `solobase deploy`'s
+    // init gate still works on the preview host — that's the whole deploy flow.
+    // Consumers that legitimately serve on workers.dev opt out with the
+    // `SOLOBASE_ALLOW_WORKERS_DEV=1` worker var. `wrangler dev` (localhost) is
+    // unaffected.
+    if host_is_workers_dev(&req)?
+        && env
+            .var(ALLOW_WORKERS_DEV_KEY)
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("1")
+    {
+        return worker::Response::error("not found", 404);
+    }
+
     // Audit rows are queued during dispatch and flushed off the response path
     // below, so the D1 write never adds latency to the request.
     solobase_core::pipeline::set_request_log_mode(solobase_core::pipeline::RequestLogMode::Queued);
@@ -216,7 +236,8 @@ where
 
 /// Deploy-time init: runs the full migrate+seed funnel once, invoked by
 /// `solobase deploy` against the freshly-uploaded version (pre-promote).
-/// Auth: sha256-compare of `X-Deploy-Token` against the `DEPLOY_TOKEN`
+/// Auth: sha256-compare of `X-Deploy-Token` against the
+/// [`DEPLOY_TOKEN_KEY`](solobase_core::config_vars::DEPLOY_TOKEN_KEY)
 /// wrangler secret (hash-then-compare sidesteps timing on raw bytes).
 async fn deploy_init_endpoint<F, G>(
     req: worker::Request,
@@ -234,7 +255,7 @@ where
     if req.method() != worker::Method::Post {
         return worker::Response::error("method not allowed", 405);
     }
-    let Ok(secret) = env.secret("DEPLOY_TOKEN") else {
+    let Ok(secret) = env.secret(solobase_core::config_vars::DEPLOY_TOKEN_KEY) else {
         // Secret unset ⇒ endpoint disabled entirely.
         return worker::Response::error("not found", 404);
     };
@@ -499,6 +520,23 @@ where
 /// `wrangler secret put`). Most config belongs in D1 so admins can
 /// manage it through the dashboard — this list stays short.
 const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KEY];
+
+/// Worker var (`env.var`) that opts a consumer out of the `*.workers.dev`
+/// preview-host lockdown in [`run`]. Set to `"1"` to serve the full app on a
+/// `workers.dev` host (e.g. consumers with no custom domain).
+const ALLOW_WORKERS_DEV_KEY: &str = "SOLOBASE_ALLOW_WORKERS_DEV";
+
+/// True when the request's host is a `*.workers.dev` host (ASCII
+/// case-insensitive). Drives the preview-host lockdown in [`run`]; a request
+/// with no parseable host is treated as not-workers.dev (fail open to normal
+/// handling — a hostless request can't be a public preview URL).
+fn host_is_workers_dev(req: &worker::Request) -> worker::Result<bool> {
+    Ok(req
+        .url()?
+        .host_str()
+        .map(|h| h.to_ascii_lowercase().ends_with(".workers.dev"))
+        .unwrap_or(false))
+}
 
 /// [`BootHooks`](solobase_core::builder::BootHooks) impl for the Cloudflare
 /// target. block_settings is loaded eagerly before build (the router needs its

@@ -8,6 +8,17 @@
 
 use wafer_run::{ConfigVar, InputType};
 
+/// Worker-secret name for the deploy-time `/_deploy/init` bearer token.
+///
+/// One canonical name shared by both sides of the deploy handshake: the CLI
+/// (`solobase deploy` / `solobase deploy secret`) reads it from the
+/// same-named env var and provisions it via `wrangler secret put`, and the
+/// Cloudflare worker reads it via `env.secret(DEPLOY_TOKEN_KEY)` to gate the
+/// endpoint. Not a `ConfigVar` (never lives in D1 or the admin UI) — it is a
+/// deploy-time worker secret, so it is a plain const rather than a
+/// `SOLOBASE_SHARED__*` entry.
+pub const DEPLOY_TOKEN_KEY: &str = "SOLOBASE_DEPLOY_TOKEN";
+
 /// Shared config variables readable by all blocks, writable only by admin.
 ///
 /// These are NOT owned by any block — they're platform-level settings.

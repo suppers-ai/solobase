@@ -2,7 +2,7 @@
 //! design (build/serve, --target native|web, --release, --port).
 
 use clap::Parser;
-use solobase::cli::cli_args::{Cli, Command, Target};
+use solobase::cli::cli_args::{Cli, Command, DeployAction, Target};
 
 #[test]
 fn parses_build_with_target_native() {
@@ -32,6 +32,35 @@ fn parses_serve_with_port() {
         assert_eq!(port, Some(9090));
     } else {
         panic!("expected Serve");
+    }
+}
+
+#[test]
+fn parses_deploy_without_action() {
+    // Bare `solobase deploy` (optionally with flags) leaves `action` None so
+    // the full deploy flow runs — the `secret` subaction is opt-in.
+    let cli = Cli::parse_from(["solobase", "deploy", "--target", "cloudflare"]);
+    if let Command::Deploy {
+        target,
+        release,
+        action,
+    } = cli.command
+    {
+        assert_eq!(target, Some(Target::Cloudflare));
+        assert!(!release);
+        assert!(action.is_none());
+    } else {
+        panic!("expected Deploy");
+    }
+}
+
+#[test]
+fn parses_deploy_secret_action() {
+    let cli = Cli::parse_from(["solobase", "deploy", "secret"]);
+    if let Command::Deploy { action, .. } = cli.command {
+        assert!(matches!(action, Some(DeployAction::Secret)));
+    } else {
+        panic!("expected Deploy");
     }
 }
 

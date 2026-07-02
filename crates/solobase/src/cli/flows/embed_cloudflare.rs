@@ -126,10 +126,11 @@ pub async fn serve(
 pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
     let _ = env::require_api_token()?; // account_id already validated by load()
-    let deploy_token = std::env::var("SOLOBASE_DEPLOY_TOKEN").map_err(|_| {
+    let token_key = solobase_core::config_vars::DEPLOY_TOKEN_KEY;
+    let deploy_token = std::env::var(token_key).map_err(|_| {
         anyhow::anyhow!(
-            "SOLOBASE_DEPLOY_TOKEN is not set. Generate one, store it as a worker \
-             secret (`wrangler secret put DEPLOY_TOKEN`), and export it for deploys."
+            "{token_key} is not set. Provision it with `solobase deploy secret` \
+             (or `wrangler secret put {token_key}`) and export it for deploys."
         )
     })?;
 
@@ -170,5 +171,48 @@ pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
 
     println!();
     println!("deploy complete");
+    Ok(())
+}
+
+/// `solobase deploy secret`: provision the one-time-per-environment worker
+/// secrets (`SOLOBASE_DEPLOY_TOKEN` + the auth JWT secret) via
+/// `wrangler secret put`. Each value is taken from the same-named env var when
+/// set, otherwise a fresh 32-byte hex token is generated. Requires the
+/// generated `wrangler.toml` (run `solobase build --target cloudflare` first).
+pub async fn deploy_secret(repo_root: &Path) -> Result<()> {
+    let out_dir = repo_root.join("target/solobase-cloudflare");
+    let wrangler_toml = out_dir.join("wrangler.toml");
+    if !wrangler_toml.exists() {
+        bail!(
+            "wrangler.toml not found at {}. Run `solobase build --target cloudflare` first.",
+            wrangler_toml.display()
+        );
+    }
+
+    let deploy_token_key = solobase_core::config_vars::DEPLOY_TOKEN_KEY;
+    for name in [
+        deploy_token_key,
+        solobase_core::blocks::auth::JWT_SECRET_KEY,
+    ] {
+        // 32 random bytes → 64 hex chars. getrandom is already a dependency
+        // (used for variable seeding); no new crate for randomness.
+        let mut buf = [0u8; 32];
+        getrandom::getrandom(&mut buf).map_err(|e| anyhow::anyhow!("getrandom: {e}"))?;
+        let (value, generated) = cf_deploy::resolve_secret(std::env::var(name).ok(), &buf);
+
+        cf_deploy::wrangler_secret_put(&wrangler_toml, name, &value)?;
+
+        if generated {
+            println!("-> generated and set worker secret {name}");
+            if name == deploy_token_key {
+                println!(
+                    "   IMPORTANT: export this for future `solobase deploy` runs:\n     \
+                     export {name}={value}"
+                );
+            }
+        } else {
+            println!("-> set worker secret {name} (from env {name})");
+        }
+    }
     Ok(())
 }
