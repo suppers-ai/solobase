@@ -79,6 +79,11 @@ pub async fn deploy_init(
 
     // Init every registered block individually so each outcome is captured.
     // Admin is a slot-cached no-op on its second pass.
+    //
+    // Keyed on each block's self-reported `info().name` — `init_block` looks
+    // up registration keys. The two coincide for solobase's block set; a
+    // mismatch fails loud via `InitError::Permanent` captured into the report
+    // (`report.ok == false`), never a silent skip.
     let names: Vec<String> = wafer.block_infos().into_iter().map(|i| i.name).collect();
     for name in names {
         if name == admin_id {

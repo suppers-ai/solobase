@@ -197,3 +197,52 @@ async fn deploy_init_first_run_ok_and_second_run_idempotent() {
         report2.blocks
     );
 }
+
+/// `BootHooks` whose seed step always fails, to exercise `deploy_init`'s
+/// capture-and-continue contract: a failing hook must NOT abort the funnel
+/// (still `Ok(report)`), and every other block must still get initialized.
+struct FailingBootHooks;
+
+#[wafer_block::wafer_async_trait]
+impl BootHooks for FailingBootHooks {
+    async fn seed_after_admin_init(&self, _wafer: &Wafer) -> Result<(), String> {
+        Err("boom".to_string())
+    }
+}
+
+#[tokio::test]
+async fn deploy_init_seed_failure_is_captured_not_aborted() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let db_path = tmp.path().join("deploy_init_seed_failure_test.sqlite3");
+    let storage_root = tmp.path().join("storage");
+    std::fs::create_dir_all(&storage_root).expect("create storage root");
+
+    let (mut wafer, storage_block, _db) = build_runtime(&db_path, &storage_root).await;
+    let report = deploy_init(&mut wafer, &storage_block, &FailingBootHooks)
+        .await
+        .expect("deploy_init must still return Ok even when the seed hook errors");
+
+    assert!(
+        !report.ok,
+        "overall report must be not-ok when the seed hook fails: {report:?}"
+    );
+    assert!(
+        !report.seed.ok,
+        "seed step outcome must be not-ok: {:?}",
+        report.seed
+    );
+    assert_eq!(report.seed.error.as_deref(), Some("boom"));
+
+    // Seed failure must not prevent the rest of the funnel: blocks still
+    // get initialized.
+    assert!(
+        !report.blocks.is_empty(),
+        "blocks must still be initialized after a seed failure: {:?}",
+        report.blocks
+    );
+    assert!(
+        report.blocks.iter().all(|b| b.ok),
+        "every block must still init ok despite the seed failure: {:?}",
+        report.blocks
+    );
+}
