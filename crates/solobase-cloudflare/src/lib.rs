@@ -63,12 +63,30 @@ pub fn make_kv_cached_database_service(
     d1_binding: &str,
     kv_binding: &str,
 ) -> Result<Arc<dyn DatabaseService>, worker::Error> {
+    let (db, _backend) = make_kv_cached_database_service_with_backend(env, d1_binding, kv_binding)?;
+    Ok(db)
+}
+
+/// Internals of [`make_kv_cached_database_service`], additionally returning
+/// the `KvBackend` handle it constructs — `build_runtime` needs the backend
+/// itself (not just the `DatabaseService` it's wrapped into) so Task 7's
+/// per-isolate cache and Task 8's `/_deploy/init` endpoint can drive KV
+/// directly (e.g. bumping the config-version stamp) without re-deriving a
+/// second `KvStore` handle from `env`.
+fn make_kv_cached_database_service_with_backend(
+    env: &worker::Env,
+    d1_binding: &str,
+    kv_binding: &str,
+) -> Result<(Arc<dyn DatabaseService>, Arc<dyn kv_cached_db::KvBackend>), worker::Error> {
     let inner = make_d1_database_service(env, d1_binding)?;
     let kv_store = env.kv(kv_binding)?;
-    let backend = Arc::new(kv_cached_db::WorkerKvBackend(kv_store));
-    Ok(Arc::new(kv_cached_db::KvCachedD1DatabaseService::new(
-        inner, backend,
-    )))
+    let backend: Arc<dyn kv_cached_db::KvBackend> =
+        Arc::new(kv_cached_db::WorkerKvBackend(kv_store));
+    let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::new(
+        inner,
+        backend.clone(),
+    ));
+    Ok((db, backend))
 }
 
 /// Construct an R2-backed [`StorageService`] from a worker `Env` and the R2
@@ -160,12 +178,36 @@ where
     }
 }
 
-async fn run_inner<F, G>(
-    req: worker::Request,
-    env: worker::Env,
+/// Everything [`build_runtime`] produces: a sealed-but-not-yet-booted runtime
+/// plus the service handles Tasks 7-8 need (per-isolate build caching, the
+/// `/_deploy/init` endpoint) that would otherwise be locked inside its
+/// function-local scope.
+struct BuiltRuntime {
+    wafer: wafer_run::Wafer,
+    storage_block: Arc<solobase_core::blocks::storage::SolobaseStorageBlock>,
+    // Not read by this task's `run_inner` — held for Task 7 (per-isolate
+    // build cache) and Task 8 (`/_deploy/init`) to consume.
+    #[allow(dead_code)]
+    bucket: Arc<dyn StorageService>,
+    db: Arc<dyn DatabaseService>,
+    #[allow(dead_code)]
+    kv: Arc<dyn kv_cached_db::KvBackend>,
+}
+
+/// Build (but do not seal or boot) the WAFER runtime for a request: wire the
+/// D1/KV/R2/crypto/network/logger services, run the consumer's block
+/// registrations, and build + config-snapshot the runtime.
+///
+/// `force_run_migrations` inserts `SOLOBASE_RUN_MIGRATIONS=1` into the config
+/// snapshot regardless of the worker env var — used by the `/_deploy/init`
+/// endpoint (Task 8) to force a migration pass on demand. The normal request
+/// path passes `false` and keeps honoring the env var exactly as before.
+async fn build_runtime<F, G>(
+    env: &worker::Env,
     register_blocks: F,
     register_post_build: G,
-) -> Result<worker::Response, Box<dyn std::error::Error>>
+    force_run_migrations: bool,
+) -> Result<BuiltRuntime, Box<dyn std::error::Error>>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
     G: FnOnce(
@@ -174,8 +216,9 @@ where
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
     // 1. Construct D1 service (with KV cache) first — env vars live in D1.
-    let db = make_kv_cached_database_service(&env, runner::D1_BINDING, runner::KV_BINDING)
-        .map_err(|e| {
+    let (db, kv) =
+        make_kv_cached_database_service_with_backend(env, runner::D1_BINDING, runner::KV_BINDING)
+            .map_err(|e| {
             format!(
                 "DB/KV bindings (D1={:?}, KV={:?}): {e}",
                 runner::D1_BINDING,
@@ -221,12 +264,13 @@ where
     // gate on it via `ctx.config_get`. Without this, `run_requested` is
     // always `false` on CF and a `--run-migrations` deploy against an
     // existing (non-wiped) D1 silently no-ops.
-    if env
-        .var(solobase_core::migration_helper::RUN_MIGRATIONS_KEY)
-        .ok()
-        .map(|v| v.to_string())
-        .as_deref()
-        == Some("1")
+    if force_run_migrations
+        || env
+            .var(solobase_core::migration_helper::RUN_MIGRATIONS_KEY)
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            == Some("1")
     {
         cfg_svc_map.insert(
             solobase_core::migration_helper::RUN_MIGRATIONS_KEY.to_string(),
@@ -235,7 +279,7 @@ where
     }
 
     // 4. Construct remaining services.
-    let bucket: Arc<dyn StorageService> = make_r2_storage_service(&env, runner::R2_BINDING)
+    let bucket: Arc<dyn StorageService> = make_r2_storage_service(env, runner::R2_BINDING)
         .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
     let jwt_secret = cfg_svc_map
         .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
@@ -284,18 +328,28 @@ where
 
     // 6b. Consumer post-build hook (override flows / configs before start).
     //     Receives the R2-backed StorageService so consumers can register
-    //     blocks that need direct un-namespaced bucket access.
-    register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
+    //     blocks that need direct un-namespaced bucket access. Cloned so the
+    //     bucket handle also survives into the returned `BuiltRuntime` — the
+    //     hook only borrows it to register additional blocks, it doesn't need
+    //     exclusive ownership.
+    register_post_build(&mut wafer, bucket.clone())
+        .map_err(|e| format!("register_post_build: {e}"))?;
 
-    // 6c. Run the shared boot funnel: seal → init_block(admin) →
-    //     seed_after_admin_init → init_all_blocks → post_start. The hook seeds
-    //     `auto_generate` ConfigVars once admin's migration 002 has added the
-    //     `variables.block` column. block_settings was already loaded eagerly
-    //     above (the router consumes its enablement map at build time).
-    solobase_core::builder::boot(&mut wafer, &storage_block, &CfBootHooks { db: db.clone() })
-        .await
-        .map_err(|e| format!("boot: {e}"))?;
+    Ok(BuiltRuntime {
+        wafer,
+        storage_block,
+        bucket,
+        db,
+        kv,
+    })
+}
 
+/// Convert a worker request into a WAFER message (preserving the auth header)
+/// and dispatch it through the `"site-main"` flow.
+async fn dispatch(
+    wafer: &wafer_run::Wafer,
+    req: worker::Request,
+) -> Result<worker::Response, Box<dyn std::error::Error>> {
     // 7. Convert request → message; preserve auth header in meta.
     let auth_header = req.headers().get("authorization")?;
     let (mut msg, input) = convert::worker_request_to_message(&req).await?;
@@ -306,6 +360,39 @@ where
     // 8. Dispatch and convert response.
     let output = wafer.run("site-main", msg, input).await;
     Ok(convert::output_to_response(output).await?)
+}
+
+async fn run_inner<F, G>(
+    req: worker::Request,
+    env: worker::Env,
+    register_blocks: F,
+    register_post_build: G,
+) -> Result<worker::Response, Box<dyn std::error::Error>>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(
+        &mut wafer_run::Wafer,
+        Arc<dyn StorageService>,
+    ) -> Result<(), Box<dyn std::error::Error>>,
+{
+    let mut built = build_runtime(&env, register_blocks, register_post_build, false).await?;
+
+    // Run the shared boot funnel: seal → init_block(admin) →
+    // seed_after_admin_init → init_all_blocks → post_start. The hook seeds
+    // `auto_generate` ConfigVars once admin's migration 002 has added the
+    // `variables.block` column. block_settings was already loaded eagerly in
+    // `build_runtime` (the router consumes its enablement map at build time).
+    solobase_core::builder::boot(
+        &mut built.wafer,
+        &built.storage_block,
+        &CfBootHooks {
+            db: built.db.clone(),
+        },
+    )
+    .await
+    .map_err(|e| format!("boot: {e}"))?;
+
+    dispatch(&built.wafer, req).await
 }
 
 /// Worker `Env` bindings that override D1 variables (set via
