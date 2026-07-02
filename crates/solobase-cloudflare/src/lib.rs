@@ -285,10 +285,10 @@ fn sha256_hex(s: &str) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Everything [`build_runtime`] produces: a sealed-but-not-yet-booted runtime
-/// plus the service handles Tasks 7-8 need (per-isolate build caching, the
-/// `/_deploy/init` endpoint) that would otherwise be locked inside its
-/// function-local scope.
+/// Everything [`build_runtime`] produces: a built-but-not-sealed-or-booted
+/// runtime plus the service handles Tasks 7-8 need (per-isolate build
+/// caching, the `/_deploy/init` endpoint) that would otherwise be locked
+/// inside its function-local scope.
 struct BuiltRuntime {
     wafer: wafer_run::Wafer,
     storage_block: Arc<solobase_core::blocks::storage::SolobaseStorageBlock>,

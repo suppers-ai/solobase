@@ -497,4 +497,37 @@ mod tests {
         assert!(!CONFIG_VERSION_KEY.starts_with("cfg:v1:variables:"));
         assert!(!CONFIG_VERSION_KEY.starts_with("cfg:v1:block_settings:"));
     }
+
+    /// Pins the invariant: every table `classify_table` recognizes as
+    /// KV-row-cached must also bump the config version, or a cached runtime
+    /// could keep serving stale rows forever after a write to that table.
+    ///
+    /// `classify_table` matches individual table constants rather than
+    /// iterating a shared list, so this test can't literally replay its
+    /// match arms. Instead it exhaustively matches every `CachedTable`
+    /// variant with NO wildcard arm: adding a new variant (i.e. a new
+    /// cached table) without updating this test is a compile error here,
+    /// not a silent gap. If you just added a table to `classify_table`,
+    /// add its variant + constant below and confirm `bumps_config_version`
+    /// covers it too.
+    #[test]
+    fn every_classified_table_bumps_config_version() {
+        for table in [CachedTable::Variables, CachedTable::BlockSettings] {
+            let table_name = match table {
+                CachedTable::Variables => VARIABLES_TABLE,
+                CachedTable::BlockSettings => BLOCK_SETTINGS_TABLE,
+            };
+            assert_eq!(
+                classify_table(table_name),
+                Some(table),
+                "{table_name} no longer classifies as {table:?} — test is stale"
+            );
+            assert!(
+                bumps_config_version(table_name),
+                "{table_name} is KV-row-cached ({table:?} via classify_table) but \
+                 bumps_config_version() is false — every cached table must bump \
+                 the config version so cached runtimes don't serve stale state"
+            );
+        }
+    }
 }
