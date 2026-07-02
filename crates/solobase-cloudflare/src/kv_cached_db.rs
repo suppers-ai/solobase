@@ -68,6 +68,14 @@ use wafer_core::interfaces::database::service::{
 /// KV TTL applied to every cache PUT (24 h).
 const CACHE_TTL_SECS: u64 = 86_400;
 
+/// Fresh opaque config-version stamp (16 random bytes, lowercase hex).
+pub fn new_version_stamp() -> String {
+    let mut buf = [0u8; 16];
+    // getrandom's js feature routes to crypto.getRandomValues on wasm.
+    getrandom::getrandom(&mut buf).expect("getrandom");
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Wraps a [`DatabaseService`] with a write-through-invalidated KV cache
 /// for the `variables` and `block_settings` per-block read paths.
 pub struct KvCachedD1DatabaseService {
@@ -98,6 +106,26 @@ impl KvCachedD1DatabaseService {
             } else {
                 tracing::debug!(table = %collection, key = %key, op, "cache_invalidate");
             }
+        }
+    }
+
+    /// Rewrite the config-version stamp after a write to a table whose
+    /// contents a cached runtime bakes in (variables / block_settings /
+    /// wrap_grants). Best-effort like row invalidation: a failed put leaves
+    /// live isolates on the old runtime until the next successful bump.
+    async fn bump_config_version(&self, collection: &str, op: &str) {
+        if !cache_key::bumps_config_version(collection) {
+            return;
+        }
+        let stamp = new_version_stamp();
+        if let Err(e) = self
+            .kv
+            .put_with_ttl(cache_key::CONFIG_VERSION_KEY, &stamp, CACHE_TTL_SECS)
+            .await
+        {
+            tracing::warn!(table = %collection, error = %e, op, "config-version bump failed");
+        } else {
+            tracing::debug!(table = %collection, version = %stamp, op, "config_version_bump");
         }
     }
 }
@@ -284,6 +312,7 @@ impl DatabaseService for KvCachedD1DatabaseService {
             );
         }
         self.invalidate_all(collection, &invalidate, "create").await;
+        self.bump_config_version(collection, "create").await;
 
         Ok(record)
     }
@@ -315,6 +344,7 @@ impl DatabaseService for KvCachedD1DatabaseService {
         let record = self.inner.update(collection, id, data).await?;
 
         self.invalidate_all(collection, &invalidate, "update").await;
+        self.bump_config_version(collection, "update").await;
 
         Ok(record)
     }
@@ -341,6 +371,7 @@ impl DatabaseService for KvCachedD1DatabaseService {
         self.inner.delete(collection, id).await?;
 
         self.invalidate_all(collection, &invalidate, "delete").await;
+        self.bump_config_version(collection, "delete").await;
 
         Ok(())
     }
