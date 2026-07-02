@@ -291,3 +291,127 @@ pub async fn load_all_variables(
     }
     Ok(vars)
 }
+
+/// Load admin-created WRAP grants from `suppers_ai__admin__wrap_grants` via
+/// the `DatabaseService`. DB-service twin of the native sqlite-file reader
+/// (`cli/server_config.rs::load_wrap_grants`) so stateless targets
+/// (Cloudflare) can inject dynamic grants at runtime build. Missing table /
+/// read errors degrade to an empty vec — dynamic grants are additive.
+pub async fn load_wrap_grants_from_db(
+    db: &Arc<dyn DatabaseService>,
+) -> Vec<wafer_run::ResourceGrant> {
+    let opts = ListOptions {
+        limit: 10_000,
+        skip_count: true,
+        ..Default::default()
+    };
+    let rows = match db
+        .list(crate::blocks::admin::WRAP_GRANTS_TABLE, &opts)
+        .await
+    {
+        Ok(list) => list.records,
+        Err(e) => {
+            tracing::debug!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
+            return Vec::new();
+        }
+    };
+    rows.into_iter()
+        .filter_map(|r| {
+            let grantee = r.data.get("grantee")?.as_str()?.to_string();
+            let resource = r.data.get("resource")?.as_str()?.to_string();
+            // sqlite stores booleans as 0/1 integers.
+            let write = match r.data.get("write") {
+                Some(v) => v.as_i64().map(|n| n != 0).or_else(|| v.as_bool())?,
+                None => return None,
+            };
+            // Mirrors `cli/server_config.rs::load_wrap_grants`'s
+            // `ResourceType::parse` call: the wire value is the lowercase
+            // `ResourceType` Display string ("db", "config", …); empty or
+            // unrecognized values parse to `None` (wildcard — all types).
+            let resource_type = r
+                .data
+                .get("resource_type")
+                .and_then(|v| v.as_str())
+                .and_then(wafer_run::ResourceType::parse);
+            Some(wafer_run::ResourceGrant {
+                grantee,
+                resource,
+                write,
+                resource_type,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod wrap_grants_tests {
+    use super::*;
+
+    /// Open a fresh in-memory SQLite [`DatabaseService`] with no migrations
+    /// applied — the same construction `features.rs`'s
+    /// `db_with_block_settings_table` and `test_support::TestContext::new`
+    /// use for a real, host-runnable `DatabaseService`.
+    async fn bare_db() -> Arc<dyn DatabaseService> {
+        Arc::new(
+            wafer_block_sqlite::service::SQLiteDatabaseService::open_in_memory()
+                .expect("open in-memory sqlite"),
+        )
+    }
+
+    #[tokio::test]
+    async fn load_wrap_grants_maps_rows_and_tolerates_missing_table() {
+        let db = bare_db().await;
+
+        // Missing table → empty, no error.
+        assert!(load_wrap_grants_from_db(&db).await.is_empty());
+
+        // Apply admin migrations (creates `suppers_ai__admin__wrap_grants`
+        // among the other admin tables) through the same pre-wafer DDL
+        // runner native's `server.rs::run` uses
+        // (`migration_helper::apply_ddl_via_service` +
+        // `blocks::admin::migrations::ddl_files`) — the migration-file-
+        // runner exception to the no-raw-SQL rule (CLAUDE.md), reusing the
+        // real embedded schema rather than a hand-rolled CREATE TABLE.
+        crate::migration_helper::apply_ddl_via_service(
+            &db,
+            crate::blocks::admin::migrations::ddl_files("sqlite"),
+        )
+        .await
+        .expect("apply admin migrations");
+
+        // Create + seed two rows via the service (no raw SQL).
+        let mut r1 = HashMap::new();
+        r1.insert("grantee".into(), serde_json::json!("suppers-ai/files"));
+        r1.insert(
+            "resource".into(),
+            serde_json::json!("suppers_ai__files__objects"),
+        );
+        r1.insert("write".into(), serde_json::json!(1));
+        r1.insert("resource_type".into(), serde_json::json!("db"));
+        let mut r2 = HashMap::new();
+        r2.insert("grantee".into(), serde_json::json!("suppers-ai/auth"));
+        r2.insert("resource".into(), serde_json::json!("bucket/x"));
+        r2.insert("write".into(), serde_json::json!(0));
+        db.create(crate::blocks::admin::WRAP_GRANTS_TABLE, r1)
+            .await
+            .unwrap();
+        db.create(crate::blocks::admin::WRAP_GRANTS_TABLE, r2)
+            .await
+            .unwrap();
+
+        let grants = load_wrap_grants_from_db(&db).await;
+        assert_eq!(grants.len(), 2);
+        let g1 = grants
+            .iter()
+            .find(|g| g.grantee == "suppers-ai/files")
+            .unwrap();
+        assert!(g1.write);
+        assert_eq!(g1.resource_type, Some(wafer_run::ResourceType::Db));
+        let g2 = grants
+            .iter()
+            .find(|g| g.grantee == "suppers-ai/auth")
+            .unwrap();
+        assert!(!g2.write);
+        assert_eq!(g2.resource_type, None);
+    }
+}

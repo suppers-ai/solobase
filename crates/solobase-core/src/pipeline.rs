@@ -3,6 +3,8 @@
 //! Both Cloudflare and native adapters call `handle_request()` after
 //! converting their platform-specific HTTP types into a WAFER Message.
 
+use std::cell::{Cell, RefCell};
+
 use futures::StreamExt;
 use wafer_block::{
     http_codec::{self, ResponseMetaPart},
@@ -21,6 +23,54 @@ use crate::{
     http::ResponseBuilder,
     routing::{self, ExtraRoute},
 };
+
+/// How the pipeline persists the per-request audit row.
+///
+/// `Inline` (default; native): `db::create` awaited on the response path —
+/// today's behavior. `Queued` (Cloudflare): the completed row is pushed to a
+/// thread-local queue; the platform entry drains it after dispatch and
+/// attaches the write to `ctx.wait_until`, so responses stop paying one D1
+/// write of latency. Rows are plain data, so it does not matter which
+/// interleaved request's drain flushes them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestLogMode {
+    Inline,
+    Queued,
+}
+
+/// One queued audit row (table + column map), ready for `DatabaseService::create`.
+pub struct QueuedRequestLog {
+    pub table: &'static str,
+    pub data: std::collections::HashMap<String, serde_json::Value>,
+}
+
+thread_local! {
+    static REQUEST_LOG_MODE: Cell<RequestLogMode> = const { Cell::new(RequestLogMode::Inline) };
+    static REQUEST_LOG_QUEUE: RefCell<Vec<QueuedRequestLog>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Select the request-log persistence mode for this thread (isolate).
+/// Called once at platform init; native never calls it.
+pub fn set_request_log_mode(mode: RequestLogMode) {
+    REQUEST_LOG_MODE.with(|m| m.set(mode));
+}
+
+fn request_log_mode() -> RequestLogMode {
+    REQUEST_LOG_MODE.with(Cell::get)
+}
+
+fn enqueue_request_log(
+    table: &'static str,
+    data: std::collections::HashMap<String, serde_json::Value>,
+) {
+    REQUEST_LOG_QUEUE.with(|q| q.borrow_mut().push(QueuedRequestLog { table, data }));
+}
+
+/// Take every queued row, clearing the queue. The platform entry calls this
+/// after each dispatch and persists the rows off the response path.
+pub fn drain_queued_request_logs() -> Vec<QueuedRequestLog> {
+    REQUEST_LOG_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
 
 /// Handle a solobase request.
 ///
@@ -200,8 +250,15 @@ pub async fn handle_request(
         data.insert("user_id".to_string(), serde_json::json!(user_id));
         crate::util::stamp_created(&mut data);
 
-        // Best-effort: don't fail the request if logging fails
-        let _ = db::create(ctx, crate::blocks::admin::REQUEST_LOGS_TABLE, data).await;
+        match request_log_mode() {
+            RequestLogMode::Inline => {
+                // Best-effort: don't fail the request if logging fails
+                let _ = db::create(ctx, crate::blocks::admin::REQUEST_LOGS_TABLE, data).await;
+            }
+            RequestLogMode::Queued => {
+                enqueue_request_log(crate::blocks::admin::REQUEST_LOGS_TABLE, data);
+            }
+        }
     }
 
     reply
@@ -364,5 +421,36 @@ async fn collect_buffered_with_prelude(
         Some(StreamEvent::Drop) => Err(TerminalNotResponse::Drop),
         Some(StreamEvent::Continue(msg)) => Err(TerminalNotResponse::Continue(msg)),
         None => Err(TerminalNotResponse::Malformed),
+    }
+}
+
+#[cfg(test)]
+mod request_log_mode_tests {
+    use super::{
+        drain_queued_request_logs, enqueue_request_log, request_log_mode, set_request_log_mode,
+        RequestLogMode,
+    };
+    use crate::blocks::admin;
+
+    #[test]
+    fn default_mode_is_inline_and_drain_is_empty() {
+        assert_eq!(request_log_mode(), RequestLogMode::Inline);
+        assert!(drain_queued_request_logs().is_empty());
+    }
+
+    #[test]
+    fn queued_mode_accumulates_and_drain_clears() {
+        set_request_log_mode(RequestLogMode::Queued);
+        let mut data = std::collections::HashMap::new();
+        data.insert("path".to_string(), serde_json::json!("/x"));
+        enqueue_request_log(admin::REQUEST_LOGS_TABLE, data.clone());
+        enqueue_request_log(admin::REQUEST_LOGS_TABLE, data);
+
+        let drained = drain_queued_request_logs();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].table, admin::REQUEST_LOGS_TABLE);
+        assert!(drain_queued_request_logs().is_empty(), "drain must clear");
+
+        set_request_log_mode(RequestLogMode::Inline); // restore for other tests
     }
 }

@@ -6,7 +6,7 @@
 //! logic lives here so it's host-testable; `solobase-cloudflare` is
 //! excluded from `cargo test --workspace`.
 
-use crate::blocks::admin::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
+use crate::blocks::admin::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE, WRAP_GRANTS_TABLE};
 
 /// Tables that this wrapper caches in KV.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,21 @@ pub fn classify_table(table: &str) -> Option<CachedTable> {
         t if t == BLOCK_SETTINGS_TABLE => Some(CachedTable::BlockSettings),
         _ => None,
     }
+}
+
+/// KV key holding the opaque config-generation stamp. The Cloudflare entry
+/// compares this against the version its cached runtime was built at and
+/// rebuilds on mismatch. Rewritten (not incremented) on every bump.
+pub const CONFIG_VERSION_KEY: &str = "cfg:v1:config_version";
+
+/// True when a write to `table` must bump [`CONFIG_VERSION_KEY`] — i.e. the
+/// table feeds state that a cached runtime bakes in at build/init time:
+/// `variables` (block config consumed at Init), `block_settings` (router
+/// enablement map consumed at build), `wrap_grants` (loaded into runtime
+/// grants at build). Tables read fresh per request (roles, permissions,
+/// user_roles) do NOT bump.
+pub fn bumps_config_version(table: &str) -> bool {
+    table == VARIABLES_TABLE || table == BLOCK_SETTINGS_TABLE || table == WRAP_GRANTS_TABLE
 }
 
 use wafer_block::db::{Filter, FilterOp, ListOptions};
@@ -456,5 +471,30 @@ mod tests {
             invalidate_keys(CachedTable::BlockSettings, &r),
             vec!["cfg:v1:block_settings:__all__".to_string()]
         );
+    }
+
+    #[test]
+    fn bumps_config_version_covers_runtime_affecting_tables() {
+        assert!(bumps_config_version("suppers_ai__admin__variables"));
+        assert!(bumps_config_version("suppers_ai__admin__block_settings"));
+        assert!(bumps_config_version("suppers_ai__admin__wrap_grants"));
+    }
+
+    #[test]
+    fn bumps_config_version_false_for_runtime_read_tables() {
+        // roles/permissions/user_roles are read fresh from D1 per request —
+        // no cached-runtime state depends on them, so no bump.
+        assert!(!bumps_config_version("suppers_ai__admin__roles"));
+        assert!(!bumps_config_version("suppers_ai__admin__permissions"));
+        assert!(!bumps_config_version("suppers_ai__auth__users"));
+        assert!(!bumps_config_version(""));
+    }
+
+    #[test]
+    fn config_version_key_is_distinct_from_row_cache_keys() {
+        // Row cache keys are "cfg:v1:{variables|block_settings}:{value}".
+        assert!(CONFIG_VERSION_KEY.starts_with("cfg:v1:"));
+        assert!(!CONFIG_VERSION_KEY.starts_with("cfg:v1:variables:"));
+        assert!(!CONFIG_VERSION_KEY.starts_with("cfg:v1:block_settings:"));
     }
 }
