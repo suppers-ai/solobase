@@ -23,8 +23,7 @@ const SQL_007_SQLITE: &str = include_str!("007_api_keys.sqlite.sql");
 const SQL_007_POSTGRES: &str = include_str!("007_api_keys.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime apply (auth's `init`) and the
-/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
+/// pairs. Feeds the runtime `lifecycle(Init)` apply path (auth's `init`).
 /// Order here is the apply order.
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     ("001_auth_schema", SQL_001_SQLITE),
