@@ -153,6 +153,29 @@ pub fn make_config_service(vars: HashMap<String, String>) -> Arc<dyn ConfigServi
     Arc::new(config_service::HashMapConfigService::new(vars))
 }
 
+thread_local! {
+    static ISOLATE_INITIALIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// One-time isolate initialization: selects [`RequestLogMode::Queued`]
+/// (audit rows drain into `ctx.wait_until` off the response path — see
+/// `run`). Consumers should call this from their worker's
+/// `#[event(start)]` handler; `run()` also invokes it behind a
+/// once-per-isolate guard, so isolates stay correct either way and repeat
+/// calls are no-ops.
+///
+/// [`RequestLogMode::Queued`]: solobase_core::pipeline::RequestLogMode
+pub fn init_isolate() {
+    ISOLATE_INITIALIZED.with(|done| {
+        if !done.get() {
+            solobase_core::pipeline::set_request_log_mode(
+                solobase_core::pipeline::RequestLogMode::Queued,
+            );
+            done.set(true);
+        }
+    });
+}
+
 use solobase_core::builder::SolobaseBuilder;
 
 /// Worker entry shim: load D1 vars, wire services, run the consumer's
@@ -212,9 +235,9 @@ where
         return worker::Response::error("not found", 404);
     }
 
-    // Audit rows are queued during dispatch and flushed off the response path
-    // below, so the D1 write never adds latency to the request.
-    solobase_core::pipeline::set_request_log_mode(solobase_core::pipeline::RequestLogMode::Queued);
+    // Isolate-scoped init (request-log mode) — no-op after the first call;
+    // consumers with an #[event(start)] handler have already run it.
+    init_isolate();
     let result = run_inner(req, env, register_blocks, register_post_build).await;
 
     // Persist any audit rows queued during this dispatch off the response
