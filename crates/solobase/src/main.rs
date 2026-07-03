@@ -115,7 +115,7 @@ async fn dispatch_serve(
             embed_web::serve(repo_root, release, port, run_migrations).await
         }
         (Mode::Embed, Target::Cloudflare) => {
-            embed_cloudflare::serve(repo_root, release, port, run_migrations).await
+            embed_cloudflare::serve(repo_root, release, port).await
         }
     }
 }

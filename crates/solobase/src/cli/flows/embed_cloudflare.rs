@@ -53,35 +53,73 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(
-    repo_root: &Path,
-    release: bool,
-    port: Option<u16>,
-    run_migrations: bool,
-) -> Result<()> {
+pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result<()> {
     build(repo_root, release).await?;
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
     let wrangler_toml = out_dir.join("wrangler.toml");
 
-    // Use `tokio::process::Command` because `wrangler dev` is a long-running
-    // subprocess — running it under `std::process::Command` from an async fn
-    // would block the tokio worker for the lifetime of the child.
+    // Ephemeral deploy token for this serve session: lets us drive the same
+    // /_deploy/init funnel a production deploy uses (migrations + seeds,
+    // auto_generate vars included) against the local D1. `wrangler dev`
+    // resolves `--var` bindings through `env.secret()`.
+    let mut buf = [0u8; 32];
+    getrandom::getrandom(&mut buf).map_err(|e| anyhow::anyhow!("getrandom: {e}"))?;
+    let dev_token = solobase_core::util::hex_encode(&buf);
+
+    // `wrangler dev` is a long-running child: spawn (not status) so we can
+    // POST the init funnel once it is up, then wait for it.
     let mut dev = tokio::process::Command::new("wrangler");
     dev.args(["dev", "--config"]).arg(&wrangler_toml);
-    if let Some(p) = port {
-        dev.args(["--port", &p.to_string()]);
+    let local_port = port.unwrap_or(8787);
+    dev.args(["--port", &local_port.to_string()]);
+    dev.args([
+        "--var",
+        &format!(
+            "{}:{dev_token}",
+            solobase_core::config_vars::DEPLOY_TOKEN_KEY
+        ),
+    ]);
+    let mut child = dev.spawn()?;
+
+    let local_url = format!("http://localhost:{local_port}");
+    match wait_and_run_local_init(&local_url, &dev_token).await {
+        Ok((ok, report)) => {
+            if ok {
+                println!("-> local /_deploy/init ok (migrations + seeds applied)");
+            } else {
+                eprintln!("-> local /_deploy/init reported failures:\n{report}");
+            }
+        }
+        Err(e) => eprintln!(
+            "-> local /_deploy/init not reachable ({e}); serving anyway — \
+             POST {local_url}/_deploy/init with header x-deploy-token: {dev_token} to seed manually"
+        ),
     }
-    // Pass the flag to the Worker via wrangler's `--var` so the deployed
-    // bundle's `apply_if_blessed` sees it through `ctx.config_get`.
-    if run_migrations {
-        dev.args(["--var", "SOLOBASE_RUN_MIGRATIONS:1"]);
-    }
-    let status = dev.status().await?;
+
+    let status = child.wait().await?;
     if !status.success() {
         bail!("wrangler dev failed (exit {:?})", status.code());
     }
     Ok(())
+}
+
+/// Poll until the local worker answers, then run the deploy-init funnel
+/// against it. Bounded: ~60s of connect retries.
+async fn wait_and_run_local_init(local_url: &str, token: &str) -> Result<(bool, String)> {
+    const ATTEMPTS: u32 = 120;
+    const INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+    let mut last_err = None;
+    for _ in 0..ATTEMPTS {
+        match cf_deploy::call_deploy_init(local_url, token).await {
+            Ok(out) => return Ok(out),
+            Err(e) => {
+                last_err = Some(e);
+                tokio::time::sleep(INTERVAL).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("wrangler dev never became reachable")))
 }
 
 pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {

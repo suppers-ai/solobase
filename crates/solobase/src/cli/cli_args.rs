@@ -37,9 +37,13 @@ pub enum Command {
         #[arg(long)]
         port: Option<u16>,
 
-        /// Apply pending block migrations on startup.
-        /// Blocks whose SQL hash has changed will be applied and their blessed_hash updated.
-        /// Safe to run on every deploy but slower; omit once schema is stable.
+        /// Apply pending block migrations on startup. Applies to `--target
+        /// native` only: blocks whose SQL hash has changed will be applied
+        /// and their blessed_hash updated. Safe to run on every deploy but
+        /// slower; omit once schema is stable.
+        /// `--target cloudflare` ignores this flag — local `wrangler dev`
+        /// always runs the `/_deploy/init` funnel (migrations + seeds) once
+        /// the dev server is reachable, same as a production deploy.
         #[arg(long)]
         run_migrations: bool,
     },
