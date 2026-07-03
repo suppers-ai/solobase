@@ -19,8 +19,7 @@ const SQL_001_SQLITE: &str = include_str!("001_llm_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_llm_schema.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `lifecycle_init` apply and the
-/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
+/// pairs. Feeds the runtime `lifecycle_init` apply path.
 ///
 /// Application is gated by the shared migration-state gate
 /// ([`crate::migration_helper::apply_if_blessed`]): idempotent across cold

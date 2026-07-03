@@ -46,6 +46,11 @@ fn generate_writes_wrangler_toml_with_required_fields() {
         "preview_urls must be enabled so `wrangler versions upload` prints a \
          Version Preview URL for `solobase deploy` to parse:\n{body}"
     );
+    assert!(
+        !body.contains("migrations_dir"),
+        "deploy toml must not declare a wrangler migrations ledger — \
+         schema funds through /_deploy/init"
+    );
 }
 
 #[test]

@@ -100,7 +100,6 @@ fn base_toml(cfg: &CloudflareConfig) -> toml::Value {
         "database_id".into(),
         Value::String(cfg.d1.database_id.clone()),
     );
-    d1_entry.insert("migrations_dir".into(), Value::String("migrations".into()));
     root.insert(
         "d1_databases".into(),
         Value::Array(vec![Value::Table(d1_entry)]),

@@ -17,8 +17,7 @@ const SQL_001_SQLITE: &str = include_str!("001_vector_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_vector_schema.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `lifecycle_init` apply and the
-/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
+/// pairs. Feeds the runtime `lifecycle_init` apply path.
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[("001_vector_schema", SQL_001_SQLITE)];
 
 /// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`].

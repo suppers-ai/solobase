@@ -18,8 +18,7 @@ const SQL_002_SQLITE: &str = include_str!("002_default_templates.sqlite.sql");
 const SQL_002_POSTGRES: &str = include_str!("002_default_templates.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
-/// pairs. Single source for both the runtime `lifecycle_init` apply and the
-/// Cloudflare-build D1 migration registry (`crate::blocks::all_sqlite_migrations`).
+/// pairs. Feeds the runtime `lifecycle_init` apply path.
 /// Order here is the apply order.
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     ("001_products_schema", SQL_001_SQLITE),

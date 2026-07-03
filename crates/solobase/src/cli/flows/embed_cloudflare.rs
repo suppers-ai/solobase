@@ -28,25 +28,6 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let wrangler_path = wrangler::generate(&cfg, repo_root, &out_dir)?;
     println!("-> {}", wrangler_path.display());
 
-    // Write the D1 migrations from the per-block SQL files — the single
-    // schema source. `all_sqlite_migrations()` returns the same
-    // `migrations::SQLITE_MIGRATIONS` scripts the runtime `apply()` paths
-    // execute at `lifecycle(Init)`, sequenced as `NNNN_<block>__<name>.sql`.
-    // Wrangler picks these up via `migrations_dir` in wrangler.toml when
-    // `wrangler d1 migrations apply` runs at deploy time.
-    let migrations_dir = out_dir.join("migrations");
-    std::fs::create_dir_all(&migrations_dir)?;
-    for (name, content) in solobase_core::blocks::all_sqlite_migrations() {
-        std::fs::write(migrations_dir.join(&name), content)?;
-    }
-
-    let migration_count = std::fs::read_dir(&migrations_dir)?.count();
-    println!(
-        "-> wrote {} migration files to {}",
-        migration_count,
-        migrations_dir.display()
-    );
-
     cf_build::run(repo_root, release).await?;
 
     // Post-build: measure the produced WASM. Warns if it's likely to
@@ -82,30 +63,10 @@ pub async fn serve(
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
     let wrangler_toml = out_dir.join("wrangler.toml");
-    let cfg = env::load(repo_root)?;
 
-    // D1 local migrations: best-effort. Skip cleanly if no migrations dir.
-    // Use `tokio::process::Command` because both `wrangler d1 migrations
-    // apply --local` and especially `wrangler dev` (below) are long-running
-    // subprocesses — running them under `std::process::Command` from an
-    // async fn would block the tokio worker for the lifetime of the child.
-    if repo_root.join("migrations").is_dir() {
-        let mut m = tokio::process::Command::new("wrangler");
-        m.args([
-            "d1",
-            "migrations",
-            "apply",
-            cfg.d1.database_name.as_str(),
-            "--local",
-            "--config",
-        ])
-        .arg(&wrangler_toml);
-        let status = m.status().await?;
-        if !status.success() {
-            bail!("wrangler d1 migrations apply --local failed");
-        }
-    }
-
+    // Use `tokio::process::Command` because `wrangler dev` is a long-running
+    // subprocess — running it under `std::process::Command` from an async fn
+    // would block the tokio worker for the lifetime of the child.
     let mut dev = tokio::process::Command::new("wrangler");
     dev.args(["dev", "--config"]).arg(&wrangler_toml);
     if let Some(p) = port {
