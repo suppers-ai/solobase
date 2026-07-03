@@ -79,16 +79,27 @@ pub fn wrangler_versions_promote(version_id: &str, wrangler_toml: &Path) -> Resu
 }
 
 /// POST /_deploy/init on the preview URL. Returns (ok, report_body).
+///
+/// Generous timeout: the funnel legitimately runs migrations + seeds for
+/// every block in one request. Without one, a hung worker blocks the
+/// deploy forever (safe direction — pre-promote — but needs an operator).
 pub async fn call_deploy_init(preview_url: &str, token: &str) -> Result<(bool, String)> {
+    const DEPLOY_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
     let url = format!("{}/_deploy/init", preview_url.trim_end_matches('/'));
-    let resp = reqwest::Client::new()
+    let resp = reqwest::Client::builder()
+        .timeout(DEPLOY_INIT_TIMEOUT)
+        .build()
+        .context("build deploy-init http client")?
         .post(&url)
         .header("x-deploy-token", token)
         .send()
         .await
         .with_context(|| format!("POST {url}"))?;
     let ok = resp.status().is_success();
-    let body = resp.text().await.unwrap_or_default();
+    let body = resp
+        .text()
+        .await
+        .with_context(|| format!("read /_deploy/init response body from {url}"))?;
     Ok((ok, body))
 }
 
