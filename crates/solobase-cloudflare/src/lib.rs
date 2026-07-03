@@ -383,9 +383,10 @@ pub(crate) async fn apply_db_wrap_grants(built: &mut BuiltRuntime) {
 /// registrations, and build + config-snapshot the runtime.
 ///
 /// `force_run_migrations` inserts `SOLOBASE_RUN_MIGRATIONS=1` into the config
-/// snapshot regardless of the worker env var — used by the `/_deploy/init`
-/// endpoint (Task 8) to force a migration pass on demand. The normal request
-/// path passes `false` and keeps honoring the env var exactly as before.
+/// snapshot — set only by the `/_deploy/init` endpoint to force a migration
+/// pass. Migrations on CF run exclusively through that funnel (both a
+/// production deploy and local `solobase serve --target cloudflare` POST it);
+/// the normal request path always passes `false` and never migrates.
 ///
 /// `cache_mode` selects KV row-cache read-through and write-bump behavior for
 /// this runtime's DB handle.
@@ -457,21 +458,14 @@ where
         solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY.to_string(),
         block_settings.to_config_json(),
     );
-    // The deploy threads `--run-migrations` into the Worker as a wrangler
-    // `--var SOLOBASE_RUN_MIGRATIONS:1` text binding (see
-    // `cli/flows/embed_cloudflare.rs`). Mirror native `server.rs`: fan it
-    // into the config snapshot so `migration_helper::apply_if_blessed` can
-    // gate on it via `ctx.config_get`. Without this, `run_requested` is
-    // always `false` on CF and a `--run-migrations` deploy against an
-    // existing (non-wiped) D1 silently no-ops.
-    if force_run_migrations
-        || env
-            .var(solobase_core::migration_helper::RUN_MIGRATIONS_KEY)
-            .ok()
-            .map(|v| v.to_string())
-            .as_deref()
-            == Some("1")
-    {
+    // Migrations on CF run exclusively through the `/_deploy/init` funnel —
+    // a production deploy and local `solobase serve --target cloudflare`
+    // both POST it (see `cli/flows/embed_cloudflare.rs`), which builds this
+    // runtime with `force_run_migrations = true`. Request-path builds never
+    // migrate; there is no worker env var to honor here (unlike native
+    // `server.rs`'s `--run-migrations` flag, which is a real per-boot CLI
+    // choice).
+    if force_run_migrations {
         cfg_svc_map.insert(
             solobase_core::migration_helper::RUN_MIGRATIONS_KEY.to_string(),
             "1".to_string(),
