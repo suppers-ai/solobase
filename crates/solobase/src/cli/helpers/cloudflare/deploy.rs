@@ -20,10 +20,12 @@ pub struct VersionUpload {
     pub preview_url: String,
 }
 
-/// Upload a new worker version WITHOUT routing traffic to it. Captures
-/// stdout (unlike the inherit-stdio helpers) to parse the version id and
-/// preview URL.
-pub fn wrangler_versions_upload(wrangler_toml: &Path) -> Result<VersionUpload> {
+struct UploadAttempt {
+    version_id: String,
+    preview_url: Option<String>,
+}
+
+fn versions_upload_once(wrangler_toml: &Path) -> Result<UploadAttempt> {
     let output = Command::new("wrangler")
         .args(["versions", "upload", "--config"])
         .arg(wrangler_toml)
@@ -43,10 +45,62 @@ pub fn wrangler_versions_upload(wrangler_toml: &Path) -> Result<VersionUpload> {
     //   Version Preview URL: https://<hash>-<worker>.<subdomain>.workers.dev
     let version_id = parse_labeled_line(&stdout, "Version ID:")
         .context("parse Version ID from wrangler versions upload output")?;
-    let preview_url = parse_labeled_line(&stdout, "Preview URL:")
-        .context("parse Preview URL (enable preview_urls in wrangler.toml)")?;
-    Ok(VersionUpload {
+    Ok(UploadAttempt {
         version_id,
+        preview_url: parse_labeled_line(&stdout, "Preview URL:"),
+    })
+}
+
+/// Apply worker-level settings (routes, `preview_urls`, observability) from
+/// the generated toml to the live worker without uploading code.
+fn wrangler_triggers_deploy(wrangler_toml: &Path) -> Result<()> {
+    let status = Command::new("wrangler")
+        .args(["triggers", "deploy", "--config"])
+        .arg(wrangler_toml)
+        .status()
+        .context("run wrangler triggers deploy")?;
+    if !status.success() {
+        bail!("wrangler triggers deploy failed (exit {:?})", status.code());
+    }
+    Ok(())
+}
+
+/// Upload a new worker version WITHOUT routing traffic to it. Captures
+/// stdout (unlike the inherit-stdio helpers) to parse the version id and
+/// preview URL.
+///
+/// First-enable recovery: `preview_urls = true` in the toml is a
+/// worker-level setting; the first upload after enabling it prints no
+/// preview URL until a one-time `wrangler triggers deploy` applies it.
+/// Detect that, apply settings, and retry the upload once.
+pub fn wrangler_versions_upload(wrangler_toml: &Path) -> Result<VersionUpload> {
+    let attempt = versions_upload_once(wrangler_toml)?;
+    let attempt = match attempt.preview_url {
+        Some(preview_url) => {
+            return Ok(VersionUpload {
+                version_id: attempt.version_id,
+                preview_url,
+            })
+        }
+        None => {
+            eprintln!(
+                "no Version Preview URL in upload output — first deploy since \
+                 enabling preview_urls; applying worker settings via \
+                 `wrangler triggers deploy` and retrying the upload once"
+            );
+            wrangler_triggers_deploy(wrangler_toml)?;
+            versions_upload_once(wrangler_toml)?
+        }
+    };
+    let preview_url = attempt.preview_url.with_context(|| {
+        format!(
+            "still no Version Preview URL after applying settings; run \
+             `wrangler triggers deploy --config {}` manually, then retry the deploy",
+            wrangler_toml.display()
+        )
+    })?;
+    Ok(VersionUpload {
+        version_id: attempt.version_id,
         preview_url,
     })
 }
@@ -227,5 +281,15 @@ mod tests {
     #[test]
     fn missing_label_returns_none() {
         assert_eq!(parse_labeled_line("no labels here", "Version ID:"), None);
+    }
+
+    #[test]
+    fn upload_attempt_without_preview_url_is_detectable() {
+        let out = "Total Upload: 4210 KiB\nWorker Version ID: abc-123\n";
+        assert_eq!(
+            parse_labeled_line(out, "Version ID:").as_deref(),
+            Some("abc-123")
+        );
+        assert_eq!(parse_labeled_line(out, "Preview URL:"), None);
     }
 }
