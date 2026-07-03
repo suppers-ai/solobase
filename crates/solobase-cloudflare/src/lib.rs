@@ -74,11 +74,12 @@ pub fn make_kv_cached_database_service(
 }
 
 /// Internals of [`make_kv_cached_database_service`], additionally returning
-/// the `KvBackend` handle it constructs — `build_runtime` needs the backend
-/// itself (not just the `DatabaseService` it's wrapped into) so Task 7's
-/// per-isolate cache and Task 8's `/_deploy/init` endpoint can drive KV
-/// directly (e.g. bumping the config-version stamp) without re-deriving a
-/// second `KvStore` handle from `env`.
+/// the `KvBackend` handle it constructs — the per-isolate runtime cache
+/// (task-7) needs the backend itself (not just the `DatabaseService` it's
+/// wrapped into) so it can probe the KV config-version stamp without re-deriving
+/// a `KvStore` handle from `env` on every request. The `/_deploy/init`
+/// endpoint re-derives its own handle via `make_kv_backend` for its
+/// post-funnel config-version bump.
 fn make_kv_cached_database_service_with_backend(
     env: &worker::Env,
     d1_binding: &str,
@@ -164,7 +165,7 @@ thread_local! {
 /// once-per-isolate guard, so isolates stay correct either way and repeat
 /// calls are no-ops.
 ///
-/// [`RequestLogMode::Queued`]: solobase_core::pipeline::RequestLogMode
+/// [`RequestLogMode::Queued`]: solobase_core::pipeline::RequestLogMode::Queued
 pub fn init_isolate() {
     ISOLATE_INITIALIZED.with(|done| {
         if !done.get() {

@@ -56,7 +56,7 @@ async fn current_version(kv: &Arc<dyn crate::kv_cached_db::KvBackend>) -> String
             let v = crate::kv_cached_db::new_version_stamp();
             if let Err(e) = crate::kv_cached_db::put_version_stamp_with_retry(kv.as_ref(), &v).await
             {
-                tracing::warn!(error = %e, "config-version cold mint failed; proceeding unstamped");
+                tracing::warn!(error = %e, "config-version stamp persist failed; runtime tagged with local stamp only (KV unstamped; re-mints until a put lands)");
             }
             v
         }
