@@ -265,11 +265,12 @@ impl Context for TestContext {
             if !resource.is_empty() {
                 let is_write = msg.get_meta(wafer_block::meta::META_WRAP_ACCESS) == "write";
                 let rt_str = msg.get_meta(wafer_block::meta::META_WRAP_RESOURCE_TYPE);
-                let rt = if rt_str.is_empty() {
+                let rt = wafer_run::ResourceType::parse_stored(if rt_str.is_empty() {
                     None
                 } else {
-                    wafer_run::ResourceType::parse(rt_str)
-                };
+                    Some(rt_str)
+                })
+                .unwrap_or_else(|e| panic!("test WRAP resource_type meta {rt_str:?}: {e}"));
                 if let Err(e) = wafer_block::wrap::check_access(
                     Some(caller.as_str()),
                     resource,

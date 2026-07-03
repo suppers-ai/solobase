@@ -24,6 +24,10 @@ pub trait KvBackend: MaybeSend + MaybeSync {
     /// Writes `value` under `key` with the given TTL (seconds).
     async fn put_with_ttl(&self, key: &str, value: &str, ttl_secs: u64) -> Result<(), String>;
 
+    /// Writes `value` under `key` with no expiration. Reserved for the
+    /// config-version stamp — row-cache entries always carry a TTL.
+    async fn put(&self, key: &str, value: &str) -> Result<(), String>;
+
     /// Deletes `key`. Deleting a non-existent key is not an error.
     async fn delete(&self, key: &str) -> Result<(), String>;
 }
@@ -43,6 +47,15 @@ impl KvBackend for WorkerKvBackend {
             .put(key, value)
             .map_err(|e| e.to_string())?
             .expiration_ttl(ttl_secs)
+            .execute()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn put(&self, key: &str, value: &str) -> Result<(), String> {
+        self.0
+            .put(key, value)
+            .map_err(|e| e.to_string())?
             .execute()
             .await
             .map_err(|e| e.to_string())
@@ -78,17 +91,52 @@ pub fn new_version_stamp() -> String {
     wafer_run::hex_encode(&buf)
 }
 
+/// Behavior switches for [`KvCachedD1DatabaseService`], chosen per
+/// runtime-build context.
+#[derive(Debug, Clone, Copy)]
+pub struct CacheMode {
+    /// Skip the KV row-cache read in `list()` (still repopulating it from
+    /// the fresh D1 result). Used by version-mismatch rebuilds and the
+    /// deploy-init funnel, where a stale row cache must not be baked into
+    /// a runtime tagged with the new version stamp.
+    pub read_through: bool,
+    /// Bump the config-version stamp on writes to classified tables.
+    /// The deploy-init funnel disables this (~19 sequential same-key puts
+    /// under KV per-key throttling) and issues one explicit bump after.
+    pub bump_on_write: bool,
+}
+
+impl Default for CacheMode {
+    fn default() -> Self {
+        Self {
+            read_through: false,
+            bump_on_write: true,
+        }
+    }
+}
+
 /// Wraps a [`DatabaseService`] with a write-through-invalidated KV cache
 /// for the `variables` and `block_settings` per-block read paths.
 pub struct KvCachedD1DatabaseService {
     inner: Arc<dyn DatabaseService>,
     kv: Arc<dyn KvBackend>,
+    mode: CacheMode,
 }
 
 impl KvCachedD1DatabaseService {
-    /// Wrap `inner` with a KV-backed cache using `kv`.
+    /// Wrap `inner` with a KV-backed cache using `kv` and default
+    /// [`CacheMode`].
     pub fn new(inner: Arc<dyn DatabaseService>, kv: Arc<dyn KvBackend>) -> Self {
-        Self { inner, kv }
+        Self::with_mode(inner, kv, CacheMode::default())
+    }
+
+    /// Wrap `inner` with explicit [`CacheMode`] switches.
+    pub fn with_mode(
+        inner: Arc<dyn DatabaseService>,
+        kv: Arc<dyn KvBackend>,
+        mode: CacheMode,
+    ) -> Self {
+        Self { inner, kv, mode }
     }
 
     /// Delete every cache key in `keys`, logging (but never failing on) KV
@@ -113,23 +161,42 @@ impl KvCachedD1DatabaseService {
 
     /// Rewrite the config-version stamp after a write to a table whose
     /// contents a cached runtime bakes in (variables / block_settings /
-    /// wrap_grants). Best-effort like row invalidation: a failed put leaves
-    /// live isolates on the old runtime until the next successful bump.
+    /// wrap_grants). Best-effort with one retry: a failed put leaves live
+    /// isolates on the old runtime until the next successful bump.
     async fn bump_config_version(&self, collection: &str, op: &str) {
-        if !cache_key::bumps_config_version(collection) {
+        if !self.mode.bump_on_write || !cache_key::bumps_config_version(collection) {
             return;
         }
         let stamp = new_version_stamp();
-        if let Err(e) = self
-            .kv
-            .put_with_ttl(cache_key::CONFIG_VERSION_KEY, &stamp, CACHE_TTL_SECS)
-            .await
-        {
+        if let Err(e) = put_version_stamp_with_retry(self.kv.as_ref(), &stamp).await {
             tracing::warn!(table = %collection, error = %e, op, "config-version bump failed");
         } else {
             tracing::debug!(table = %collection, version = %stamp, op, "config_version_bump");
         }
     }
+}
+
+/// PUT `stamp` under [`cache_key::CONFIG_VERSION_KEY`] persistently (no
+/// TTL — a quiet day must not expire the stamp and trigger a fleet-wide
+/// restamp), retrying once on KV transport error.
+pub(crate) async fn put_version_stamp_with_retry(
+    kv: &dyn KvBackend,
+    stamp: &str,
+) -> Result<(), String> {
+    match kv.put(cache_key::CONFIG_VERSION_KEY, stamp).await {
+        Ok(()) => Ok(()),
+        Err(first) => kv
+            .put(cache_key::CONFIG_VERSION_KEY, stamp)
+            .await
+            .map_err(|second| format!("first attempt: {first}; retry: {second}")),
+    }
+}
+
+/// Mint and persist a fresh config-version stamp unconditionally.
+/// Deploy-init calls this once after the funnel (per-write bumps are
+/// suppressed during it — see [`CacheMode::bump_on_write`]).
+pub(crate) async fn force_bump_config_version(kv: &dyn KvBackend) -> Result<(), String> {
+    put_version_stamp_with_retry(kv, &new_version_stamp()).await
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -239,39 +306,42 @@ impl DatabaseService for KvCachedD1DatabaseService {
             return self.inner.list(collection, opts).await;
         };
 
-        // Try cache hit.
-        match self.kv.get(&key).await {
-            Ok(Some(body)) => match serde_json::from_str::<Vec<Record>>(&body) {
-                Ok(records) => {
-                    let page_size = opts.limit;
-                    let total_count = records.len() as i64;
-                    tracing::debug!(table = %collection, key = %key, "cache_hit");
-                    return Ok(RecordList {
-                        records,
-                        total_count,
-                        page: 1,
-                        page_size,
-                    });
+        // Try cache hit (skipped in read-through mode; the fall-through
+        // below still repopulates KV with the fresh D1 rows).
+        if !self.mode.read_through {
+            match self.kv.get(&key).await {
+                Ok(Some(body)) => match serde_json::from_str::<Vec<Record>>(&body) {
+                    Ok(records) => {
+                        let page_size = opts.limit;
+                        let total_count = records.len() as i64;
+                        tracing::debug!(table = %collection, key = %key, "cache_hit");
+                        return Ok(RecordList {
+                            records,
+                            total_count,
+                            page: 1,
+                            page_size,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            table = %collection,
+                            key = %key,
+                            error = %e,
+                            "cache value deserialize failed; falling through"
+                        );
+                    }
+                },
+                Ok(None) => {
+                    tracing::debug!(table = %collection, key = %key, "cache_miss");
                 }
                 Err(e) => {
                     tracing::warn!(
                         table = %collection,
                         key = %key,
                         error = %e,
-                        "cache value deserialize failed; falling through"
+                        "kv get failed; falling through"
                     );
                 }
-            },
-            Ok(None) => {
-                tracing::debug!(table = %collection, key = %key, "cache_miss");
-            }
-            Err(e) => {
-                tracing::warn!(
-                    table = %collection,
-                    key = %key,
-                    error = %e,
-                    "kv get failed; falling through"
-                );
             }
         }
 

@@ -64,7 +64,12 @@ pub fn make_kv_cached_database_service(
     d1_binding: &str,
     kv_binding: &str,
 ) -> Result<Arc<dyn DatabaseService>, worker::Error> {
-    let (db, _backend) = make_kv_cached_database_service_with_backend(env, d1_binding, kv_binding)?;
+    let (db, _backend) = make_kv_cached_database_service_with_backend(
+        env,
+        d1_binding,
+        kv_binding,
+        kv_cached_db::CacheMode::default(),
+    )?;
     Ok(db)
 }
 
@@ -78,12 +83,14 @@ fn make_kv_cached_database_service_with_backend(
     env: &worker::Env,
     d1_binding: &str,
     kv_binding: &str,
+    mode: kv_cached_db::CacheMode,
 ) -> Result<(Arc<dyn DatabaseService>, Arc<dyn kv_cached_db::KvBackend>), worker::Error> {
     let inner = make_d1_database_service(env, d1_binding)?;
     let backend = make_kv_backend(env, kv_binding)?;
-    let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::new(
+    let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::with_mode(
         inner,
         backend.clone(),
+        mode,
     ));
     Ok((db, backend))
 }
@@ -146,6 +153,29 @@ pub fn make_config_service(vars: HashMap<String, String>) -> Arc<dyn ConfigServi
     Arc::new(config_service::HashMapConfigService::new(vars))
 }
 
+thread_local! {
+    static ISOLATE_INITIALIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// One-time isolate initialization: selects [`RequestLogMode::Queued`]
+/// (audit rows drain into `ctx.wait_until` off the response path — see
+/// `run`). Consumers should call this from their worker's
+/// `#[event(start)]` handler; `run()` also invokes it behind a
+/// once-per-isolate guard, so isolates stay correct either way and repeat
+/// calls are no-ops.
+///
+/// [`RequestLogMode::Queued`]: solobase_core::pipeline::RequestLogMode
+pub fn init_isolate() {
+    ISOLATE_INITIALIZED.with(|done| {
+        if !done.get() {
+            solobase_core::pipeline::set_request_log_mode(
+                solobase_core::pipeline::RequestLogMode::Queued,
+            );
+            done.set(true);
+        }
+    });
+}
+
 use solobase_core::builder::SolobaseBuilder;
 
 /// Worker entry shim: load D1 vars, wire services, run the consumer's
@@ -205,9 +235,9 @@ where
         return worker::Response::error("not found", 404);
     }
 
-    // Audit rows are queued during dispatch and flushed off the response path
-    // below, so the D1 write never adds latency to the request.
-    solobase_core::pipeline::set_request_log_mode(solobase_core::pipeline::RequestLogMode::Queued);
+    // Isolate-scoped init (request-log mode) — no-op after the first call;
+    // consumers with an #[event(start)] handler have already run it.
+    init_isolate();
     let result = run_inner(req, env, register_blocks, register_post_build).await;
 
     // Persist any audit rows queued during this dispatch off the response
@@ -270,7 +300,17 @@ where
     // Fresh runtime (never the request cache) with run_migrations forced on,
     // so slot-cached pre-migration outcomes can't leak into the funnel.
     let out = async {
-        let mut built = build_runtime(&env, register_blocks, register_post_build, true).await?;
+        let mut built = build_runtime(
+            &env,
+            register_blocks,
+            register_post_build,
+            true,
+            kv_cached_db::CacheMode {
+                read_through: true,
+                bump_on_write: false,
+            },
+        )
+        .await?;
         apply_db_wrap_grants(&mut built).await;
         let report = solobase_core::deploy_init::deploy_init(
             &mut built.wafer,
@@ -284,6 +324,19 @@ where
         Ok::<_, Box<dyn std::error::Error>>(report)
     }
     .await;
+
+    // One explicit config-version bump for the whole funnel (per-write bumps
+    // are suppressed via CacheMode). Runs on failure too: a partial funnel
+    // may already have written rows, and a spurious bump only costs each
+    // live isolate one rebuild.
+    match make_kv_backend(&env, runner::KV_BINDING) {
+        Ok(kv) => {
+            if let Err(e) = kv_cached_db::force_bump_config_version(kv.as_ref()).await {
+                worker::console_log!("post-funnel config-version bump failed: {e}");
+            }
+        }
+        Err(e) => worker::console_log!("post-funnel bump skipped (KV binding): {e}"),
+    }
 
     match out {
         Ok(report) => {
@@ -333,6 +386,9 @@ pub(crate) async fn apply_db_wrap_grants(built: &mut BuiltRuntime) {
 /// endpoint (Task 8) to force a migration pass on demand. The normal request
 /// path passes `false` and keeps honoring the env var exactly as before.
 ///
+/// `cache_mode` selects KV row-cache read-through and write-bump behavior for
+/// this runtime's DB handle.
+///
 /// Missing-table tolerance is an invariant here: on a first-ever deploy
 /// `/_deploy/init` builds this runtime BEFORE any migration has run, so every
 /// eager D1 read in this function MUST tolerate a not-yet-created table
@@ -345,6 +401,7 @@ async fn build_runtime<F, G>(
     register_blocks: F,
     register_post_build: G,
     force_run_migrations: bool,
+    cache_mode: kv_cached_db::CacheMode,
 ) -> Result<BuiltRuntime, Box<dyn std::error::Error>>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
@@ -354,15 +411,19 @@ where
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
     // 1. Construct D1 service (with KV cache) first — env vars live in D1.
-    let (db, kv) =
-        make_kv_cached_database_service_with_backend(env, runner::D1_BINDING, runner::KV_BINDING)
-            .map_err(|e| {
-            format!(
-                "DB/KV bindings (D1={:?}, KV={:?}): {e}",
-                runner::D1_BINDING,
-                runner::KV_BINDING
-            )
-        })?;
+    let (db, kv) = make_kv_cached_database_service_with_backend(
+        env,
+        runner::D1_BINDING,
+        runner::KV_BINDING,
+        cache_mode,
+    )
+    .map_err(|e| {
+        format!(
+            "DB/KV bindings (D1={:?}, KV={:?}): {e}",
+            runner::D1_BINDING,
+            runner::KV_BINDING
+        )
+    })?;
 
     // 2. Load block settings (enablement + migration state) eagerly —
     //    this is the only D1 read at cold start now. The per-block

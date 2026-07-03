@@ -84,11 +84,18 @@ pub fn load_wrap_grants(db_path: &str) -> Vec<wafer_run::ResourceGrant> {
     if let Ok(rows) = rows {
         for row in rows.flatten() {
             let (grantee, resource, write, rt) = row;
+            let resource_type = match wafer_run::ResourceType::parse_stored(rt.as_deref()) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!(grantee = %grantee, resource = %resource, error = %e, "wrap_grants row dropped");
+                    continue;
+                }
+            };
             grants.push(wafer_run::ResourceGrant {
                 grantee,
                 resource,
                 write: write != 0,
-                resource_type: rt.and_then(|s| wafer_run::ResourceType::parse(&s)),
+                resource_type,
             });
         }
     }
