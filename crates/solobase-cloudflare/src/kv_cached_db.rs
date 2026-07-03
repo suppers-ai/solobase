@@ -306,39 +306,42 @@ impl DatabaseService for KvCachedD1DatabaseService {
             return self.inner.list(collection, opts).await;
         };
 
-        // Try cache hit.
-        match self.kv.get(&key).await {
-            Ok(Some(body)) => match serde_json::from_str::<Vec<Record>>(&body) {
-                Ok(records) => {
-                    let page_size = opts.limit;
-                    let total_count = records.len() as i64;
-                    tracing::debug!(table = %collection, key = %key, "cache_hit");
-                    return Ok(RecordList {
-                        records,
-                        total_count,
-                        page: 1,
-                        page_size,
-                    });
+        // Try cache hit (skipped in read-through mode; the fall-through
+        // below still repopulates KV with the fresh D1 rows).
+        if !self.mode.read_through {
+            match self.kv.get(&key).await {
+                Ok(Some(body)) => match serde_json::from_str::<Vec<Record>>(&body) {
+                    Ok(records) => {
+                        let page_size = opts.limit;
+                        let total_count = records.len() as i64;
+                        tracing::debug!(table = %collection, key = %key, "cache_hit");
+                        return Ok(RecordList {
+                            records,
+                            total_count,
+                            page: 1,
+                            page_size,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            table = %collection,
+                            key = %key,
+                            error = %e,
+                            "cache value deserialize failed; falling through"
+                        );
+                    }
+                },
+                Ok(None) => {
+                    tracing::debug!(table = %collection, key = %key, "cache_miss");
                 }
                 Err(e) => {
                     tracing::warn!(
                         table = %collection,
                         key = %key,
                         error = %e,
-                        "cache value deserialize failed; falling through"
+                        "kv get failed; falling through"
                     );
                 }
-            },
-            Ok(None) => {
-                tracing::debug!(table = %collection, key = %key, "cache_miss");
-            }
-            Err(e) => {
-                tracing::warn!(
-                    table = %collection,
-                    key = %key,
-                    error = %e,
-                    "kv get failed; falling through"
-                );
             }
         }
 

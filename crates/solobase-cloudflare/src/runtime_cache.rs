@@ -91,13 +91,19 @@ where
     //
     // Hit / mismatch path: probe through the CACHED runtime's own KV
     // backend — no fresh `KvStore` construction on the request hot path.
-    let probed_version = if let Some(rt) = cached() {
+    //
+    // The flag threaded alongside the version is `read_through`: version-
+    // mismatch rebuilds bypass the KV row cache (the rebuild exists BECAUSE
+    // config just changed, which is exactly when cross-PoP KV lag or a
+    // failed row-invalidate would bake stale rows under the new stamp).
+    // Cold builds keep the cache (cold-start latency is its remaining value).
+    let (probed_version, read_through) = if let Some(rt) = cached() {
         let version = current_version(&rt.kv).await;
         if rt.version == version {
             return Ok(rt);
         }
         tracing::info!(old = %rt.version, new = %version, "config version moved; rebuilding runtime");
-        version
+        (version, true)
     } else {
         // Cold isolate: nothing cached to probe through. Construct a
         // standalone KV backend (cold path only — the hit/mismatch branch
@@ -108,10 +114,20 @@ where
         // the whole point is to probe before the build starts. Either way
         // this is exactly one KV `get` for the version stamp.
         let kv = crate::make_kv_backend(env, crate::runner::KV_BINDING)?;
-        current_version(&kv).await
+        (current_version(&kv).await, false)
     };
 
-    let mut built = crate::build_runtime(env, register_blocks, register_post_build, false).await?;
+    let mut built = crate::build_runtime(
+        env,
+        register_blocks,
+        register_post_build,
+        false,
+        crate::kv_cached_db::CacheMode {
+            read_through,
+            bump_on_write: true,
+        },
+    )
+    .await?;
 
     // Dynamic WRAP grants must be registered before seal.
     crate::apply_db_wrap_grants(&mut built).await;
