@@ -300,6 +300,27 @@ pub async fn load_all_variables(
 pub async fn load_wrap_grants_from_db(
     db: &Arc<dyn DatabaseService>,
 ) -> Vec<wafer_run::ResourceGrant> {
+    // Structured fresh-boot signal: on a first-ever deploy the table does
+    // not exist yet (deploy-init builds the runtime BEFORE migrations run)
+    // — that's expected and quiet. Any error after the existence check is a
+    // real read failure and yields a grant-less, WRAP-denying runtime on
+    // the Cloudflare path, so it warns.
+    match db
+        .schema_table_exists(crate::blocks::admin::WRAP_GRANTS_TABLE)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::debug!(
+                "wrap_grants table absent (fresh boot before migrations); no dynamic grants"
+            );
+            return Vec::new();
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "wrap_grants existence check failed; dynamic grants skipped");
+            return Vec::new();
+        }
+    }
     let opts = ListOptions {
         limit: 10_000,
         skip_count: true,
@@ -311,20 +332,7 @@ pub async fn load_wrap_grants_from_db(
     {
         Ok(list) => list.records,
         Err(e) => {
-            // Missing table is expected on a fresh boot before migrations
-            // have run — stays `debug!`. Any other failure (e.g. a
-            // transient D1 error) silently yields a grant-less,
-            // WRAP-denying runtime on the Cloudflare path, so it's surfaced
-            // as `warn!` instead. Backends surface a missing table as a
-            // driver message containing "no such table" (see
-            // `solobase-cloudflare::database::is_no_such_table`); there's
-            // no structured `DatabaseError` variant for it, hence the
-            // string match.
-            if e.to_string().contains("no such table") {
-                tracing::debug!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
-            } else {
-                tracing::warn!(error = %e, "wrap_grants read skipped (table missing or unreadable)");
-            }
+            tracing::warn!(error = %e, "wrap_grants read failed; dynamic grants skipped");
             return Vec::new();
         }
     };
@@ -358,17 +366,20 @@ pub async fn load_wrap_grants_from_db(
                     return None;
                 }
             };
-            // Mirrors `cli/server_config.rs::load_wrap_grants`'s
-            // `ResourceType::parse` call: the wire value is the lowercase
-            // `ResourceType` Display string ("db", "config", …); empty or
-            // unrecognized values parse to `None` (wildcard — all types).
-            // Absent/unrecognized `resource_type` is a legitimate wildcard
-            // grant, not malformed data, so it does not warn.
-            let resource_type = r
-                .data
-                .get("resource_type")
-                .and_then(|v| v.as_str())
-                .and_then(wafer_run::ResourceType::parse);
+            // Stored wire value is the lowercase `ResourceType` Display
+            // string ("db", "config", …). Absent/empty = intentional
+            // all-types wildcard; a non-empty unrecognized value is a
+            // typo'd grant and is dropped (fail-closed) rather than
+            // widened to the wildcard.
+            let resource_type = match wafer_run::ResourceType::parse_stored(
+                r.data.get("resource_type").and_then(|v| v.as_str()),
+            ) {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::warn!(id = %r.id, grantee = %grantee, resource = %resource, error = %e, "wrap_grants row dropped");
+                    return None;
+                }
+            };
             Some(wafer_run::ResourceGrant {
                 grantee,
                 resource,
@@ -449,5 +460,37 @@ mod wrap_grants_tests {
             .unwrap();
         assert!(!g2.write);
         assert_eq!(g2.resource_type, None);
+
+        // Unrecognized resource_type → the ROW is dropped (fail-closed),
+        // never widened to the all-types wildcard.
+        let mut r3 = HashMap::new();
+        r3.insert("grantee".into(), serde_json::json!("suppers-ai/products"));
+        r3.insert(
+            "resource".into(),
+            serde_json::json!("suppers_ai__products__items"),
+        );
+        r3.insert("write".into(), serde_json::json!(1));
+        r3.insert("resource_type".into(), serde_json::json!("databsae"));
+        db.create(crate::blocks::admin::WRAP_GRANTS_TABLE, r3)
+            .await
+            .unwrap();
+        // Empty-string resource_type → kept as an intentional wildcard.
+        let mut r4 = HashMap::new();
+        r4.insert("grantee".into(), serde_json::json!("suppers-ai/files"));
+        r4.insert("resource".into(), serde_json::json!("bucket/y"));
+        r4.insert("write".into(), serde_json::json!(0));
+        r4.insert("resource_type".into(), serde_json::json!(""));
+        db.create(crate::blocks::admin::WRAP_GRANTS_TABLE, r4)
+            .await
+            .unwrap();
+
+        let grants = load_wrap_grants_from_db(&db).await;
+        assert_eq!(grants.len(), 3, "typo'd resource_type row must be dropped");
+        assert!(grants.iter().all(|g| g.grantee != "suppers-ai/products"));
+        let g4 = grants
+            .iter()
+            .find(|g| g.resource == "bucket/y")
+            .expect("empty resource_type row kept");
+        assert_eq!(g4.resource_type, None);
     }
 }
