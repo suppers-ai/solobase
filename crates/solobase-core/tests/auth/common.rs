@@ -83,6 +83,21 @@ impl Context for MigrationTestCtx {
         None
     }
 
+    /// This fixture has no caller identity or WRAP grants, so there is
+    /// nothing to enforce — explicitly permissive, overriding the
+    /// fail-closed trait default (which exists so an enforcing runtime
+    /// can never silently fall back to permissive). Mirrors the pre-WRAP
+    /// behaviour of this harness; WRAP-behaviour tests use
+    /// `solobase_core::test_support::TestContext::with_wrap` instead.
+    fn check_resource_access(
+        &self,
+        _resource: &str,
+        _resource_type: wafer_run::ResourceType,
+        _is_write: bool,
+    ) -> Result<(), WaferError> {
+        Ok(())
+    }
+
     fn clone_arc(&self) -> Arc<dyn Context> {
         Arc::new(self.clone())
     }
