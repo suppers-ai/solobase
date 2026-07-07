@@ -412,7 +412,7 @@ async fn resolve_user(
                 // `role == "disabled"` check tested a value nothing ever
                 // writes, so disabled accounts could still authenticate via
                 // OAuth.
-                if existing_user.disabled {
+                if !existing_user.is_active() {
                     return Err(err_forbidden("Account is disabled"));
                 }
                 // Reuse this account; the upsert below will create the new link.
@@ -814,6 +814,74 @@ mod security_regression_tests {
         assert!(
             session_rows.is_empty(),
             "no session may be created for a disabled OAuth login"
+        );
+    }
+
+    /// Regression test for the whole-branch review finding: credential
+    /// *issuance* paths (login / refresh / OAuth) gated on `user.disabled`
+    /// only, not on soft-delete. `db::soft_delete` leaves `local_credentials`
+    /// and refresh tokens intact, so a soft-deleted user could still
+    /// authenticate via OAuth email-matching and mint fresh tokens. The fix
+    /// replaces `existing_user.disabled` with `!existing_user.is_active()`,
+    /// which also covers `is_deleted()`.
+    #[tokio::test]
+    async fn soft_deleted_user_cannot_oauth_in() {
+        // Seed a SOFT-DELETED (but not `disabled`) user with the email the
+        // provider will return.
+        let email = "softdeleted@example.com";
+        let ctx = ctx_for_oauth(email).await;
+
+        let user = users::insert(
+            &ctx,
+            users::NewUser {
+                email: email.to_string(),
+                display_name: "Soft Deleted User".to_string(),
+                avatar_url: None,
+                role: "user".to_string(),
+            },
+        )
+        .await
+        .expect("seed user");
+        // Set `deleted_at` (soft-delete marker) — NOT `disabled`. Mirrors the
+        // Task-1/2 lifecycle tests in `auth/repo/users.rs`.
+        let mut upd = crate::util::json_map(serde_json::json!({
+            "deleted_at": "2026-01-01T00:00:00Z"
+        }));
+        crate::util::stamp_updated(&mut upd);
+        wafer_core::clients::database::update(
+            &ctx,
+            crate::blocks::auth::USERS_TABLE,
+            &user.id,
+            upd,
+        )
+        .await
+        .expect("soft-delete user");
+        // Sanity: the typed row now reports deleted/inactive but NOT disabled.
+        let row = users::find_by_id(&ctx, &user.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(row.is_deleted(), "fixture user must be soft-deleted");
+        assert!(!row.disabled, "fixture user must not be `disabled`");
+        assert!(!row.is_active(), "soft-deleted user must not be active");
+
+        // The callback must reject with a PermissionDenied error stream (mapped
+        // to HTTP 403 at the boundary), the same as a disabled account. Before
+        // the fix this only checked `existing_user.disabled` and returned a
+        // 302 login for a soft-deleted user.
+        let out = handle(&ctx, &callback_msg()).await;
+        assert!(
+            crate::test_support::output_is_error(out, "PermissionDenied").await,
+            "soft-deleted account must be rejected at the OAuth callback (regression: it logged in)"
+        );
+
+        // And no session row was minted for the soft-deleted user.
+        let session_rows = sessions::list_for_user(&ctx, &user.id)
+            .await
+            .expect("list sessions ok");
+        assert!(
+            session_rows.is_empty(),
+            "no session may be created for a soft-deleted OAuth login"
         );
     }
 }

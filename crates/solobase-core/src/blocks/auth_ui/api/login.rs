@@ -69,7 +69,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // confirms to an attacker that the email exists, gives them a target for
     // a re-enable social-engineering attack, and signals when an admin has
     // taken action on a compromised account.
-    if user.disabled {
+    if !user.is_active() {
         return error_response(ErrorCode::InvalidCredentials, "Invalid email or password");
     }
 
