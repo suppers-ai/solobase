@@ -353,12 +353,16 @@ impl AuthService for AuthServiceImpl {
         }
 
         let uid = self.require_user(msg).await?;
-        let row = users::find_by_id(ctx, &uid.0)
-            .await
-            .map_err(|e| AuthError::Internal(e.to_string()))?
-            .ok_or(AuthError::NotFound)?;
+        // Admin is determined by the SAME merged role resolution the HTTP
+        // `is_admin` path uses — `get_user_roles` merges the inline `users.role`
+        // with `USER_ROLES_TABLE` rows. So a user granted admin via the roles
+        // table (the admin IAM UI) is admin to trait consumers too, not only to
+        // `/b/admin` routes. [F19]
         let has = match role {
-            Role::Admin => row.role == "admin",
+            Role::Admin => crate::blocks::auth::helpers::get_user_roles(ctx, &uid.0)
+                .await
+                .iter()
+                .any(|r| r == "admin"),
             Role::User => true, // any authenticated user
         };
         if has {
@@ -480,6 +484,104 @@ mod tests {
             "expected ≥5 grants, got {}",
             grants.len()
         );
+    }
+
+    #[tokio::test]
+    async fn get_user_roles_reflects_admin_granted_only_via_roles_table() {
+        // The scenario F19 fixes: a user whose inline `users.role` is NOT
+        // "admin" but who has an admin row in USER_ROLES_TABLE must resolve
+        // to admin via the merged resolver that `require_role` now uses.
+        use crate::blocks::admin::USER_ROLES_TABLE;
+
+        let ctx = Arc::new(TestContext::with_admin().await);
+        // Apply auth migrations so the `users` table exists.
+        AuthServiceImpl::new(BlockState::for_test(ctx.clone()))
+            .init(&*ctx)
+            .await
+            .expect("auth init applies user-table migrations");
+
+        // A non-admin user (inline role = "user").
+        let user = users::insert(
+            &*ctx,
+            users::NewUser {
+                email: "roletable@e.co".into(),
+                display_name: "RT".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .expect("insert user");
+
+        // Grant admin ONLY via the roles table.
+        let mut row = std::collections::HashMap::new();
+        row.insert("user_id".to_string(), serde_json::json!(user.id));
+        row.insert("role".to_string(), serde_json::json!("admin"));
+        db::create(&*ctx, USER_ROLES_TABLE, row)
+            .await
+            .expect("assign admin via roles table");
+
+        let roles = crate::blocks::auth::helpers::get_user_roles(&*ctx, &user.id).await;
+        assert!(
+            roles.iter().any(|r| r == "admin"),
+            "merged resolver must see the roles-table admin grant: {roles:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn require_role_admin_grants_via_roles_table_only() {
+        // End-to-end version of the resolver test above: a real
+        // `wafer_session`-cookied Message for a user whose inline
+        // `users.role` is "user" but who has an admin row in
+        // USER_ROLES_TABLE must satisfy `require_role(Role::Admin)`.
+        use crate::blocks::admin::USER_ROLES_TABLE;
+
+        let ctx = Arc::new(TestContext::with_admin().await);
+        let service = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
+        service
+            .init(&*ctx)
+            .await
+            .expect("auth init applies user-table migrations");
+
+        let user = users::insert(
+            &*ctx,
+            users::NewUser {
+                email: "roletable-e2e@e.co".into(),
+                display_name: "RT2".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .expect("insert user");
+
+        let mut row = std::collections::HashMap::new();
+        row.insert("user_id".to_string(), serde_json::json!(user.id));
+        row.insert("role".to_string(), serde_json::json!("admin"));
+        db::create(&*ctx, USER_ROLES_TABLE, row)
+            .await
+            .expect("assign admin via roles table");
+
+        let raw_token = "e2e-session-raw";
+        sessions::insert(
+            &*ctx,
+            sessions::NewSession {
+                token_hash: hash_token(raw_token),
+                user_id: user.id.clone(),
+                expires_at: "9999-01-01T00:00:00Z".into(),
+            },
+        )
+        .await
+        .expect("seed session");
+
+        let mut msg = Message::new("auth.require_role");
+        msg.set_meta("http.header.cookie", format!("wafer_session={raw_token}"));
+
+        let got = service
+            .require_role(&msg, Role::Admin)
+            .await
+            .expect("roles-table-only admin must satisfy Role::Admin");
+        assert_eq!(got.0, user.id);
     }
 
     #[tokio::test]
