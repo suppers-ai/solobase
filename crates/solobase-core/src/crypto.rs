@@ -9,8 +9,9 @@
 //!
 //! What remains here is genuinely solobase-specific policy: extracting auth
 //! meta from a `Bearer` token in the HTTP pipeline — issuer check (SEC-038),
-//! JWT blocklist (SEC-042), role mapping, and the per-block-derived-key →
-//! master-secret verification order.
+//! JWT blocklist (SEC-042), role mapping, and derived-key-only verification
+//! (per-block HKDF from the auth-ui block id; the master-secret fallback was
+//! removed — F40).
 
 use wafer_block_crypto::primitives::{self, JwtExpPolicy};
 
