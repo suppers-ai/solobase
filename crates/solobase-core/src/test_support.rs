@@ -255,6 +255,31 @@ impl TestContext {
 
 #[async_trait::async_trait]
 impl Context for TestContext {
+    /// Host-side WRAP enforcement (only when the test opted in via
+    /// `with_wrap`). Overrides the fail-closed trait default; mirrors
+    /// `RuntimeContext::check_resource_access` — keyed on `caller_id`, same
+    /// `check_access` callsite shape — so tests see identical permission
+    /// behaviour to production. Without a caller the context is permissive,
+    /// matching the pre-WRAP test default.
+    fn check_resource_access(
+        &self,
+        resource: &str,
+        resource_type: wafer_run::ResourceType,
+        is_write: bool,
+    ) -> Result<(), WaferError> {
+        if let Some(ref caller) = self.caller_id {
+            wafer_block::wrap::check_access(
+                Some(caller.as_str()),
+                resource,
+                is_write,
+                Some(&resource_type),
+                &self.wrap_grants,
+                &self.wrap_admin_block,
+            )?;
+        }
+        Ok(())
+    }
+
     async fn call_block(&self, name: &str, msg: Message, input: InputStream) -> OutputStream {
         // WRAP enforcement (only when the test opted in via `with_wrap`).
         // Mirrors `RuntimeContext::call_block` in wafer-run/crates/wafer-run/
