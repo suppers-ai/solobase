@@ -34,8 +34,9 @@ pub const META_AUTH_EXP: &str = "auth.exp";
 /// present in the JWT) `auth.jti` + `auth.exp`.
 ///
 /// Silently does nothing if the token is invalid, fails the issuer
-/// check (SEC-038), is blocklisted (SEC-042), or is a non-`access`
-/// type — the request continues as unauthenticated.
+/// check (SEC-038), is blocklisted (SEC-042), or isn't an `access`
+/// token (allow-list: only `type == "access"` authenticates) — the
+/// request continues as unauthenticated.
 ///
 /// Verification uses [`JwtExpPolicy::Required`]: solobase's token mints all
 /// stamp `exp`, so an exp-less token was not produced by this stack and
@@ -65,15 +66,14 @@ pub async fn extract_auth_meta(
     // hit handlers dispatched in that block's context, and the crypto handler
     // at wafer-core/src/interfaces/crypto/handler.rs routes CRYPTO_SIGN
     // through `sign_for(caller_id, ...)`. So the verify key is HKDF-derived
-    // from `AUTH_UI_BLOCK_ID`, not `AUTH_BLOCK_ID`. Try the derived key
-    // first, then fall back to the master secret for tokens signed without
-    // block derivation (e.g. unit-test fixtures).
+    // from `AUTH_UI_BLOCK_ID`, not `AUTH_BLOCK_ID`.
     //
-    // History note: PR #155 (bcf96ce) originally swapped this from
-    // AUTH_BLOCK_ID to AUTH_UI_BLOCK_ID. PR #170 (d7107c4)'s Result-wrap
-    // refactor silently reverted it; the unit tests didn't catch the
-    // regression because they sign with the master secret directly and so
-    // exercise only the fallback branch.
+    // Production session tokens are ALWAYS signed with the auth-ui-derived key
+    // (the crypto service's `sign_for(AUTH_UI_BLOCK_ID, ...)`). There is no
+    // legitimate token signed with the raw master secret, so we verify against
+    // the derived key only. The former master-secret fallback existed for test
+    // fixtures and once masked a real regression (PR #170 silently reverted the
+    // derived-key swap because tests only exercised the fallback branch).
     let derived_secret = primitives::derive_block_key(
         jwt_secret.as_bytes(),
         crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
@@ -81,18 +81,16 @@ pub async fn extract_auth_meta(
     let claims =
         match primitives::jwt_verify(token, derived_secret.as_bytes(), JwtExpPolicy::Required) {
             Ok(c) => c,
-            Err(_) => {
-                match primitives::jwt_verify(token, jwt_secret.as_bytes(), JwtExpPolicy::Required) {
-                    Ok(c) => c,
-                    Err(_) => return,
-                }
-            }
+            Err(_) => return,
         };
 
-    // Only accept "access" tokens for authentication (reject refresh tokens)
+    // Allow-list: only an explicit "access" token authenticates. A refresh
+    // token — or any token whose `type` is missing or not "access" — is
+    // rejected. A denylist ("reject only refresh") would silently accept any
+    // future token type minted with the same key.
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    if token_type == "refresh" {
-        return; // Refresh tokens must not be used as Bearer tokens
+    if token_type != "access" {
+        return;
     }
 
     // [SEC-038] Require iss claim to match the deployment's expected issuer.
@@ -212,10 +210,11 @@ mod tests {
 
     // -- extract_auth_meta -------------------------------------------------
     //
-    // SEC-042 blocklist tests sign with the master secret directly (no
-    // per-block HKDF) so the fallback path in extract_auth_meta verifies
-    // them — the function tries the derived key first, then falls back to
-    // the master secret.
+    // SEC-042 blocklist tests (and the other extract_auth_meta_* tests below)
+    // sign via `sign_access_jwt`, which derives the auth-ui key from the
+    // master secret before signing — the same derivation
+    // `extract_auth_meta` verifies against, since the master-secret fallback
+    // no longer exists.
 
     fn sign_access_jwt(secret: &str, sub: &str, jti: Option<&str>, ttl_secs: u64) -> String {
         let mut claims = HashMap::new();
@@ -224,8 +223,74 @@ mod tests {
         if let Some(j) = jti {
             claims.insert("jti".to_string(), serde_json::json!(j));
         }
-        primitives::jwt_sign(claims, Duration::from_secs(ttl_secs), secret.as_bytes())
+        // Sign with the auth-ui-derived key — the only key `extract_auth_meta`
+        // accepts now. `secret` is the master; derive the same key the verifier
+        // will use.
+        let derived = primitives::derive_block_key(
+            secret.as_bytes(),
+            crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+        );
+        primitives::jwt_sign(claims, Duration::from_secs(ttl_secs), derived.as_bytes())
             .expect("test jwt_sign")
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_rejects_refresh_token() {
+        use wafer_run::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let master = "test-secret";
+        let derived = primitives::derive_block_key(
+            master.as_bytes(),
+            crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+        );
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!("user-a"));
+        claims.insert("type".to_string(), serde_json::json!("refresh"));
+        let token =
+            primitives::jwt_sign(claims, Duration::from_secs(3600), derived.as_bytes()).unwrap();
+
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
+        assert_eq!(msg.get_meta(wafer_run::META_AUTH_USER_ID), "");
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_rejects_typeless_token() {
+        // Allow-list: a token with no `type` claim is rejected (the old denylist
+        // accepted it).
+        use wafer_run::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let master = "test-secret";
+        let derived = primitives::derive_block_key(
+            master.as_bytes(),
+            crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+        );
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!("user-a"));
+        let token =
+            primitives::jwt_sign(claims, Duration::from_secs(3600), derived.as_bytes()).unwrap();
+
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
+        assert_eq!(msg.get_meta(wafer_run::META_AUTH_USER_ID), "");
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_rejects_master_secret_signed_token() {
+        // The master-secret fallback is removed: a token signed with the raw
+        // master secret (not the auth-ui-derived key) no longer authenticates.
+        use wafer_run::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let master = "test-secret";
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!("user-a"));
+        claims.insert("type".to_string(), serde_json::json!("access"));
+        let token =
+            primitives::jwt_sign(claims, Duration::from_secs(3600), master.as_bytes()).unwrap();
+
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
+        assert_eq!(msg.get_meta(wafer_run::META_AUTH_USER_ID), "");
     }
 
     #[tokio::test]
