@@ -31,17 +31,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    if body.new_password.len() < 8 {
-        return error_response(
-            ErrorCode::PasswordTooShort,
-            "New password must be at least 8 characters",
-        );
-    }
-    if body.new_password.len() > 1024 {
-        return error_response(
-            ErrorCode::PasswordTooLong,
-            "Password must not exceed 1024 characters",
-        );
+    if let Err((code, msg)) =
+        super::password_policy::validate_new_password(ctx, &body.new_password).await
+    {
+        return error_response(code, &msg);
     }
 
     // Verify user exists

@@ -195,6 +195,22 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
     ]
 }
 
+/// Reject a resolved user id whose account is disabled or soft-deleted.
+/// The single lifecycle-state gate shared by every `require_*` credential
+/// path — session cookies and PATs resolve a user id without otherwise
+/// loading the user row, so without this they would authenticate a
+/// deactivated account.
+async fn ensure_active(ctx: &dyn Context, user_id: &str) -> Result<(), AuthError> {
+    let user = users::find_by_id(ctx, user_id)
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?
+        .ok_or(AuthError::Unauthorized)?;
+    if !user.is_active() {
+        return Err(AuthError::Unauthorized);
+    }
+    Ok(())
+}
+
 #[wafer_block::wafer_async_trait]
 impl AuthService for AuthServiceImpl {
     /// Apply auth migrations and run the bootstrap admin step. Invoked by the
@@ -261,6 +277,7 @@ impl AuthService for AuthServiceImpl {
                 sessions::touch_last_used(ctx, &h)
                     .await
                     .map_err(|e| AuthError::Internal(e.to_string()))?;
+                ensure_active(ctx, &row.user_id).await?;
                 Ok(UserId(row.user_id))
             }
             Creds::Pat(h) => {
@@ -276,6 +293,7 @@ impl AuthService for AuthServiceImpl {
                 pats::touch_last_used(ctx, &h)
                     .await
                     .map_err(|e| AuthError::Internal(e.to_string()))?;
+                ensure_active(ctx, &row.user_id).await?;
                 Ok(UserId(row.user_id))
             }
         }
@@ -309,6 +327,7 @@ impl AuthService for AuthServiceImpl {
         pats::touch_last_used(ctx, &h)
             .await
             .map_err(|e| AuthError::Internal(e.to_string()))?;
+        ensure_active(ctx, &row.user_id).await?;
         Ok(UserId(row.user_id))
     }
 
@@ -563,5 +582,48 @@ mod tests {
             .await
             .expect("roles-table-only admin must satisfy Role::Admin");
         assert_eq!(got.0, user.id);
+    }
+
+    #[tokio::test]
+    async fn ensure_active_rejects_disabled_and_deleted() {
+        use wafer_core::clients::database as db;
+
+        use crate::test_support::TestContext;
+
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+
+        let live = users::insert(
+            &ctx,
+            users::NewUser {
+                email: "live@e.co".into(),
+                display_name: "Live".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap();
+        // Active user → Ok.
+        assert!(ensure_active(&ctx, &live.id).await.is_ok());
+
+        // Disabled → Unauthorized.
+        let mut patch = std::collections::HashMap::new();
+        patch.insert("disabled".to_string(), serde_json::json!(true));
+        db::update(&ctx, users::TABLE, &live.id, patch)
+            .await
+            .unwrap();
+        assert!(matches!(
+            ensure_active(&ctx, &live.id).await,
+            Err(AuthError::Unauthorized)
+        ));
+
+        // Missing user → Unauthorized (not a 500).
+        assert!(matches!(
+            ensure_active(&ctx, "does-not-exist").await,
+            Err(AuthError::Unauthorized)
+        ));
     }
 }

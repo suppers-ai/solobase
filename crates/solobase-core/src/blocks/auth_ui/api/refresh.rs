@@ -112,7 +112,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Err(_) => return error_response(ErrorCode::NotAuthenticated, "User not found"),
     };
 
-    if user.disabled {
+    if !user.is_active() {
         return error_response(ErrorCode::AccountDisabled, "Account is disabled");
     }
 

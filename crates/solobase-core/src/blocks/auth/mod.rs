@@ -551,6 +551,13 @@ pub async fn authenticate_api_key(
         }
     };
 
+    // Deleted or disabled accounts must not authenticate, even with a
+    // still-valid API key. Login/refresh/OAuth already enforce this on their
+    // own row loads; this is the same gate for the key path.
+    if !user.is_active() {
+        return;
+    }
+
     // Fetch roles from user_roles collection (roles are not stored on the user record)
     let roles = helpers::get_user_roles(ctx, &key_row.user_id).await;
     let roles_str = roles.join(",");
@@ -570,5 +577,77 @@ pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
         logo_html: None,
         headline: &config.app_name,
         tagline: Some("Sign in to continue."),
+    }
+}
+
+#[cfg(test)]
+mod api_key_lifecycle_tests {
+    use wafer_run::{Message, META_AUTH_USER_ID};
+
+    use super::{
+        authenticate_api_key,
+        repo::{api_keys, users},
+    };
+    use crate::{test_support::TestContext, util::sha256_hex};
+
+    async fn seed_user_and_key(ctx: &TestContext, raw_key: &str) -> String {
+        let user = users::insert(
+            ctx,
+            users::NewUser {
+                email: "key@e.co".into(),
+                display_name: "Key".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let key_hash = sha256_hex(raw_key.as_bytes());
+        api_keys::insert(
+            ctx,
+            api_keys::NewApiKey {
+                user_id: &user.id,
+                name: "test-key",
+                key_hash: &key_hash,
+                key_prefix: "sb_test",
+                expires_at: None,
+            },
+        )
+        .await
+        .unwrap();
+        user.id
+    }
+
+    #[tokio::test]
+    async fn active_user_key_authenticates() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let uid = seed_user_and_key(&ctx, "raw-active-key").await;
+
+        let mut msg = Message::new("http");
+        authenticate_api_key(&ctx, "raw-active-key", &mut msg).await;
+        assert_eq!(msg.get_meta(META_AUTH_USER_ID), uid);
+    }
+
+    #[tokio::test]
+    async fn disabled_user_key_is_rejected() {
+        use wafer_core::clients::database as db;
+
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let uid = seed_user_and_key(&ctx, "raw-disabled-key").await;
+
+        let mut patch = std::collections::HashMap::new();
+        patch.insert("disabled".to_string(), serde_json::json!(true));
+        db::update(&ctx, users::TABLE, &uid, patch).await.unwrap();
+
+        let mut msg = Message::new("http");
+        authenticate_api_key(&ctx, "raw-disabled-key", &mut msg).await;
+        // No auth meta stamped → request stays anonymous.
+        assert_eq!(msg.get_meta(META_AUTH_USER_ID), "");
     }
 }
