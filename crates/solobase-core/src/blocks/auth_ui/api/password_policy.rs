@@ -86,9 +86,8 @@ pub(crate) fn is_common_password(pw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{blocks::errors::ErrorCode, test_support::TestContext};
-
     use super::validate_new_password;
+    use crate::{blocks::errors::ErrorCode, test_support::TestContext};
 
     #[tokio::test]
     async fn rejects_short_common_and_control_but_accepts_strong() {
@@ -109,8 +108,10 @@ mod tests {
         assert_eq!(e.0, ErrorCode::InvalidInput);
 
         // Strong, uncommon passphrase → Ok.
-        assert!(validate_new_password(&ctx, "correct-horse-battery-staple-9")
-            .await
-            .is_ok());
+        assert!(
+            validate_new_password(&ctx, "correct-horse-battery-staple-9")
+                .await
+                .is_ok()
+        );
     }
 }
