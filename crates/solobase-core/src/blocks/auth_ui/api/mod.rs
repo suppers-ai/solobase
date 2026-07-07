@@ -10,6 +10,7 @@ pub mod forgot_password;
 pub mod login;
 pub mod logout;
 pub mod me;
+mod password_policy;
 pub mod refresh;
 pub mod reset_password;
 pub mod signup;
