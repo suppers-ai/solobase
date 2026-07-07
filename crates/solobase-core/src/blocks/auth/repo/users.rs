@@ -19,9 +19,28 @@ pub struct UserRow {
     pub avatar_url: Option<String>,
     pub role: String,
     pub disabled: bool,
+    /// Soft-delete timestamp (ISO-8601). `None`/empty when the account is live.
+    /// Column exists since migration 006; a soft-deleted account keeps its row
+    /// but must not authenticate.
+    pub deleted_at: Option<String>,
     pub email_verified: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl UserRow {
+    /// True when the account has been soft-deleted (a non-empty `deleted_at`).
+    /// Treats both SQL `NULL`/absent and an empty string as "not deleted".
+    pub fn is_deleted(&self) -> bool {
+        self.deleted_at.as_deref().is_some_and(|s| !s.is_empty())
+    }
+
+    /// True when the account may authenticate: neither disabled nor
+    /// soft-deleted. The single lifecycle-state predicate shared by every
+    /// credential-verification path.
+    pub fn is_active(&self) -> bool {
+        !self.disabled && !self.is_deleted()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +59,7 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<UserRow, RepoError> {
         avatar_url: map_opt_str(m, "avatar_url"),
         role: map_opt_str(m, "role").unwrap_or_else(|| "user".into()),
         disabled: map_bool(m, "disabled"),
+        deleted_at: map_opt_str(m, "deleted_at"),
         email_verified: map_bool(m, "email_verified"),
         created_at: map_str(m, "created_at"),
         updated_at: map_str(m, "updated_at"),
@@ -510,5 +530,65 @@ mod typed_client_tests {
         use crate::util::RecordExt;
         assert_eq!(raw.str_field("name"), "New Name");
         assert_eq!(raw.str_field("display_name"), "New Name");
+    }
+
+    async fn seed_active(ctx: &TestContext) -> String {
+        insert(
+            ctx,
+            NewUser {
+                email: "life@example.com".into(),
+                display_name: "Life".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn fresh_user_is_active() {
+        let ctx = TestContext::with_auth()
+            .await
+            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_active(&ctx).await;
+        let row = find_by_id(&ctx, &id).await.unwrap().unwrap();
+        assert!(row.is_active());
+        assert!(!row.is_deleted());
+        assert_eq!(row.deleted_at, None);
+    }
+
+    #[tokio::test]
+    async fn disabled_user_is_not_active() {
+        let ctx = TestContext::with_auth()
+            .await
+            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_active(&ctx).await;
+        let mut patch = std::collections::HashMap::new();
+        patch.insert("disabled".to_string(), serde_json::json!(true));
+        db::update(&ctx, TABLE, &id, patch).await.unwrap();
+
+        let row = find_by_id(&ctx, &id).await.unwrap().unwrap();
+        assert!(row.disabled);
+        assert!(!row.is_active());
+    }
+
+    #[tokio::test]
+    async fn soft_deleted_user_is_not_active() {
+        let ctx = TestContext::with_auth()
+            .await
+            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let id = seed_active(&ctx).await;
+        let mut patch = std::collections::HashMap::new();
+        patch.insert(
+            "deleted_at".to_string(),
+            serde_json::json!("2026-01-01T00:00:00Z"),
+        );
+        db::update(&ctx, TABLE, &id, patch).await.unwrap();
+
+        let row = find_by_id(&ctx, &id).await.unwrap().unwrap();
+        assert!(row.is_deleted());
+        assert!(!row.is_active());
     }
 }
