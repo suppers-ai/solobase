@@ -7,8 +7,7 @@ use crate::{
     blocks::{
         auth::{
             helpers::{
-                email_domain_allowed, initial_role_for, issue_tokens_and_cookie,
-                password_min_length, signup_allowed,
+                email_domain_allowed, initial_role_for, issue_tokens_and_cookie, signup_allowed,
             },
             repo::{local_credentials, users},
             USERS_TABLE,
@@ -62,24 +61,10 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         );
     }
 
-    let min_len = password_min_length(ctx).await;
-    if body.password.len() < min_len {
-        return error_response(
-            ErrorCode::PasswordTooShort,
-            &format!("Password must be at least {min_len} characters"),
-        );
-    }
-    if body.password.len() > 1024 {
-        return error_response(
-            ErrorCode::PasswordTooLong,
-            "Password must not exceed 1024 characters",
-        );
-    }
-    if body.password.chars().any(|c| c.is_control()) {
-        return error_response(
-            ErrorCode::InvalidInput,
-            "Password must not contain control characters",
-        );
+    if let Err((code, msg)) =
+        super::password_policy::validate_new_password(ctx, &body.password).await
+    {
+        return error_response(code, &msg);
     }
     if email_lower.len() > 255 {
         return error_response(
@@ -94,18 +79,6 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
                 "Name must not exceed 200 characters",
             );
         }
-    }
-
-    // Reject top-25 common passwords. [SEC-041] A length minimum alone lets
-    // `password1`, `12345678`, `qwerty12`, etc. through — a credential-stuffing
-    // attacker hits these first. The list is intentionally tiny (NordPass
-    // 2023 top 25) so the check stays cheap and doesn't drift into HIBP
-    // territory in this PR.
-    if super::password_policy::is_common_password(&body.password) {
-        return error_response(
-            ErrorCode::InvalidInput,
-            "Password is too common. Please choose a less predictable password.",
-        );
     }
 
     // [SEC-035] If the email is already registered, do NOT confirm that to

@@ -23,6 +23,7 @@ use crate::{
             service::hash_token,
         },
         auth_ui::redirect::is_safe_local_redirect,
+        errors::error_response,
     },
     http::{
         err_bad_request, err_internal, err_internal_no_cause, err_unauthorized, ResponseBuilder,
@@ -45,8 +46,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Some(p) if !p.is_empty() => p.clone(),
         _ => return err_bad_request("missing password"),
     };
-    if password.len() < 8 {
-        return err_bad_request("password must be at least 8 characters");
+    if let Err((code, msg)) = super::password_policy::validate_new_password(ctx, &password).await {
+        return error_response(code, &msg);
     }
 
     let token_hash = hash_token(&token);
@@ -196,6 +197,33 @@ mod tests {
             .unwrap();
 
         let form = format!("token={raw}&email=admin@example.com&password=short");
+        let input = InputStream::from_bytes(form.into_bytes());
+        let _ = handle(&ctx, input).await;
+
+        // No admin user, token row still valid (not consumed on rejection).
+        assert!(users::find_by_email(&ctx, "admin@example.com")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(bootstrap_tokens::is_valid(&ctx, &hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn rejects_common_password() {
+        let ctx = ctx_with_crypto().await;
+        // "admin123" is 8 chars — the old `password.len() < 8` check let it
+        // through. It must now be rejected via the shared blocklist
+        // (`validate_new_password`) routed through in Task 5.
+        let raw = "common-pw-token";
+        let hash = hash_token(raw);
+        let expires = (chrono::Utc::now() + chrono::Duration::hours(24))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        bootstrap_tokens::insert(&ctx, hash.clone(), &expires)
+            .await
+            .unwrap();
+
+        let form = format!("token={raw}&email=admin@example.com&password=admin123");
         let input = InputStream::from_bytes(form.into_bytes());
         let _ = handle(&ctx, input).await;
 
