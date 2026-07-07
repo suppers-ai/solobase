@@ -549,9 +549,10 @@ mod typed_client_tests {
 
     #[tokio::test]
     async fn fresh_user_is_active() {
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let id = seed_active(&ctx).await;
         let row = find_by_id(&ctx, &id).await.unwrap().unwrap();
         assert!(row.is_active());
@@ -561,9 +562,10 @@ mod typed_client_tests {
 
     #[tokio::test]
     async fn disabled_user_is_not_active() {
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let id = seed_active(&ctx).await;
         let mut patch = std::collections::HashMap::new();
         patch.insert("disabled".to_string(), serde_json::json!(true));
@@ -576,9 +578,10 @@ mod typed_client_tests {
 
     #[tokio::test]
     async fn soft_deleted_user_is_not_active() {
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let id = seed_active(&ctx).await;
         let mut patch = std::collections::HashMap::new();
         patch.insert(

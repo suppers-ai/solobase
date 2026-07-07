@@ -857,10 +857,7 @@ mod security_regression_tests {
         .await
         .expect("soft-delete user");
         // Sanity: the typed row now reports deleted/inactive but NOT disabled.
-        let row = users::find_by_id(&ctx, &user.id)
-            .await
-            .unwrap()
-            .unwrap();
+        let row = users::find_by_id(&ctx, &user.id).await.unwrap().unwrap();
         assert!(row.is_deleted(), "fixture user must be soft-deleted");
         assert!(!row.disabled, "fixture user must not be `disabled`");
         assert!(!row.is_active(), "soft-deleted user must not be active");

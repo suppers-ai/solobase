@@ -488,9 +488,10 @@ mod tests {
 
         use crate::test_support::TestContext;
 
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
 
         let live = users::insert(
             &ctx,

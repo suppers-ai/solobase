@@ -584,10 +584,11 @@ pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
 mod api_key_lifecycle_tests {
     use wafer_run::{Message, META_AUTH_USER_ID};
 
-    use super::repo::{api_keys, users};
-    use super::authenticate_api_key;
-    use crate::test_support::TestContext;
-    use crate::util::sha256_hex;
+    use super::{
+        authenticate_api_key,
+        repo::{api_keys, users},
+    };
+    use crate::{test_support::TestContext, util::sha256_hex};
 
     async fn seed_user_and_key(ctx: &TestContext, raw_key: &str) -> String {
         let user = users::insert(
@@ -619,9 +620,10 @@ mod api_key_lifecycle_tests {
 
     #[tokio::test]
     async fn active_user_key_authenticates() {
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let uid = seed_user_and_key(&ctx, "raw-active-key").await;
 
         let mut msg = Message::new("http");
@@ -633,9 +635,10 @@ mod api_key_lifecycle_tests {
     async fn disabled_user_key_is_rejected() {
         use wafer_core::clients::database as db;
 
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let uid = seed_user_and_key(&ctx, "raw-disabled-key").await;
 
         let mut patch = std::collections::HashMap::new();
