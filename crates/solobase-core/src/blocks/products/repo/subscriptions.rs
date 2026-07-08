@@ -1,5 +1,7 @@
 //! Data access for the platform-billing subscriptions table.
 
+use std::collections::HashMap;
+
 use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, WaferError};
@@ -61,25 +63,23 @@ pub(crate) async fn update_status_plan(
     plan: Option<&str>,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let mut data: Vec<(String, serde_json::Value)> = vec![
-        ("status".to_string(), serde_json::json!(status)),
-        ("updated_at".to_string(), serde_json::json!(&now)),
-    ];
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!(status));
+    data.insert("updated_at".into(), serde_json::json!(&now));
     if let Some(plan) = plan {
-        data.push(("plan".to_string(), serde_json::json!(plan)));
+        data.insert("plan".into(), serde_json::json!(plan));
     }
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    db::update_by_filters_count(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &data,
-        &[Filter {
+        vec![Filter {
             field: "stripe_subscription_id".into(),
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Mark a subscription past-due with a 7-day grace window
@@ -91,25 +91,21 @@ pub(crate) async fn mark_past_due(
     let now = chrono::Utc::now();
     let grace_end = (now + chrono::Duration::days(7)).to_rfc3339();
     let now = now.to_rfc3339();
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("past_due"));
+    data.insert("grace_period_end".into(), serde_json::json!(&grace_end));
+    data.insert("updated_at".into(), serde_json::json!(&now));
+    db::update_by_filters_count(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("past_due")),
-            (
-                "grace_period_end".to_string(),
-                serde_json::json!(&grace_end),
-            ),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &[Filter {
+        vec![Filter {
             field: "stripe_subscription_id".into(),
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Cancel a subscription and reset every addon column to 0
@@ -119,25 +115,24 @@ pub(crate) async fn cancel_and_reset_addons(
     stripe_subscription_id: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("cancelled"));
+    data.insert("addon_projects".into(), serde_json::json!(0));
+    data.insert("addon_requests".into(), serde_json::json!(0));
+    data.insert("addon_r2_bytes".into(), serde_json::json!(0));
+    data.insert("addon_d1_bytes".into(), serde_json::json!(0));
+    data.insert("updated_at".into(), serde_json::json!(&now));
+    db::update_by_filters_count(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("cancelled")),
-            ("addon_projects".to_string(), serde_json::json!(0)),
-            ("addon_requests".to_string(), serde_json::json!(0)),
-            ("addon_r2_bytes".to_string(), serde_json::json!(0)),
-            ("addon_d1_bytes".to_string(), serde_json::json!(0)),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &[Filter {
+        vec![Filter {
             field: "stripe_subscription_id".into(),
             operator: FilterOp::Equal,
             value: serde_json::json!(stripe_subscription_id),
         }],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Set the addon column totals for a user's active subscription. The caller
@@ -152,17 +147,16 @@ pub(crate) async fn set_addon_totals(
     d1_bytes: i64,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("addon_projects".into(), serde_json::json!(projects));
+    data.insert("addon_requests".into(), serde_json::json!(requests));
+    data.insert("addon_r2_bytes".into(), serde_json::json!(r2_bytes));
+    data.insert("addon_d1_bytes".into(), serde_json::json!(d1_bytes));
+    data.insert("updated_at".into(), serde_json::json!(now));
+    db::update_by_filters_count(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &[
-            ("addon_projects".to_string(), serde_json::json!(projects)),
-            ("addon_requests".to_string(), serde_json::json!(requests)),
-            ("addon_r2_bytes".to_string(), serde_json::json!(r2_bytes)),
-            ("addon_d1_bytes".to_string(), serde_json::json!(d1_bytes)),
-            ("updated_at".to_string(), serde_json::json!(now)),
-        ],
-        &[
+        vec![
             Filter {
                 field: "user_id".into(),
                 operator: FilterOp::Equal,
@@ -174,9 +168,9 @@ pub(crate) async fn set_addon_totals(
                 value: serde_json::json!("active"),
             },
         ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Look up the user_id owning a Stripe subscription. Errors collapse to `None`
