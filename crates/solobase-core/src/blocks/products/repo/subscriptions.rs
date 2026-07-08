@@ -2,10 +2,7 @@
 
 use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, WaferError};
-use wafer_sql_utils::aggregate::{
-    build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig,
-};
+use wafer_run::{context::Context, ErrorCode, WaferError};
 
 /// Platform-billing subscription table — one row per user.
 pub(crate) const SUBSCRIPTIONS_TABLE: &str = "suppers_ai__products__subscriptions";
@@ -250,50 +247,53 @@ pub(crate) async fn active_plan_exists(ctx: &dyn Context, user_id: &str, plan: &
 /// Fetch a user's subscription row with addon columns coalesced to 0 for the
 /// admin subscription-status endpoint. Errors / no-row collapse to `None`
 /// (preserves the original `handle_subscription` behaviour).
+///
+/// This is not a grouped aggregate — it's a single-row lookup by `user_id`
+/// with 4 addon columns defaulted from NULL/absent to 0, so it's built on
+/// `db::get_by_field` + a Rust-side coalesce rather than `db::aggregate`
+/// (which can't express an empty-group `COALESCE`). The response is returned
+/// directly to the authenticated user via `handle_subscription`, so the
+/// output is projected down to the same curated column set the old
+/// `select_columns` used — `user_id`/`stripe_customer_id` must not leak.
 pub(crate) async fn subscription_for_user(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Option<serde_json::Value> {
-    // Resolve the dialect before constructing the `!Send` `GroupedQueryConfig`
-    // so this future stays `Send` (the config holds `Rc<dyn Iden>` and must
-    // not be live across the `db_backend` await).
-    let backend = crate::db_backend(ctx).await;
-    let coalesced = |alias: &str, field: &str| AggregateColumn {
-        func: AggFunc::Coalesce(serde_json::json!(0)),
-        field: Some(field.into()),
-        alias: alias.into(),
-        cast_as: None,
-        inner_expr: None,
+    let record = match db::get_by_field(
+        ctx,
+        SUBSCRIPTIONS_TABLE,
+        "user_id",
+        serde_json::json!(user_id),
+    )
+    .await
+    {
+        Ok(record) => record,
+        Err(e) if e.code == ErrorCode::NotFound => return None,
+        Err(_) => return None,
     };
-    let cfg = GroupedQueryConfig {
-        table: SUBSCRIPTIONS_TABLE.into(),
-        select_columns: vec![
-            "id".into(),
-            "plan".into(),
-            "status".into(),
-            "stripe_subscription_id".into(),
-            "grace_period_end".into(),
-            "created_at".into(),
-            "updated_at".into(),
-        ],
-        aggregates: vec![
-            coalesced("addon_projects", "addon_projects"),
-            coalesced("addon_requests", "addon_requests"),
-            coalesced("addon_r2_bytes", "addon_r2_bytes"),
-            coalesced("addon_d1_bytes", "addon_d1_bytes"),
-        ],
-        filters: vec![Filter {
-            field: "user_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(user_id),
-        }],
-        group_by: vec![],
-        order_by: vec![],
-        limit: Some(1),
-    };
-    let stmt = build_grouped_query(cfg, backend);
-    match db::query(ctx, &stmt).await {
-        Ok(records) if !records.is_empty() => serde_json::to_value(&records[0].data).ok(),
-        _ => None,
+
+    let mut out = serde_json::Map::new();
+    for col in [
+        "id",
+        "plan",
+        "status",
+        "stripe_subscription_id",
+        "grace_period_end",
+        "created_at",
+        "updated_at",
+    ] {
+        if let Some(v) = record.data.get(col) {
+            out.insert(col.to_string(), v.clone());
+        }
     }
+    for col in [
+        "addon_projects",
+        "addon_requests",
+        "addon_r2_bytes",
+        "addon_d1_bytes",
+    ] {
+        let v = record.data.get(col).and_then(|v| v.as_i64()).unwrap_or(0);
+        out.insert(col.to_string(), serde_json::json!(v));
+    }
+    Some(serde_json::Value::Object(out))
 }

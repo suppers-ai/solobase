@@ -82,7 +82,7 @@ pub mod block_settings {
         }));
         crate::util::stamp_updated(&mut data);
 
-        db::upsert(
+        db::upsert_by_field(
             ctx,
             TABLE,
             "block_name",
@@ -430,7 +430,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                     "warning": var.warning,
                     "sensitive": sensitive,
                 }));
-                let _ = db::upsert(
+                let _ = db::upsert_by_field(
                     ctx,
                     VARIABLES_TABLE,
                     "key",

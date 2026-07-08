@@ -211,6 +211,7 @@ async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: page_size as i64,
         offset: ((page - 1) * page_size) as i64,
         skip_count: false,
+        ..Default::default()
     };
 
     match db::list(ctx, ACCESS_LOGS_TABLE, &opts).await {
@@ -270,7 +271,7 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    match db::upsert(
+    match db::upsert_by_field(
         ctx,
         QUOTAS_TABLE,
         "user_id",
