@@ -18,7 +18,6 @@ pub mod block_settings {
     use wafer_block::db::{Filter, FilterOp, ListOptions};
     use wafer_core::clients::database as db;
     use wafer_run::context::Context;
-    use wafer_sql_utils::query;
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 
@@ -27,30 +26,29 @@ pub mod block_settings {
     /// Reads the `enabled` column from [`BLOCK_SETTINGS_TABLE`]. Defaults to
     /// `true` when no row exists (all blocks are enabled by default).
     pub async fn is_enabled(ctx: &dyn Context, block_name: &str) -> bool {
-        let backend = crate::db_backend(ctx).await;
-        let stmt = query::build_select_columns(
+        db::list(
+            ctx,
             TABLE,
-            &["enabled"],
             &ListOptions {
+                columns: Some(vec!["enabled".into()]),
                 filters: vec![Filter {
                     field: "block_name".into(),
                     operator: FilterOp::Equal,
                     value: serde_json::json!(block_name),
                 }],
+                skip_count: true,
                 ..Default::default()
             },
-            None,
-            backend,
-        );
-        db::query(ctx, &stmt)
-            .await
-            .ok()
-            .and_then(|rows| {
-                rows.first()
-                    .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-            })
-            .map(|v| v != 0)
-            .unwrap_or(true)
+        )
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.records
+                .first()
+                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+        })
+        .map(|v| v != 0)
+        .unwrap_or(true)
     }
 
     /// Persist the `enabled` flag for `block_name` in [`BLOCK_SETTINGS_TABLE`].

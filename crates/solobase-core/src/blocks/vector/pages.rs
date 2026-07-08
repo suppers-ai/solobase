@@ -516,26 +516,25 @@ async fn load_index_metadata(
 ) -> Result<(String, bool), WaferError> {
     // First try the registry. An error here (e.g. the table doesn't exist)
     // is treated as "no row", not fatal — we fall through to the scan.
-    let backend = crate::db_backend(ctx).await;
-    let stmt = query::build_select_columns(
+    let rows = db::list(
+        ctx,
         REGISTRY_TABLE,
-        &["model", "keyword_search"],
         &ListOptions {
+            columns: Some(vec!["model".into(), "keyword_search".into()]),
             filters: vec![Filter {
                 field: "prefixed_name".into(),
                 operator: FilterOp::Equal,
                 value: serde_json::json!(prefixed_index),
             }],
             limit: 1,
+            skip_count: true,
             ..Default::default()
         },
-        None,
-        backend,
-    );
-    let rows = db::query(ctx, &stmt).await;
+    )
+    .await;
 
     if let Ok(rows) = rows {
-        if let Some(row) = rows.into_iter().next() {
+        if let Some(row) = rows.records.into_iter().next() {
             let model = row
                 .data
                 .get("model")

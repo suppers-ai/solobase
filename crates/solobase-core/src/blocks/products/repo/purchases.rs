@@ -250,24 +250,23 @@ pub(crate) async fn line_item_product_ids(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<Vec<Record>, WaferError> {
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "purchase_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(purchase_id),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         LINE_ITEMS_TABLE,
-        &["product_id"],
-        &opts,
-        None,
-        backend,
-    );
-    db::query(ctx, &stmt).await
+        &ListOptions {
+            columns: Some(vec!["product_id".into()]),
+            filters: vec![Filter {
+                field: "purchase_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(purchase_id),
+            }],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(rows.records)
 }
 
 /// Count all purchases (admin stats).
@@ -295,30 +294,29 @@ pub(crate) async fn completed_purchase_ids(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Result<Vec<Record>, WaferError> {
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(user_id),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("completed"),
-            },
-        ],
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         PURCHASES_TABLE,
-        &["id"],
-        &opts,
-        None,
-        backend,
-    );
-    db::query(ctx, &stmt).await
+        &ListOptions {
+            columns: Some(vec!["id".into()]),
+            filters: vec![
+                Filter {
+                    field: "user_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(user_id),
+                },
+                Filter {
+                    field: "status".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!("completed"),
+                },
+            ],
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(rows.records)
 }
 
 /// Probe whether any of `purchase_ids` contains `product_id` as a line item.
@@ -330,29 +328,28 @@ pub(crate) async fn line_item_exists_for_product(
     if purchase_ids.is_empty() {
         return false;
     }
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "purchase_id".into(),
-                operator: FilterOp::In,
-                value: serde_json::Value::Array(purchase_ids),
-            },
-            Filter {
-                field: "product_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(product_id),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         LINE_ITEMS_TABLE,
-        &["id"],
-        &opts,
-        None,
-        backend,
-    );
-    matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
+        &ListOptions {
+            columns: Some(vec!["id".into()]),
+            filters: vec![
+                Filter {
+                    field: "purchase_id".into(),
+                    operator: FilterOp::In,
+                    value: serde_json::Value::Array(purchase_ids),
+                },
+                Filter {
+                    field: "product_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(product_id),
+                },
+            ],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    matches!(rows, Ok(rows) if !rows.records.is_empty())
 }

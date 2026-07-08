@@ -179,25 +179,25 @@ pub(crate) async fn find_user_by_stripe_sub(
     ctx: &dyn Context,
     stripe_subscription_id: &str,
 ) -> Option<String> {
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "stripe_subscription_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(stripe_subscription_id),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &["user_id"],
-        &opts,
-        None,
-        backend,
-    );
-    let rows = db::query(ctx, &stmt).await.ok()?;
-    rows.first()?
+        &ListOptions {
+            columns: Some(vec!["user_id".into()]),
+            filters: vec![Filter {
+                field: "stripe_subscription_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(stripe_subscription_id),
+            }],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .ok()?;
+    rows.records
+        .first()?
         .data
         .get("user_id")
         .and_then(|v| v.as_str())
@@ -206,36 +206,35 @@ pub(crate) async fn find_user_by_stripe_sub(
 
 /// Whether the user has an `active` subscription whose `plan` equals `plan`.
 pub(crate) async fn active_plan_exists(ctx: &dyn Context, user_id: &str, plan: &str) -> bool {
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(user_id),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("active"),
-            },
-            Filter {
-                field: "plan".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(plan),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &["id"],
-        &opts,
-        None,
-        backend,
-    );
-    matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
+        &ListOptions {
+            columns: Some(vec!["id".into()]),
+            filters: vec![
+                Filter {
+                    field: "user_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(user_id),
+                },
+                Filter {
+                    field: "status".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!("active"),
+                },
+                Filter {
+                    field: "plan".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(plan),
+                },
+            ],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    matches!(rows, Ok(rows) if !rows.records.is_empty())
 }
 
 /// Fetch a user's subscription row with addon columns coalesced to 0 for the

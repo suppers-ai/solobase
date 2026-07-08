@@ -5,7 +5,6 @@ use wafer_block::{
 };
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::query;
 
 use crate::{
     blocks::admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
@@ -207,18 +206,18 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
     let path = msg.query("path").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
-    let backend = crate::db_backend(ctx).await;
 
-    let stmt = query::build_select_columns(
+    let rows = db::list(
+        ctx,
         REQUEST_LOGS,
-        &[
-            "status_code",
-            "duration_ms",
-            "client_ip",
-            "user_id",
-            "created_at",
-        ],
         &ListOptions {
+            columns: Some(vec![
+                "status_code".into(),
+                "duration_ms".into(),
+                "client_ip".into(),
+                "user_id".into(),
+                "created_at".into(),
+            ]),
             filters: vec![
                 Filter {
                     field: "method".into(),
@@ -237,12 +236,13 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
             }],
             limit: limit + 1, // fetch one extra to detect "has more"
             offset,
+            skip_count: true,
             ..Default::default()
         },
-        None,
-        backend,
-    );
-    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
+    )
+    .await
+    .map(|r| r.records)
+    .unwrap_or_default();
 
     let has_more = rows.len() as i64 > limit;
     let display_rows = if has_more {
