@@ -56,12 +56,15 @@ pub mod block_settings {
     /// Uses an upsert keyed on `block_name`, so it works whether or not a row
     /// already exists.
     ///
-    /// Routes through the structured [`db::upsert`] (get-by-field →
-    /// `update` | `create`) rather than a raw `db::execute(build_upsert(...))`.
-    /// The structured path hits `DatabaseService::{create,update}`, which the
-    /// Cloudflare `KvCachedD1DatabaseService` invalidates — so toggling a block
-    /// clears the cached `block_settings` read (both the per-block key and the
-    /// full-table all-rows key). A raw `EXECUTE` bypasses that invalidation and
+    /// Routes through the structured [`db::upsert_by_field`] (get-by-field →
+    /// `update` | `create`) rather than a raw SQL upsert. The structured path
+    /// hits `DatabaseService::{create,update}`, which the Cloudflare
+    /// `KvCachedD1DatabaseService` invalidates — so toggling a block clears
+    /// the cached `block_settings` read (both the per-block key and the
+    /// full-table all-rows key). Block code has no raw-SQL path at all (no
+    /// `db::execute`/`db::query`), but the invalidation dependency on
+    /// `create`/`update` is the reason `set_enabled` stays structured instead
+    /// of being collapsed into a single atomic statement: an atomic upsert
     /// would leave the eager `load_block_settings` cache stale until its TTL.
     /// `created_at` is intentionally omitted: it is preserved on update and
     /// synthesized by the backend on insert.

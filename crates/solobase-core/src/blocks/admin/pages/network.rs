@@ -144,9 +144,12 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                         @let cnt = row.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
                         // `db::aggregate`'s Avg has no result-cast (unlike the old
                         // `cast_as: Some("INTEGER")` builder path), so AVG(duration_ms)
-                        // comes back as a JSON float; round instead of `as_i64()` (which
-                        // is always `None` for the `Number::Float` variant).
-                        @let avg_ms = row.data.get("avg_ms").and_then(|v| v.as_f64()).map(|v| v.round() as i64).unwrap_or(0);
+                        // comes back as a JSON float; `as_i64()` is always `None` for the
+                        // `Number::Float` variant, so read it as f64 and truncate. The old
+                        // `CAST(AVG(duration_ms) AS INTEGER)` truncated toward zero;
+                        // `duration_ms` is always >= 0, so `as i64` (which also truncates
+                        // toward zero) is exact parity — no `.round()`.
+                        @let avg_ms = row.data.get("avg_ms").and_then(|v| v.as_f64()).map(|v| v as i64).unwrap_or(0);
                         @let errors = row.data.get("errors").and_then(|v| v.as_i64()).unwrap_or(0);
                         @let last_seen = row.data.get("last_seen").and_then(|v| v.as_str()).unwrap_or("");
                         (inbound_row(method, path, cnt, avg_ms, errors, last_seen))

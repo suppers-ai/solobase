@@ -105,7 +105,10 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
         // Search by email OR id, via a filter_tree OR-group AND-ed onto the
         // deleted_at IS NULL predicate. total_count is the in-page count
         // here (skip_count: true); the search UI doesn't paginate beyond
-        // what fits in one page.
+        // what fits in one page. `skip_count: true` is load-bearing for that
+        // total_count == in-page-count parity — flipping it to `false` would
+        // make `db::list` run the separate COUNT query and change
+        // `total_count` to the full matched-row count across all pages.
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
         db::list(

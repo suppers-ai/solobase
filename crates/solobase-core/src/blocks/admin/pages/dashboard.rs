@@ -154,10 +154,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let today_start = format!("{today}T00:00:00");
 
-    // Build the six independent queries used for the header tiles + recent
+    // Build the seven independent queries used for the header tiles + recent
     // panels. None of them depend on each other's results, so we issue them
     // concurrently with `futures::join!` instead of awaiting one at a time.
-    // This used to be 6 sequential round-trips on every dashboard load — a
+    // This used to be 7 sequential round-trips on every dashboard load — a
     // measurable D1 amplification source on Cloudflare Workers.
 
     let user_count_filters = [Filter {

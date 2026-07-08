@@ -145,3 +145,79 @@ async fn refund_atomic_only_from_completed() {
         .expect("noop ok");
     assert_eq!(noop, 0, "pending purchase cannot be refunded");
 }
+
+/// `subscription_for_user` (refactored to `db::get_by_field` + a curated
+/// Rust-side projection) must not leak `user_id`/`stripe_customer_id` into
+/// the response, and must coalesce the 4 addon columns to 0 when
+/// NULL/absent. Regression test for the SP-B2b consumer migration.
+#[tokio::test]
+async fn subscription_for_user_projects_curated_columns_without_leaking_ids() {
+    let ctx = ctx().await;
+    let mut sd = HashMap::new();
+    sd.insert("user_id".to_string(), serde_json::json!("user_1"));
+    sd.insert(
+        "stripe_customer_id".to_string(),
+        serde_json::json!("cus_stripe_1"),
+    );
+    sd.insert(
+        "stripe_subscription_id".to_string(),
+        serde_json::json!("sub_stripe_1"),
+    );
+    sd.insert("plan".to_string(), serde_json::json!("pro"));
+    sd.insert("status".to_string(), serde_json::json!("active"));
+    // addon_* columns intentionally omitted (absent) so the schema's
+    // NOT NULL DEFAULT 0 / the fn's own coalesce is what fills them in —
+    // exercising the same NULL/absent-addon path `subscription_for_user`
+    // guards against.
+    seed(
+        &ctx,
+        "suppers_ai__products__subscriptions",
+        "sub_user_1",
+        sd,
+    )
+    .await;
+
+    let out = repo::subscriptions::subscription_for_user(&ctx, "user_1")
+        .await
+        .expect("subscription exists");
+    let map = out
+        .as_object()
+        .expect("subscription_for_user returns a JSON object");
+
+    for col in [
+        "id",
+        "plan",
+        "status",
+        "stripe_subscription_id",
+        "grace_period_end",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            map.contains_key(col),
+            "curated column {col} missing from response"
+        );
+    }
+
+    for col in [
+        "addon_projects",
+        "addon_requests",
+        "addon_r2_bytes",
+        "addon_d1_bytes",
+    ] {
+        assert_eq!(
+            map.get(col).and_then(|v| v.as_i64()),
+            Some(0),
+            "{col} not coalesced to 0"
+        );
+    }
+
+    assert!(
+        !map.contains_key("user_id"),
+        "user_id leaked into subscription_for_user response"
+    );
+    assert!(
+        !map.contains_key("stripe_customer_id"),
+        "stripe_customer_id leaked into subscription_for_user response"
+    );
+}
