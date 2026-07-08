@@ -1,5 +1,5 @@
 use maud::{html, Markup};
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_block::db::{Filter, FilterOp, FilterTree, ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
@@ -102,51 +102,46 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
     let search = msg.query("search").to_string();
 
     let result = if !search.is_empty() {
-        // Search by email OR id. The OR group + SELECT * shape needs
-        // `build_select_with_condition` rather than the flat-filters
-        // `db::paginated_list` typed client.
-        use sea_query::{Cond, Expr};
-        use wafer_sql_utils::{ident::DynCol, query};
-
-        // Resolve the dialect before building the `!Send` `Cond`.
-        let backend = crate::db_backend(ctx).await;
+        // Search by email OR id, via a filter_tree OR-group AND-ed onto the
+        // deleted_at IS NULL predicate. total_count is the in-page count
+        // here (skip_count: true); the search UI doesn't paginate beyond
+        // what fits in one page.
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
-        let or_group = Cond::any()
-            .add(Expr::col(DynCol("email".into())).like(like.clone()))
-            .add(Expr::col(DynCol("id".into())).like(like.clone()));
-
-        let stmt = query::build_select_with_condition(
+        db::list(
+            ctx,
             USERS,
             &ListOptions {
-                filters: vec![Filter {
-                    field: "deleted_at".into(),
-                    operator: FilterOp::IsNull,
-                    value: serde_json::Value::Null,
-                }],
+                filter_tree: Some(vec![FilterTree::All(vec![
+                    FilterTree::Leaf(Filter {
+                        field: "deleted_at".into(),
+                        operator: FilterOp::IsNull,
+                        value: serde_json::Value::Null,
+                    }),
+                    FilterTree::Any(vec![
+                        FilterTree::Leaf(Filter {
+                            field: "email".into(),
+                            operator: FilterOp::Like,
+                            value: serde_json::json!(like),
+                        }),
+                        FilterTree::Leaf(Filter {
+                            field: "id".into(),
+                            operator: FilterOp::Like,
+                            value: serde_json::json!(like),
+                        }),
+                    ]),
+                ])]),
                 sort: vec![SortField {
                     field: "created_at".into(),
                     desc: true,
                 }],
                 limit: page_size as i64,
                 offset,
+                skip_count: true,
                 ..Default::default()
             },
-            Some(or_group),
-            backend,
-        );
-        let records = db::query(ctx, &stmt).await;
-        // Wrap in RecordList format. total_count is the in-page count here;
-        // the search UI doesn't paginate beyond what fits in one page.
-        match records {
-            Ok(rows) => Ok(db::RecordList {
-                total_count: rows.len() as i64,
-                page: page as i64,
-                page_size: page_size as i64,
-                records: rows,
-            }),
-            Err(e) => Err(e),
-        }
+        )
+        .await
     } else {
         let filters = vec![Filter {
             field: "deleted_at".into(),
