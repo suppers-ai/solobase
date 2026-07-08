@@ -330,6 +330,7 @@ pub(crate) async fn upsert_block_settings_fields(
         limit: 1,
         offset: 0,
         skip_count: true,
+        ..Default::default()
     };
 
     let existing = db::list(ctx, BLOCK_SETTINGS_TABLE, &opts)

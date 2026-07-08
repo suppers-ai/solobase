@@ -18,7 +18,6 @@ pub mod block_settings {
     use wafer_block::db::{Filter, FilterOp, ListOptions};
     use wafer_core::clients::database as db;
     use wafer_run::context::Context;
-    use wafer_sql_utils::query;
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 
@@ -27,30 +26,29 @@ pub mod block_settings {
     /// Reads the `enabled` column from [`BLOCK_SETTINGS_TABLE`]. Defaults to
     /// `true` when no row exists (all blocks are enabled by default).
     pub async fn is_enabled(ctx: &dyn Context, block_name: &str) -> bool {
-        let backend = crate::db_backend(ctx).await;
-        let stmt = query::build_select_columns(
+        db::list(
+            ctx,
             TABLE,
-            &["enabled"],
             &ListOptions {
+                columns: Some(vec!["enabled".into()]),
                 filters: vec![Filter {
                     field: "block_name".into(),
                     operator: FilterOp::Equal,
                     value: serde_json::json!(block_name),
                 }],
+                skip_count: true,
                 ..Default::default()
             },
-            None,
-            backend,
-        );
-        db::query(ctx, &stmt)
-            .await
-            .ok()
-            .and_then(|rows| {
-                rows.first()
-                    .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-            })
-            .map(|v| v != 0)
-            .unwrap_or(true)
+        )
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.records
+                .first()
+                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+        })
+        .map(|v| v != 0)
+        .unwrap_or(true)
     }
 
     /// Persist the `enabled` flag for `block_name` in [`BLOCK_SETTINGS_TABLE`].
@@ -58,12 +56,15 @@ pub mod block_settings {
     /// Uses an upsert keyed on `block_name`, so it works whether or not a row
     /// already exists.
     ///
-    /// Routes through the structured [`db::upsert`] (get-by-field →
-    /// `update` | `create`) rather than a raw `db::execute(build_upsert(...))`.
-    /// The structured path hits `DatabaseService::{create,update}`, which the
-    /// Cloudflare `KvCachedD1DatabaseService` invalidates — so toggling a block
-    /// clears the cached `block_settings` read (both the per-block key and the
-    /// full-table all-rows key). A raw `EXECUTE` bypasses that invalidation and
+    /// Routes through the structured [`db::upsert_by_field`] (get-by-field →
+    /// `update` | `create`) rather than a raw SQL upsert. The structured path
+    /// hits `DatabaseService::{create,update}`, which the Cloudflare
+    /// `KvCachedD1DatabaseService` invalidates — so toggling a block clears
+    /// the cached `block_settings` read (both the per-block key and the
+    /// full-table all-rows key). Block code has no raw-SQL path at all (no
+    /// `db::execute`/`db::query`), but the invalidation dependency on
+    /// `create`/`update` is the reason `set_enabled` stays structured instead
+    /// of being collapsed into a single atomic statement: an atomic upsert
     /// would leave the eager `load_block_settings` cache stale until its TTL.
     /// `created_at` is intentionally omitted: it is preserved on update and
     /// synthesized by the backend on insert.
@@ -82,7 +83,7 @@ pub mod block_settings {
         }));
         crate::util::stamp_updated(&mut data);
 
-        db::upsert(
+        db::upsert_by_field(
             ctx,
             TABLE,
             "block_name",
@@ -430,7 +431,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                     "warning": var.warning,
                     "sensitive": sensitive,
                 }));
-                let _ = db::upsert(
+                let _ = db::upsert_by_field(
                     ctx,
                     VARIABLES_TABLE,
                     "key",

@@ -404,7 +404,7 @@ pub(super) async fn update_variable(
     data.insert("updated_by".to_string(), serde_json::json!(msg.user_id()));
     crate::util::stamp_updated(&mut data);
 
-    let record = match db::upsert(
+    let record = match db::upsert_by_field(
         ctx,
         VARIABLES_TABLE,
         "key",

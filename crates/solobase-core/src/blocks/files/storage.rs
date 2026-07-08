@@ -633,6 +633,7 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: page_size as i64,
         offset: offset as i64,
         skip_count: false,
+        ..Default::default()
     };
 
     match db::list(ctx, OBJECTS_TABLE, &opts).await {

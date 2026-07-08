@@ -117,9 +117,9 @@ use crate::ui::{
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
     use std::collections::HashMap;
 
-    use wafer_block::db::{Filter, FilterOp, SortField};
-    use wafer_sql_utils::aggregate::{
-        build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig,
+    use wafer_block::{
+        db::{Filter, FilterOp, SortField},
+        wire::database as wire,
     };
 
     use super::{BUCKETS_TABLE, OBJECTS_TABLE};
@@ -146,9 +146,6 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         }
     };
 
-    // Resolve the dialect before constructing the `!Send` `GroupedQueryConfig`.
-    let backend = crate::db_backend(ctx).await;
-
     // Build a list of bucket names this user owns; restrict the GROUP BY
     // to those buckets so the count matches the previous per-bucket
     // db::count semantics exactly (which counted all objects in the
@@ -158,27 +155,22 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
         .map(|s| serde_json::Value::String(s.to_string()))
         .collect();
-    let counts_cfg = GroupedQueryConfig {
-        table: OBJECTS_TABLE.into(),
+    let req = wire::AggregateRequest {
+        collection: OBJECTS_TABLE.to_string(),
         select_columns: vec!["bucket".into()],
-        aggregates: vec![AggregateColumn {
-            func: AggFunc::Count,
-            field: None,
+        aggregates: vec![wire::AggregateColumnDef::Count {
             alias: "cnt".into(),
-            cast_as: None,
-            inner_expr: None,
         }],
-        filters: vec![Filter {
+        filters: vec![wire::FilterNode::Leaf(wire::FilterDef {
             field: "bucket".into(),
-            operator: FilterOp::In,
+            operator: "in".into(),
             value: serde_json::Value::Array(bucket_names),
-        }],
-        group_by: vec!["bucket".into()],
-        order_by: vec![],
-        limit: None,
+        })],
+        group_by: vec![wire::GroupByDef::Column("bucket".into())],
+        sort: vec![],
+        limit: 0,
     };
-    let stmt = build_grouped_query(counts_cfg, backend);
-    let counts_by_bucket: HashMap<String, i64> = match db::query(ctx, &stmt).await {
+    let counts_by_bucket: HashMap<String, i64> = match db::aggregate(ctx, req).await {
         Ok(rows) => rows
             .into_iter()
             .filter_map(|r| {

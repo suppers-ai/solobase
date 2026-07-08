@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use maud::html;
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_block::{
+    db::{Filter, FilterOp, FilterTree, ListOptions, SortField},
+    wire::database as wire,
+};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::{aggregate, query};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -16,6 +18,34 @@ use crate::{
     },
     util::RecordExt,
 };
+
+/// Encode client-side [`Filter`]s as all-leaf wire [`FilterNode`](wire::FilterNode)s
+/// for a typed `db::aggregate` request. Mirrors `wafer-core`'s internal
+/// `to_wire_filters` conversion (not exported for block code to reuse).
+fn to_wire_filters(filters: &[Filter]) -> Vec<wire::FilterNode> {
+    filters
+        .iter()
+        .map(|f| {
+            let operator = match f.operator {
+                FilterOp::Equal => "eq",
+                FilterOp::NotEqual => "neq",
+                FilterOp::GreaterThan => "gt",
+                FilterOp::GreaterEqual => "gte",
+                FilterOp::LessThan => "lt",
+                FilterOp::LessEqual => "lte",
+                FilterOp::Like => "like",
+                FilterOp::In => "in",
+                FilterOp::IsNull => "is_null",
+                FilterOp::IsNotNull => "is_not_null",
+            };
+            wire::FilterNode::Leaf(wire::FilterDef {
+                field: f.field.clone(),
+                operator: operator.to_string(),
+                value: f.value.clone(),
+            })
+        })
+        .collect()
+}
 
 /// Render a 30-day column bar chart card. `data` is ordered
 /// chronologically; bars are normalized against the max count.
@@ -73,7 +103,6 @@ async fn daily_counts_30d(
 ) -> Vec<(String, i64)> {
     use chrono::Duration;
 
-    let backend = crate::db_backend(ctx).await;
     let today = chrono::Utc::now().date_naive();
     let start = today - Duration::days(29);
     let start_iso = format!("{start}T00:00:00");
@@ -85,17 +114,25 @@ async fn daily_counts_30d(
     }];
     filters.extend(extra_filters);
 
-    let rows = match aggregate::build_daily_count(table, "created_at", &filters, backend) {
-        Ok(stmt) => db::query(ctx, &stmt).await.unwrap_or_default(),
-        // `date_field` is the constant "created_at", so a build error is
-        // unreachable here; fall back to an empty series defensively.
-        Err(_) => Vec::new(),
+    let req = wire::AggregateRequest {
+        collection: table.to_string(),
+        select_columns: vec![],
+        aggregates: vec![wire::AggregateColumnDef::Count {
+            alias: "cnt".into(),
+        }],
+        filters: to_wire_filters(&filters),
+        group_by: vec![wire::GroupByDef::DateBucket {
+            field: "created_at".into(),
+        }],
+        sort: vec![],
+        limit: 0,
     };
+    let rows = db::aggregate(ctx, req).await.unwrap_or_default();
 
     let counts: HashMap<String, i64> = rows
         .iter()
         .filter_map(|r| {
-            let day = r.data.get("day").and_then(|v| v.as_str())?;
+            let day = r.data.get("created_at").and_then(|v| v.as_str())?;
             let cnt = r.data.get("cnt").and_then(|v| v.as_i64())?;
             Some((day.to_string(), cnt))
         })
@@ -114,19 +151,13 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    // Resolve the dialect up front: the per-tile statements (and the `!Send`
-    // `sea_query::Cond` below) are built and held live across the
-    // `futures::join!` await, so the `db_backend` await must happen before
-    // any of them is constructed or the page future becomes `!Send`.
-    let backend = crate::db_backend(ctx).await;
-
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let today_start = format!("{today}T00:00:00");
 
-    // Build the six independent queries used for the header tiles + recent
+    // Build the seven independent queries used for the header tiles + recent
     // panels. None of them depend on each other's results, so we issue them
     // concurrently with `futures::join!` instead of awaiting one at a time.
-    // This used to be 6 sequential round-trips on every dashboard load — a
+    // This used to be 7 sequential round-trips on every dashboard load — a
     // measurable D1 amplification source on Cloudflare Workers.
 
     let user_count_filters = [Filter {
@@ -136,104 +167,107 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let user_count_fut = db::count(ctx, USERS, &user_count_filters);
 
-    let stmt_nu = aggregate::build_count(
-        USERS,
-        &[
-            Filter {
-                field: "deleted_at".into(),
-                operator: FilterOp::IsNull,
-                value: serde_json::Value::Null,
-            },
-            Filter {
-                field: "created_at".into(),
-                operator: FilterOp::GreaterEqual,
-                value: serde_json::json!(&today_start),
-            },
-        ],
-        backend,
-    );
-    let new_users_fut = db::query(ctx, &stmt_nu);
-
-    let stmt_rq = aggregate::build_count(
-        REQUEST_LOGS,
-        &[Filter {
+    let new_users_filters = [
+        Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        },
+        Filter {
             field: "created_at".into(),
             operator: FilterOp::GreaterEqual,
             value: serde_json::json!(&today_start),
-        }],
-        backend,
-    );
-    let requests_fut = db::query(ctx, &stmt_rq);
+        },
+    ];
+    let new_users_fut = db::count(ctx, USERS, &new_users_filters);
 
-    let stmt_er = aggregate::build_count(
-        REQUEST_LOGS,
-        &[
-            Filter {
+    let requests_filters = [Filter {
+        field: "created_at".into(),
+        operator: FilterOp::GreaterEqual,
+        value: serde_json::json!(&today_start),
+    }];
+    let requests_fut = db::count(ctx, REQUEST_LOGS, &requests_filters);
+
+    let errors_filters = [
+        Filter {
+            field: "status".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!("ERROR"),
+        },
+        Filter {
+            field: "created_at".into(),
+            operator: FilterOp::GreaterEqual,
+            value: serde_json::json!(&today_start),
+        },
+    ];
+    let errors_fut = db::count(ctx, REQUEST_LOGS, &errors_filters);
+
+    let avg_ms_fut = db::aggregate(
+        ctx,
+        wire::AggregateRequest {
+            collection: REQUEST_LOGS.to_string(),
+            select_columns: vec![],
+            aggregates: vec![wire::AggregateColumnDef::Avg {
+                field: "duration_ms".into(),
+                alias: "avg_val".into(),
+            }],
+            filters: vec![wire::FilterNode::Leaf(wire::FilterDef {
+                field: "created_at".into(),
+                operator: "gte".into(),
+                value: serde_json::json!(&today_start),
+            })],
+            group_by: vec![],
+            sort: vec![],
+            limit: 0,
+        },
+    );
+
+    let recent_users_opts = ListOptions {
+        columns: Some(vec!["id".into(), "email".into(), "created_at".into()]),
+        filters: vec![Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        }],
+        sort: vec![SortField {
+            field: "created_at".into(),
+            desc: true,
+        }],
+        limit: 5,
+        skip_count: true,
+        ..Default::default()
+    };
+    let recent_users_fut = db::list(ctx, USERS, &recent_users_opts);
+
+    let recent_errors_opts = ListOptions {
+        columns: Some(vec![
+            "status_code".into(),
+            "method".into(),
+            "path".into(),
+            "duration_ms".into(),
+            "created_at".into(),
+        ]),
+        filter_tree: Some(vec![FilterTree::Any(vec![
+            FilterTree::Leaf(Filter {
                 field: "status".into(),
                 operator: FilterOp::Equal,
                 value: serde_json::json!("ERROR"),
-            },
-            Filter {
-                field: "created_at".into(),
+            }),
+            FilterTree::Leaf(Filter {
+                field: "status_code".into(),
                 operator: FilterOp::GreaterEqual,
-                value: serde_json::json!(&today_start),
-            },
-        ],
-        backend,
-    );
-    let errors_fut = db::query(ctx, &stmt_er);
-
-    let stmt_av = aggregate::build_avg(
-        REQUEST_LOGS,
-        "duration_ms",
-        &[Filter {
+                value: serde_json::json!(400),
+            }),
+        ])]),
+        sort: vec![SortField {
             field: "created_at".into(),
-            operator: FilterOp::GreaterEqual,
-            value: serde_json::json!(&today_start),
+            desc: true,
         }],
-        backend,
-    );
-    let avg_ms_fut = db::query(ctx, &stmt_av);
-
-    let stmt_ru = query::build_select_columns(
-        USERS,
-        &["id", "email", "created_at"],
-        &ListOptions {
-            filters: vec![Filter {
-                field: "deleted_at".into(),
-                operator: FilterOp::IsNull,
-                value: serde_json::Value::Null,
-            }],
-            sort: vec![SortField {
-                field: "created_at".into(),
-                desc: true,
-            }],
-            limit: 5,
-            ..Default::default()
-        },
-        None,
-        backend,
-    );
-    let recent_users_fut = db::query(ctx, &stmt_ru);
-
-    let or_cond = sea_query::Cond::any()
-        .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status".into())).eq("ERROR"))
-        .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status_code".into())).gte(400));
-    let stmt_re = query::build_select_columns(
-        REQUEST_LOGS,
-        &["status_code", "method", "path", "duration_ms", "created_at"],
-        &ListOptions {
-            sort: vec![SortField {
-                field: "created_at".into(),
-                desc: true,
-            }],
-            limit: 5,
-            ..Default::default()
-        },
-        Some(or_cond),
-        backend,
-    );
-    let recent_errors_fut = db::query(ctx, &stmt_re);
+        limit: 5,
+        skip_count: true,
+        ..Default::default()
+    };
+    let recent_errors_fut = db::list(ctx, REQUEST_LOGS, &recent_errors_opts);
 
     let (
         user_count_r,
@@ -254,27 +288,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     let user_count = user_count_r.unwrap_or(0);
-    let new_users_today = new_users_r
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
-    let requests_today = requests_r
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
-    let errors_today = errors_r
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+    let new_users_today = new_users_r.unwrap_or(0);
+    let requests_today = requests_r.unwrap_or(0);
+    let errors_today = errors_r.unwrap_or(0);
     let avg_ms = avg_ms_r
         .ok()
         .and_then(|r| {
@@ -282,8 +298,8 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 .and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64()))
         })
         .unwrap_or(0.0);
-    let recent_users = recent_users_r.unwrap_or_default();
-    let recent_errors = recent_errors_r.unwrap_or_default();
+    let recent_users = recent_users_r.map(|rl| rl.records).unwrap_or_default();
+    let recent_errors = recent_errors_r.map(|rl| rl.records).unwrap_or_default();
 
     let user_count_str = user_count.to_string();
     let new_users_str = new_users_today.to_string();

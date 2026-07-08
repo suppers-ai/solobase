@@ -2,7 +2,6 @@ use maud::{html, Markup};
 use wafer_block::db::{ListOptions, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::query;
 
 use super::{admin_page, crumb};
 use crate::{
@@ -67,22 +66,29 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn storage_logs_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
-    let backend = crate::db_backend(ctx).await;
-    let stmt = query::build_select_columns(
+    let logs = db::list(
+        ctx,
         STORAGE_ACCESS_LOGS,
-        &["source_block", "operation", "path", "status", "created_at"],
         &ListOptions {
+            columns: Some(vec![
+                "source_block".into(),
+                "operation".into(),
+                "path".into(),
+                "status".into(),
+                "created_at".into(),
+            ]),
             sort: vec![SortField {
                 field: "created_at".into(),
                 desc: true,
             }],
             limit: 100,
+            skip_count: true,
             ..Default::default()
         },
-        None,
-        backend,
-    );
-    let logs = db::query(ctx, &stmt).await.unwrap_or_default();
+    )
+    .await
+    .map(|r| r.records)
+    .unwrap_or_default();
 
     html! {
         p .text-muted style="margin-bottom:16px" {

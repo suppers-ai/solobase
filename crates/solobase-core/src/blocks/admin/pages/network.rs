@@ -1,8 +1,10 @@
 use maud::{html, Markup};
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_block::{
+    db::{Filter, FilterOp, ListOptions, SortField},
+    wire::database as wire,
+};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
-use wafer_sql_utils::query;
 
 use crate::{
     blocks::admin::REQUEST_LOGS_TABLE as REQUEST_LOGS,
@@ -35,69 +37,54 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
 }
 
 async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
-    use sea_query::{Alias, Expr, ExprTrait};
-    use wafer_sql_utils::{
-        aggregate::{self, AggFunc, AggregateColumn, GroupedQueryConfig},
-        ident::DynCol,
-    };
-
     let search = msg.query("search").to_string();
-    // Resolve the dialect before building the `!Send` `GroupedQueryConfig`.
-    let backend = crate::db_backend(ctx).await;
 
     let filters = if search.is_empty() {
         vec![]
     } else {
-        vec![Filter {
+        vec![wire::FilterNode::Leaf(wire::FilterDef {
             field: "path".into(),
-            operator: FilterOp::Like,
+            operator: "like".into(),
             value: serde_json::json!(format!("%{search}%")),
-        }]
+        })]
     };
 
-    // status_code is stored as TEXT, so the conditional SUM has to cast
-    // before the comparison; mirrors the previous hand-written SQL.
-    let status_code_int = Expr::col(DynCol("status_code".into())).cast_as(Alias::new("INTEGER"));
-
-    let stmt = aggregate::build_grouped_query(
-        GroupedQueryConfig {
-            table: REQUEST_LOGS.to_string(),
-            select_columns: vec!["method".into(), "path".into()],
-            aggregates: vec![
-                AggregateColumn {
-                    func: AggFunc::Count,
-                    field: None,
-                    alias: "cnt".into(),
-                    cast_as: None,
-                    inner_expr: None,
-                },
-                AggregateColumn {
-                    func: AggFunc::Avg,
-                    field: Some("duration_ms".into()),
-                    alias: "avg_ms".into(),
-                    cast_as: Some("INTEGER".into()),
-                    inner_expr: None,
-                },
-                AggregateColumn::case_when_sum("errors", status_code_int.gte(400)),
-                AggregateColumn {
-                    func: AggFunc::Max,
-                    field: Some("created_at".into()),
-                    alias: "last_seen".into(),
-                    cast_as: None,
-                    inner_expr: None,
-                },
-            ],
-            filters,
-            group_by: vec!["method".into(), "path".into()],
-            order_by: vec![SortField {
-                field: "cnt".into(),
-                desc: true,
-            }],
-            limit: Some(50),
-        },
-        backend,
-    );
-    let summary = db::query(ctx, &stmt).await.unwrap_or_default();
+    let req = wire::AggregateRequest {
+        collection: REQUEST_LOGS.to_string(),
+        select_columns: vec!["method".into(), "path".into()],
+        aggregates: vec![
+            wire::AggregateColumnDef::Count {
+                alias: "cnt".into(),
+            },
+            wire::AggregateColumnDef::Avg {
+                field: "duration_ms".into(),
+                alias: "avg_ms".into(),
+            },
+            wire::AggregateColumnDef::CaseWhenSum {
+                when: vec![wire::FilterNode::Leaf(wire::FilterDef {
+                    field: "status_code".into(),
+                    operator: "gte".into(),
+                    value: serde_json::json!(400),
+                })],
+                alias: "errors".into(),
+            },
+            wire::AggregateColumnDef::Max {
+                field: "created_at".into(),
+                alias: "last_seen".into(),
+            },
+        ],
+        filters,
+        group_by: vec![
+            wire::GroupByDef::Column("method".into()),
+            wire::GroupByDef::Column("path".into()),
+        ],
+        sort: vec![wire::SortFieldDef {
+            field: "cnt".into(),
+            desc: true,
+        }],
+        limit: 50,
+    };
+    let summary = db::aggregate(ctx, req).await.unwrap_or_default();
 
     html! {
         div .filter-bar {
@@ -155,7 +142,14 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                         @let method = row.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
                         @let path = row.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
                         @let cnt = row.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-                        @let avg_ms = row.data.get("avg_ms").and_then(|v| v.as_i64()).unwrap_or(0);
+                        // `db::aggregate`'s Avg has no result-cast (unlike the old
+                        // `cast_as: Some("INTEGER")` builder path), so AVG(duration_ms)
+                        // comes back as a JSON float; `as_i64()` is always `None` for the
+                        // `Number::Float` variant, so read it as f64 and truncate. The old
+                        // `CAST(AVG(duration_ms) AS INTEGER)` truncated toward zero;
+                        // `duration_ms` is always >= 0, so `as i64` (which also truncates
+                        // toward zero) is exact parity — no `.round()`.
+                        @let avg_ms = row.data.get("avg_ms").and_then(|v| v.as_f64()).map(|v| v as i64).unwrap_or(0);
                         @let errors = row.data.get("errors").and_then(|v| v.as_i64()).unwrap_or(0);
                         @let last_seen = row.data.get("last_seen").and_then(|v| v.as_str()).unwrap_or("");
                         (inbound_row(method, path, cnt, avg_ms, errors, last_seen))
@@ -215,18 +209,18 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
     let path = msg.query("path").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
-    let backend = crate::db_backend(ctx).await;
 
-    let stmt = query::build_select_columns(
+    let rows = db::list(
+        ctx,
         REQUEST_LOGS,
-        &[
-            "status_code",
-            "duration_ms",
-            "client_ip",
-            "user_id",
-            "created_at",
-        ],
         &ListOptions {
+            columns: Some(vec![
+                "status_code".into(),
+                "duration_ms".into(),
+                "client_ip".into(),
+                "user_id".into(),
+                "created_at".into(),
+            ]),
             filters: vec![
                 Filter {
                     field: "method".into(),
@@ -245,12 +239,13 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
             }],
             limit: limit + 1, // fetch one extra to detect "has more"
             offset,
+            skip_count: true,
             ..Default::default()
         },
-        None,
-        backend,
-    );
-    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
+    )
+    .await
+    .map(|r| r.records)
+    .unwrap_or_default();
 
     let has_more = rows.len() as i64 > limit;
     let display_rows = if has_more {

@@ -34,7 +34,10 @@
 //! route wins; only after that do we fall through to the generic
 //! `{index}/{id}` handler.
 
-use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_block::{
+    db::{Filter, FilterOp, ListOptions},
+    wire::database::OnConflict,
+};
 use wafer_core::{
     clients::{
         database as db,
@@ -46,7 +49,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
-use wafer_sql_utils::{introspect, query, upsert};
+use wafer_sql_utils::introspect;
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -163,10 +166,10 @@ pub(super) async fn create_index(
     // The registry table itself is owned by the block's
     // `migrations/001_vector_schema.*.sql` script (run at block Init via
     // `apply_if_blessed`), so no inline CREATE TABLE is required here.
-    let backend = crate::db_backend(ctx).await;
-    let stmt = upsert::build_upsert(
+    if let Err(e) = db::upsert(
+        ctx,
         REGISTRY_TABLE,
-        &[
+        vec![
             ("prefixed_name".to_string(), serde_json::json!(cfg.name)),
             ("model".to_string(), serde_json::json!(cfg.model)),
             ("dimensions".to_string(), serde_json::json!(cfg.dimensions)),
@@ -175,11 +178,15 @@ pub(super) async fn create_index(
                 serde_json::json!(cfg.keyword_search as i64),
             ),
         ],
-        &["prefixed_name"],
-        &["model", "dimensions", "keyword_search"],
-        backend,
-    );
-    if let Err(e) = db::execute(ctx, &stmt).await {
+        vec!["prefixed_name".to_string()],
+        OnConflict::SetColumns(vec![
+            "model".to_string(),
+            "dimensions".to_string(),
+            "keyword_search".to_string(),
+        ]),
+    )
+    .await
+    {
         return err_internal("registry write failed", e);
     }
 
@@ -269,17 +276,16 @@ pub(super) async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStre
             // (pre-registry deployment) is not a failure, so we only surface
             // errors that aren't about the table itself. The row-level
             // `OR REPLACE` in create_index makes this robustly idempotent.
-            let backend = crate::db_backend(ctx).await;
-            let stmt = query::build_delete_where(
+            let _ = db::delete_by_filters(
+                ctx,
                 REGISTRY_TABLE,
-                &[Filter {
+                vec![Filter {
                     field: "prefixed_name".into(),
                     operator: FilterOp::Equal,
                     value: serde_json::json!(prefixed),
                 }],
-                backend,
-            );
-            let _ = db::execute(ctx, &stmt).await;
+            )
+            .await;
             ok_json(&serde_json::json!({ "ok": true }))
         }
         Err(e) if e.code == ErrorCode::NotFound => {
@@ -516,26 +522,25 @@ async fn load_index_metadata(
 ) -> Result<(String, bool), WaferError> {
     // First try the registry. An error here (e.g. the table doesn't exist)
     // is treated as "no row", not fatal — we fall through to the scan.
-    let backend = crate::db_backend(ctx).await;
-    let stmt = query::build_select_columns(
+    let rows = db::list(
+        ctx,
         REGISTRY_TABLE,
-        &["model", "keyword_search"],
         &ListOptions {
+            columns: Some(vec!["model".into(), "keyword_search".into()]),
             filters: vec![Filter {
                 field: "prefixed_name".into(),
                 operator: FilterOp::Equal,
                 value: serde_json::json!(prefixed_index),
             }],
             limit: 1,
+            skip_count: true,
             ..Default::default()
         },
-        None,
-        backend,
-    );
-    let rows = db::query(ctx, &stmt).await;
+    )
+    .await;
 
     if let Ok(rows) = rows {
-        if let Some(row) = rows.into_iter().next() {
+        if let Some(row) = rows.records.into_iter().next() {
             let model = row
                 .data
                 .get("model")

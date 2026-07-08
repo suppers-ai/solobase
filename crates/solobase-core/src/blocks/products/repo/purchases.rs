@@ -87,19 +87,18 @@ pub(crate) async fn complete_atomic(
     payment_intent: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("completed"));
+    data.insert(
+        "provider_payment_intent_id".into(),
+        serde_json::json!(payment_intent),
+    );
+    data.insert("approved_at".into(), serde_json::json!(&now));
+    data.insert("updated_at".into(), serde_json::json!(&now));
+    db::update_by_filters_count(
+        ctx,
         PURCHASES_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("completed")),
-            (
-                "provider_payment_intent_id".to_string(),
-                serde_json::json!(payment_intent),
-            ),
-            ("approved_at".to_string(), serde_json::json!(&now)),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &[
+        vec![
             Filter {
                 field: "id".into(),
                 operator: FilterOp::Equal,
@@ -111,9 +110,9 @@ pub(crate) async fn complete_atomic(
                 value: serde_json::json!(["checkout_started", "pending"]),
             },
         ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Atomic checkout claim: `pending` -> `checkout_started`. Returns rows
@@ -122,17 +121,16 @@ pub(crate) async fn claim_for_checkout(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<i64, WaferError> {
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("checkout_started"));
+    data.insert(
+        "updated_at".into(),
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
+    );
+    db::update_by_filters_count(
+        ctx,
         PURCHASES_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("checkout_started")),
-            (
-                "updated_at".to_string(),
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            ),
-        ],
-        &[
+        vec![
             Filter {
                 field: "id".into(),
                 operator: FilterOp::Equal,
@@ -144,9 +142,9 @@ pub(crate) async fn claim_for_checkout(
                 value: serde_json::json!("pending"),
             },
         ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Revert a checkout claim: `checkout_started` -> `pending` (Stripe API error
@@ -155,17 +153,16 @@ pub(crate) async fn revert_checkout_claim(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<i64, WaferError> {
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("pending"));
+    data.insert(
+        "updated_at".into(),
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
+    );
+    db::update_by_filters_count(
+        ctx,
         PURCHASES_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("pending")),
-            (
-                "updated_at".to_string(),
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            ),
-        ],
-        &[
+        vec![
             Filter {
                 field: "id".into(),
                 operator: FilterOp::Equal,
@@ -177,9 +174,9 @@ pub(crate) async fn revert_checkout_claim(
                 value: serde_json::json!("checkout_started"),
             },
         ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Atomic admin refund: `completed` -> `refunded` with audit fields. Returns
@@ -191,17 +188,16 @@ pub(crate) async fn refund_atomic(
     reason: &str,
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_update_where(
+    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+    data.insert("status".into(), serde_json::json!("refunded"));
+    data.insert("refunded_at".into(), serde_json::json!(&now));
+    data.insert("refunded_by".into(), serde_json::json!(refunded_by));
+    data.insert("refund_reason".into(), serde_json::json!(reason));
+    data.insert("updated_at".into(), serde_json::json!(&now));
+    db::update_by_filters_count(
+        ctx,
         PURCHASES_TABLE,
-        &[
-            ("status".to_string(), serde_json::json!("refunded")),
-            ("refunded_at".to_string(), serde_json::json!(&now)),
-            ("refunded_by".to_string(), serde_json::json!(refunded_by)),
-            ("refund_reason".to_string(), serde_json::json!(reason)),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &[
+        vec![
             Filter {
                 field: "id".into(),
                 operator: FilterOp::Equal,
@@ -213,9 +209,9 @@ pub(crate) async fn refund_atomic(
                 value: serde_json::json!("completed"),
             },
         ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        data,
+    )
+    .await
 }
 
 /// Find a purchase by its provider payment-intent id (`charge.refunded`).
@@ -254,24 +250,23 @@ pub(crate) async fn line_item_product_ids(
     ctx: &dyn Context,
     purchase_id: &str,
 ) -> Result<Vec<Record>, WaferError> {
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "purchase_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::json!(purchase_id),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         LINE_ITEMS_TABLE,
-        &["product_id"],
-        &opts,
-        None,
-        backend,
-    );
-    db::query(ctx, &stmt).await
+        &ListOptions {
+            columns: Some(vec!["product_id".into()]),
+            filters: vec![Filter {
+                field: "purchase_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(purchase_id),
+            }],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(rows.records)
 }
 
 /// Count all purchases (admin stats).
@@ -299,30 +294,29 @@ pub(crate) async fn completed_purchase_ids(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Result<Vec<Record>, WaferError> {
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(user_id),
-            },
-            Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!("completed"),
-            },
-        ],
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         PURCHASES_TABLE,
-        &["id"],
-        &opts,
-        None,
-        backend,
-    );
-    db::query(ctx, &stmt).await
+        &ListOptions {
+            columns: Some(vec!["id".into()]),
+            filters: vec![
+                Filter {
+                    field: "user_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(user_id),
+                },
+                Filter {
+                    field: "status".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!("completed"),
+                },
+            ],
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(rows.records)
 }
 
 /// Probe whether any of `purchase_ids` contains `product_id` as a line item.
@@ -334,29 +328,28 @@ pub(crate) async fn line_item_exists_for_product(
     if purchase_ids.is_empty() {
         return false;
     }
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "purchase_id".into(),
-                operator: FilterOp::In,
-                value: serde_json::Value::Array(purchase_ids),
-            },
-            Filter {
-                field: "product_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(product_id),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::query::build_select_columns(
+    let rows = db::list(
+        ctx,
         LINE_ITEMS_TABLE,
-        &["id"],
-        &opts,
-        None,
-        backend,
-    );
-    matches!(db::query(ctx, &stmt).await, Ok(rows) if !rows.is_empty())
+        &ListOptions {
+            columns: Some(vec!["id".into()]),
+            filters: vec![
+                Filter {
+                    field: "purchase_id".into(),
+                    operator: FilterOp::In,
+                    value: serde_json::Value::Array(purchase_ids),
+                },
+                Filter {
+                    field: "product_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(product_id),
+                },
+            ],
+            limit: 1,
+            skip_count: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    matches!(rows, Ok(rows) if !rows.records.is_empty())
 }
