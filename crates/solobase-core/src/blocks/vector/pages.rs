@@ -49,7 +49,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
-use wafer_sql_utils::{introspect, query};
+use wafer_sql_utils::introspect;
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -276,17 +276,16 @@ pub(super) async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStre
             // (pre-registry deployment) is not a failure, so we only surface
             // errors that aren't about the table itself. The row-level
             // `OR REPLACE` in create_index makes this robustly idempotent.
-            let backend = crate::db_backend(ctx).await;
-            let stmt = query::build_delete_where(
+            let _ = db::delete_by_filters(
+                ctx,
                 REGISTRY_TABLE,
-                &[Filter {
+                vec![Filter {
                     field: "prefixed_name".into(),
                     operator: FilterOp::Equal,
                     value: serde_json::json!(prefixed),
                 }],
-                backend,
-            );
-            let _ = db::execute(ctx, &stmt).await;
+            )
+            .await;
             ok_json(&serde_json::json!({ "ok": true }))
         }
         Err(e) if e.code == ErrorCode::NotFound => {
