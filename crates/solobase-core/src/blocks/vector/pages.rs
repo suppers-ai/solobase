@@ -34,7 +34,10 @@
 //! route wins; only after that do we fall through to the generic
 //! `{index}/{id}` handler.
 
-use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_block::{
+    db::{Filter, FilterOp, ListOptions},
+    wire::database::OnConflict,
+};
 use wafer_core::{
     clients::{
         database as db,
@@ -46,7 +49,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
-use wafer_sql_utils::{introspect, query, upsert};
+use wafer_sql_utils::{introspect, query};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -163,10 +166,10 @@ pub(super) async fn create_index(
     // The registry table itself is owned by the block's
     // `migrations/001_vector_schema.*.sql` script (run at block Init via
     // `apply_if_blessed`), so no inline CREATE TABLE is required here.
-    let backend = crate::db_backend(ctx).await;
-    let stmt = upsert::build_upsert(
+    if let Err(e) = db::upsert(
+        ctx,
         REGISTRY_TABLE,
-        &[
+        vec![
             ("prefixed_name".to_string(), serde_json::json!(cfg.name)),
             ("model".to_string(), serde_json::json!(cfg.model)),
             ("dimensions".to_string(), serde_json::json!(cfg.dimensions)),
@@ -175,11 +178,15 @@ pub(super) async fn create_index(
                 serde_json::json!(cfg.keyword_search as i64),
             ),
         ],
-        &["prefixed_name"],
-        &["model", "dimensions", "keyword_search"],
-        backend,
-    );
-    if let Err(e) = db::execute(ctx, &stmt).await {
+        vec!["prefixed_name".to_string()],
+        OnConflict::SetColumns(vec![
+            "model".to_string(),
+            "dimensions".to_string(),
+            "keyword_search".to_string(),
+        ]),
+    )
+    .await
+    {
         return err_internal("registry write failed", e);
     }
 

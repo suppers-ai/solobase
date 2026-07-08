@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 
-use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_block::{
+    db::{Filter, FilterOp, ListOptions},
+    wire::database::OnConflict,
+};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, WaferError};
 
@@ -22,10 +25,10 @@ pub(crate) async fn upsert_platform(
 ) -> Result<i64, WaferError> {
     let now = chrono::Utc::now().to_rfc3339();
     let sub_id = format!("sub_{user_id}");
-    let backend = crate::db_backend(ctx).await;
-    let stmt = wafer_sql_utils::upsert::build_upsert(
+    db::upsert(
+        ctx,
         SUBSCRIPTIONS_TABLE,
-        &[
+        vec![
             ("id".to_string(), serde_json::json!(sub_id)),
             ("user_id".to_string(), serde_json::json!(user_id)),
             (
@@ -41,17 +44,16 @@ pub(crate) async fn upsert_platform(
             ("created_at".to_string(), serde_json::json!(&now)),
             ("updated_at".to_string(), serde_json::json!(&now)),
         ],
-        &["user_id"],
-        &[
-            "stripe_customer_id",
-            "stripe_subscription_id",
-            "plan",
-            "status",
-            "updated_at",
-        ],
-        backend,
-    );
-    db::execute(ctx, &stmt).await
+        vec!["user_id".to_string()],
+        OnConflict::SetColumns(vec![
+            "stripe_customer_id".to_string(),
+            "stripe_subscription_id".to_string(),
+            "plan".to_string(),
+            "status".to_string(),
+            "updated_at".to_string(),
+        ]),
+    )
+    .await
 }
 
 /// Sync status (and optionally plan) from a `customer.subscription.updated`
