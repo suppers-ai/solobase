@@ -32,7 +32,9 @@ pub async fn build_all(repo_root: &Path) -> Result<()> {
         std::env::var("SOLOBASE_SKIP_BLOCK_BUILD").as_deref(),
         Ok("1" | "true" | "TRUE" | "yes" | "YES")
     ) {
-        println!("SOLOBASE_SKIP_BLOCK_BUILD set — using existing blocks/*/target/block.wasm artifacts");
+        println!(
+            "SOLOBASE_SKIP_BLOCK_BUILD set — using existing blocks/*/target/block.wasm artifacts"
+        );
         return Ok(());
     }
 
