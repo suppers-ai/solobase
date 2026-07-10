@@ -8,7 +8,6 @@
 use wafer_block::db::SortField;
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, WaferError};
-use wafer_sql_utils::introspect;
 
 use crate::util::RecordExt;
 
@@ -183,41 +182,6 @@ pub async fn get_index_row(
         Err(e) => return Err(e),
     };
     Ok(map_index_row(ctx, &rec).await)
-}
-
-/// Introspect the columns of a per-index storage table, returning
-/// `(name, sql_type)` pairs in declaration order.
-///
-/// Schema introspection is intrinsically backend-specific (SQLite
-/// `PRAGMA table_info` vs Postgres `information_schema.columns`) — the
-/// SQL is built via the `wafer_sql_utils::introspect::build_table_info`
-/// portable builder so backends stay swappable, but the actual
-/// projection still has to flow through `query_raw`. This is the same
-/// pattern the admin database explorer uses and is the only path
-/// available short of teaching `wafer-core::clients::database` a typed
-/// `introspect_columns` API. On unknown tables the SQLite service
-/// returns an empty result rather than erroring, so the detail page
-/// renders cleanly even on a fresh DB.
-pub async fn introspect_columns(
-    ctx: &dyn Context,
-    table: &str,
-) -> Result<Vec<(String, String)>, WaferError> {
-    let (sql, args) = introspect::build_table_info(table, crate::db_backend(ctx).await)
-        .map_err(|e| WaferError::new(ErrorCode::InvalidArgument, e.to_string()))?;
-    let rows = db::query_raw(ctx, &sql, &args).await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|r| {
-            let name = r.data.get("name").and_then(|v| v.as_str())?.to_string();
-            let ty = r
-                .data
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            Some((name, ty))
-        })
-        .collect())
 }
 
 #[cfg(test)]

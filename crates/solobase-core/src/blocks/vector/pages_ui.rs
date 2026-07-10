@@ -4,6 +4,7 @@
 //! unit-tested directly without `Context`.
 
 use maud::{html, Markup};
+use wafer_core::clients::vector as vclient;
 use wafer_run::{context::Context, Message, OutputStream};
 
 use super::service::{display_index_name, IndexRow};
@@ -256,9 +257,17 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
         }
     };
 
-    let meta_table = format!("{storage_name}_meta");
-    let schema_cols = super::service::introspect_columns(ctx, &meta_table)
+    // Real column state of the meta table via the typed `vector.describe_index`
+    // op (WRAP-authorized on the index). Lenient like before: any error — or a
+    // missing index (`exists: false`) — renders an empty schema section.
+    let schema_cols: Vec<(String, String)> = vclient::describe_index(ctx, &storage_name)
         .await
+        .map(|d| {
+            d.columns
+                .into_iter()
+                .map(|c| (c.name, c.sql_type))
+                .collect()
+        })
         .unwrap_or_default();
 
     let display = display_index_name(&row.name);
@@ -393,13 +402,78 @@ mod tests {
 
 #[cfg(test)]
 mod integration_tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use serde_json::json;
+    use wafer_block::{
+        core_types::{LifecycleEvent, WaferError},
+        types::BlockInfo,
+        Block,
+    };
     use wafer_core::clients::database as db;
+    use wafer_run::{ErrorCode, InputStream};
 
     use super::*;
     use crate::test_support::{admin_msg, output_html, TestContext};
+
+    /// Minimal `wafer-run/vector` stand-in answering `vector.describe_index`
+    /// with the columns of the `_meta` fixture table. The TestContext's
+    /// database service owns a private in-memory connection, so a real
+    /// `SqliteVecService` can't see fixture tables; the real describe
+    /// behavior is covered upstream by wafer-run's sqlite behavior tests and
+    /// handler authorization suites. This fake keeps the page-rendering
+    /// assertions meaningful.
+    struct FakeVectorBlock;
+
+    #[wafer_block::wafer_async_trait]
+    impl Block for FakeVectorBlock {
+        fn info(&self) -> BlockInfo {
+            BlockInfo::new("wafer-run/vector", "0.0.1", "vector@v1", "test fake")
+        }
+
+        async fn handle(
+            &self,
+            _ctx: &dyn Context,
+            msg: Message,
+            _input: InputStream,
+        ) -> OutputStream {
+            match msg.kind.as_str() {
+                "vector.describe_index" => {
+                    let resp = wafer_block::wire::vector::DescribeIndexResponse {
+                        exists: true,
+                        columns: [
+                            ("id", "TEXT"),
+                            ("vector_id", "TEXT"),
+                            ("created_at", "TEXT"),
+                            ("updated_at", "TEXT"),
+                        ]
+                        .into_iter()
+                        .map(|(name, sql_type)| wafer_block::wire::vector::ColumnInfo {
+                            name: name.into(),
+                            sql_type: sql_type.into(),
+                        })
+                        .collect(),
+                        keyword_search: true,
+                    };
+                    OutputStream::respond(
+                        wafer_block::codec::encode(&resp).expect("encode describe response"),
+                    )
+                }
+                other => OutputStream::error(WaferError::new(
+                    ErrorCode::Unimplemented,
+                    format!("FakeVectorBlock has no handler for '{other}'"),
+                )),
+            }
+        }
+
+        async fn lifecycle(
+            &self,
+            _ctx: &dyn Context,
+            _e: LifecycleEvent,
+        ) -> Result<(), WaferError> {
+            Ok(())
+        }
+    }
 
     /// Seed one row in the vector registry plus the matching `_meta` table
     /// so the listing has both a registry entry and a vector count to show.
@@ -511,7 +585,8 @@ mod integration_tests {
 
     #[tokio::test]
     async fn index_detail_page_happy_path() {
-        let ctx = TestContext::with_vector().await;
+        let mut ctx = TestContext::with_vector().await;
+        ctx.register_block("wafer-run/vector", Arc::new(FakeVectorBlock));
         seed_docs_index(&ctx).await;
 
         let msg = admin_msg("retrieve", "/b/vector/docs/");

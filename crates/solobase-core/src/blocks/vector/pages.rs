@@ -24,7 +24,7 @@
 //! correct embedding model when the caller sends text instead of a raw
 //! vector. Rows are written on `create_index` and removed on `delete_index`.
 //! Pre-registry indexes (created before this table existed) fall back to
-//! `DEFAULT_MODEL` + an `_fts` scan on `sqlite_master`.
+//! `DEFAULT_MODEL` + the typed `vector.describe_index` capability probe.
 //!
 //! ### Route ordering note
 //!
@@ -49,7 +49,6 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream, WaferError};
-use wafer_sql_utils::introspect;
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -228,28 +227,20 @@ pub(super) async fn list_indexes(ctx: &dyn Context) -> OutputStream {
 
 /// Scan sqlite_master for the per-index `_meta` tables created by
 /// `SqliteVecService::create_index` and return the user-facing index
-/// names (prefix + `_meta` suffix stripped).
+/// names (prefix stripped).
 ///
-/// We scan `sqlite_master` rather than the registry so that indexes
-/// created before the registry existed still surface in list/stats.
-/// The registry is the source of truth for *per-index metadata* (model,
-/// keyword_search flag), not for existence.
+/// We ask the vector service's catalog (typed `vector.list_indexes`, which
+/// is WRAP-authorized on the namespace prefix) rather than the registry so
+/// that indexes created before the registry existed still surface in
+/// list/stats. The registry is the source of truth for *per-index metadata*
+/// (model, keyword_search flag), not for existence.
 async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> {
-    // The builder pattern is `prefix%`; we want `prefix%_meta`. Filter the
-    // suffix in Rust after the prefix scan rather than adding a new builder
-    // overload — cheap because the table count is tiny (one row per index).
-    let (sql, args) =
-        introspect::build_list_tables_like(TABLE_PREFIX, crate::db_backend(ctx).await);
-    let rows = db::query_raw(ctx, &sql, &args).await?;
-
-    let mut indexes: Vec<String> = Vec::with_capacity(rows.len());
-    for row in rows {
-        let table = row.data.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        if let Some(stored) = table.strip_suffix("_meta") {
-            if let Some(user_name) = stored.strip_prefix(TABLE_PREFIX) {
-                if !user_name.is_empty() {
-                    indexes.push(user_name.to_string());
-                }
+    let stems = vclient::list_indexes(ctx, TABLE_PREFIX).await?;
+    let mut indexes: Vec<String> = Vec::with_capacity(stems.len());
+    for stem in stems {
+        if let Some(user_name) = stem.strip_prefix(TABLE_PREFIX) {
+            if !user_name.is_empty() {
+                indexes.push(user_name.to_string());
             }
         }
     }
@@ -557,18 +548,14 @@ async fn load_index_metadata(
         }
     }
 
-    // Fallback path: infer keyword_search from the FTS table's presence.
+    // Fallback path: infer keyword_search from the typed describe op.
     // `wafer-block-sqlite::SqliteVecService::create_index` creates
     // `{prefixed}_fts` when keyword_search is enabled and nothing when it
-    // isn't, so the row count for that exact name is a reliable signal.
-    let fts_name = format!("{prefixed_index}_fts");
-    // "Table exists" probe via the sql-utils introspect builder (portable
-    // across backends) instead of a hand-written `sqlite_master` query.
-    let (sql, params) = introspect::build_table_exists(&fts_name, crate::db_backend(ctx).await);
-    let fts_rows = db::query_raw(ctx, &sql, &params).await?;
-    let keyword_search = !fts_rows.is_empty();
+    // isn't; `describe_index` reports that as `keyword_search`. Absence of
+    // the whole index is data too (`exists: false` → false), not an error.
+    let desc = vclient::describe_index(ctx, prefixed_index).await?;
 
-    Ok((DEFAULT_MODEL.to_string(), keyword_search))
+    Ok((DEFAULT_MODEL.to_string(), desc.keyword_search))
 }
 
 /// Map a model id to the embedding block that serves it on this runtime.
@@ -646,27 +633,16 @@ pub(super) async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStrea
     };
 
     // Re-ingestion safety: wipe any chunks we previously wrote for this
-    // document_id before we add the new ones. If the metadata table isn't
-    // there yet (first-ever ingest, or fresh index) the query fails and we
-    // take that as "no prior chunks", not as a fatal error.
-    //
-    // `json_extract(metadata, '$.document_id')` is a SQLite-specific JSON
-    // function the metadata column relies on. The vector block is
-    // SQLite-only by design (sqlite-vec extension), so a dialect-portable
-    // builder is neither needed nor possible — the query stays raw.
-    if let Ok(rows) = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT id FROM {prefixed}_meta WHERE json_extract(metadata, '$.document_id') = ?1"
-        ),
-        &[serde_json::Value::String(body.document_id.clone())],
-    )
-    .await
-    {
-        let prior_ids: Vec<String> = rows
-            .into_iter()
-            .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
-            .collect();
+    // document_id before we add the new ones, via the typed `vector.list_ids`
+    // metadata-equality op. If the index isn't there yet (first-ever ingest,
+    // or fresh index) the lookup errors with NotFound and we take that as
+    // "no prior chunks", not as a fatal error.
+    let mut prior_filter = MetadataFilter::default();
+    prior_filter.equals.insert(
+        "document_id".into(),
+        serde_json::Value::String(body.document_id.clone()),
+    );
+    if let Ok(prior_ids) = vclient::list_ids(ctx, &prefixed, prior_filter).await {
         if !prior_ids.is_empty() {
             if let Err(e) = vclient::delete(ctx, &prefixed, prior_ids).await {
                 return err_internal("failed to clear prior chunks", e);
