@@ -72,7 +72,19 @@ crate::solobase_feature_block! {
             "Vector search, RAG ingestion, and embedding generation",
         )
         .instance_mode(InstanceMode::Singleton)
-        .requires(vec!["wafer-run/vector".into()])
+        .requires(vec![
+            // The runtime vector service (typed index/query/introspection ops).
+            "wafer-run/vector".into(),
+            // Registry table reads/writes + per-index counts go through the
+            // database service; without this entry caller_requires denies
+            // every db::* call and the admin list silently renders empty.
+            "wafer-run/database".into(),
+            // Embedding for ingest / query-by-text. Allowlist entries are
+            // call-time only, so listing both targets is safe on either
+            // target (the unused one is simply never called).
+            "suppers-ai/fastembed".into(),
+            "suppers-ai/transformers-embed".into(),
+        ])
         .category(wafer_run::BlockCategory::Feature)
         .endpoints(vec![
             BlockEndpoint::get("/b/vector/")
