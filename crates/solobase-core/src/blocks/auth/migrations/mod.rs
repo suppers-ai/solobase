@@ -21,6 +21,8 @@ const SQL_006_SQLITE: &str = include_str!("006_user_extended_fields.sqlite.sql")
 const SQL_006_POSTGRES: &str = include_str!("006_user_extended_fields.postgres.sql");
 const SQL_007_SQLITE: &str = include_str!("007_api_keys.sqlite.sql");
 const SQL_007_POSTGRES: &str = include_str!("007_api_keys.postgres.sql");
+const SQL_008_SQLITE: &str = include_str!("008_rate_limits.sqlite.sql");
+const SQL_008_POSTGRES: &str = include_str!("008_rate_limits.postgres.sql");
 
 /// Ordered SQLite migration scripts for this block, as `(basename, content)`
 /// pairs. Feeds the runtime `lifecycle(Init)` apply path (auth's `init`).
@@ -33,6 +35,7 @@ pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     ("005_jwt_blocklist", SQL_005_SQLITE),
     ("006_user_extended_fields", SQL_006_SQLITE),
     ("007_api_keys", SQL_007_SQLITE),
+    ("008_rate_limits", SQL_008_SQLITE),
 ];
 
 /// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`] one
@@ -45,6 +48,7 @@ pub(crate) const POSTGRES_MIGRATIONS: &[&str] = &[
     SQL_005_POSTGRES,
     SQL_006_POSTGRES,
     SQL_007_POSTGRES,
+    SQL_008_POSTGRES,
 ];
 
 /// Apply the auth schema through the shared migration-state gate.
