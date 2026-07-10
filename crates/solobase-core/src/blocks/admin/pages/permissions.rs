@@ -80,7 +80,7 @@ fn grants_code_tab(ctx: &dyn Context) -> Markup {
                         }
                     }
                     tbody {
-                        @for block in &blocks {
+                        @for block in blocks {
                             @for grant in &block.grants {
                                 tr {
                                     td {
@@ -408,7 +408,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     // 1. Code grants (from block declarations)
     let mut all_rows: Vec<PermRow> = Vec::new();
 
-    for block in &blocks {
+    for block in blocks {
         for grant in &block.grants {
             let type_label = match &grant.resource_type {
                 Some(rt) => human_resource_type(rt.to_string().as_str()).to_string(),

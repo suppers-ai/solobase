@@ -305,7 +305,7 @@ async fn config_all_tab(ctx: &dyn Context) -> Markup {
 
 /// "By Block" tab -- groups config variables by owning block with WRAP access info.
 async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
-    let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    let blocks = ctx.registered_blocks();
     let shared_vars = crate::config_vars::shared_config_vars();
 
     // Load all variables from DB
@@ -334,7 +334,7 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
 
     // Collect all known keys (block-declared + shared) to detect unowned DB vars
     let mut known_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for block in &blocks {
+    for block in blocks {
         for ck in &block.config_keys {
             known_keys.insert(ck.key.clone());
         }
@@ -349,7 +349,7 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
     // the inner template just does an O(1) lookup per config key.
     let mut grants_by_resource: std::collections::HashMap<String, Vec<(&str, bool)>> =
         std::collections::HashMap::new();
-    for grant_block in &blocks {
+    for grant_block in blocks {
         for grant in &grant_block.grants {
             grants_by_resource
                 .entry(grant.resource.clone())

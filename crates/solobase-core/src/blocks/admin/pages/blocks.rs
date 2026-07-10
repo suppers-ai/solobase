@@ -34,7 +34,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     // `registered_blocks` is already deterministically ordered by the runtime.
-    let mut all_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    let mut all_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks().to_vec();
 
     // Load block enabled/disabled state from block_settings table. Collect
     // into a `BTreeMap` so the downstream iteration order is stable across
@@ -268,7 +268,7 @@ pub async fn handle_block_detail(
     _msg: &Message,
     block_name: &str,
 ) -> OutputStream {
-    let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    let blocks = ctx.registered_blocks();
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
     // Check block enabled state via shared helper (audit finding #12).
