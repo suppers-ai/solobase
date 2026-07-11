@@ -260,7 +260,6 @@ pub(crate) async fn line_item_product_ids(
                 operator: FilterOp::Equal,
                 value: serde_json::json!(purchase_id),
             }],
-            limit: 1,
             skip_count: true,
             ..Default::default()
         },

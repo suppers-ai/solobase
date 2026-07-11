@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 
 use wafer_block_crypto::primitives;
+use wafer_core::clients::database as db;
 use wafer_run::{ErrorCode, InputStream, Message};
 
 use super::harness::*;
-use crate::{blocks::products::stripe, util::hex_encode};
+use crate::{
+    blocks::products::{purchase, stripe},
+    util::hex_encode,
+};
 
 // ============================================================
 // Helpers
@@ -283,4 +287,92 @@ async fn checkout_rejects_when_stripe_not_configured() {
 
     let out = stripe::handle_checkout(&ctx, &msg, input).await;
     assert!(output_is_error(out, ErrorCode::Internal).await);
+}
+
+/// Regression for SB-2: `line_item_product_ids` (the checkout dependency
+/// probe) must inspect every line item of the purchase, not just the first.
+/// A 2-item purchase where the SECOND item `requires` a product the buyer
+/// does not own must be rejected — with the old `limit: 1` query, only the
+/// first (unrelated, ungated) item was fetched and the gate silently passed.
+#[tokio::test]
+async fn checkout_enforces_requires_on_every_line_item_not_just_the_first() {
+    let ctx = ctx_with(&[("SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY", "sk_test_x")]).await;
+
+    // Prerequisite product — user_1 owns neither a purchase nor a
+    // subscription that references it.
+    let mut prereq = HashMap::new();
+    prereq.insert("name".to_string(), serde_json::json!("Prereq"));
+    prereq.insert("base_price".to_string(), serde_json::json!(5.0));
+    prereq.insert("status".to_string(), serde_json::json!("active"));
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_prereq",
+        prereq,
+    )
+    .await;
+
+    // Cheap filler with no `requires`, listed FIRST — this is the row the
+    // buggy `limit: 1` query returns, so the real gated item behind it must
+    // still be checked.
+    let mut filler = HashMap::new();
+    filler.insert("name".to_string(), serde_json::json!("Filler"));
+    filler.insert("base_price".to_string(), serde_json::json!(1.0));
+    filler.insert("status".to_string(), serde_json::json!("active"));
+    seed(
+        &ctx,
+        "suppers_ai__products__products",
+        "prod_filler",
+        filler,
+    )
+    .await;
+
+    // Gated item, listed SECOND — requires `prod_prereq`, which user_1 does
+    // not own.
+    let mut gated = HashMap::new();
+    gated.insert("name".to_string(), serde_json::json!("Gated"));
+    gated.insert("base_price".to_string(), serde_json::json!(50.0));
+    gated.insert("status".to_string(), serde_json::json!("active"));
+    gated.insert("requires".to_string(), serde_json::json!("prod_prereq"));
+    seed(&ctx, "suppers_ai__products__products", "prod_gated", gated).await;
+
+    // Build the purchase through the real create-purchase path so line items
+    // land in request-body order (filler, then gated) exactly like a live
+    // checkout.
+    let (msg, input) = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [
+                {"product_id": "prod_filler", "quantity": 1},
+                {"product_id": "prod_gated", "quantity": 1}
+            ]
+        }),
+    );
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
+    let purchase_id = body["id"].as_str().expect("purchase created").to_string();
+
+    let (msg, input) = create_msg(
+        "/b/products/checkout",
+        "user_1",
+        serde_json::json!({ "purchase_id": purchase_id }),
+    );
+    let out = stripe::handle_checkout(&ctx, &msg, input).await;
+    assert!(
+        output_is_error(out, ErrorCode::InvalidArgument).await,
+        "checkout must reject when a later line item's `requires` is unmet"
+    );
+
+    // The requires-gate must reject BEFORE the atomic checkout claim
+    // (`pending` -> `checkout_started`); if the gate were skipped for item 2,
+    // the purchase would have advanced past `pending`.
+    let rec = db::get(&ctx, "suppers_ai__products__purchases", &purchase_id)
+        .await
+        .expect("purchase row exists");
+    assert_eq!(
+        rec.data.get("status").and_then(|v| v.as_str()),
+        Some("pending"),
+        "purchase must not be claimed for checkout when the requires gate rejects it"
+    );
 }
