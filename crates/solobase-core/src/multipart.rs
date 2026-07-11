@@ -31,10 +31,17 @@ pub struct MultipartFile {
 
 /// Extract the boundary parameter from a `multipart/form-data` content type.
 ///
-/// Returns `None` when the mime type is not `multipart/form-data` or no
-/// (non-empty) `boundary=` parameter is present — which is also the caller's
-/// "is this request multipart at all?" predicate. Handles quoted boundaries
-/// and case-insensitive mime/parameter names.
+/// Returns `None` when the mime type is not `multipart/form-data`, no
+/// (non-empty) `boundary=` parameter is present, or the boundary value
+/// contains a control character (CR, LF, or other ASCII control byte) —
+/// which is also the caller's "is this request multipart at all?" predicate.
+/// Handles quoted boundaries and case-insensitive mime/parameter names.
+///
+/// Control characters (notably a raw CR/LF) are illegal in a boundary per
+/// RFC 2046 §5.1.1's `bcharsnospace` grammar; rejecting them here — before
+/// the boundary is ever turned into a line-framing delimiter — keeps a
+/// malformed boundary from producing overlapping delimiter-line positions
+/// downstream in [`extract_multipart_file`].
 pub fn multipart_boundary(content_type: &str) -> Option<String> {
     let mut parts = content_type.split(';');
     let mime = parts.next()?.trim();
@@ -54,9 +61,16 @@ pub fn multipart_boundary(content_type: &str) -> Option<String> {
             .strip_prefix('"')
             .and_then(|v| v.strip_suffix('"'))
             .unwrap_or(value);
-        if !value.is_empty() {
-            return Some(value.to_string());
+        if value.is_empty() {
+            continue;
         }
+        if value.bytes().any(|b| b.is_ascii_control()) {
+            // A malformed boundary (e.g. containing a raw CRLF) — fail the
+            // whole parse closed rather than keep scanning for another
+            // `boundary=` parameter.
+            return None;
+        }
+        return Some(value.to_string());
     }
     None
 }
@@ -102,7 +116,12 @@ pub fn extract_multipart_file(body: &[u8], content_type: &str) -> Option<Multipa
         while cursor < end && (body[cursor] == b' ' || body[cursor] == b'\t') {
             cursor += 1;
         }
-        if !body[cursor..end].starts_with(b"\r\n") {
+        // `cursor` can exceed `end` when two line-start delimiter positions
+        // overlap (only reachable if a malformed boundary — e.g. one
+        // containing a raw CRLF — ever got this far); guard the slice so
+        // that can never index-panic even if `multipart_boundary`'s
+        // control-char rejection above is ever bypassed or loosened.
+        if cursor > end || !body[cursor..end].starts_with(b"\r\n") {
             continue;
         }
         cursor += 2;
@@ -382,6 +401,49 @@ mod tests {
             multipart_boundary("multipart/mixed; boundary=abc"),
             None,
             "only form-data bodies are form uploads"
+        );
+    }
+
+    /// Regression: a boundary containing a raw CRLF must not panic.
+    ///
+    /// Before the fix, `boundary="\r\n--"` produced overlapping delimiter-line
+    /// positions (the same CRLF run satisfies the line-start check for two
+    /// consecutive `positions` entries), so `end - start < delimiter.len()`
+    /// and `cursor` (`= start + delimiter.len()`) exceeded `end`, panicking
+    /// the `body[cursor..end]` slice with "slice index starts at 6 but ends
+    /// at 4". This is not reachable via HTTP (header values forbid raw
+    /// CR/LF at the axum and Cloudflare transports), but `extract_multipart_file`
+    /// is `pub` and must be self-contained-safe against untrusted input.
+    #[test]
+    fn crlf_containing_boundary_does_not_panic_and_returns_none() {
+        let content_type = "multipart/form-data; boundary=\"\r\n--\"";
+        let body = b"--\r\n--\r\n--\r\n";
+
+        // The malformed boundary is rejected up front...
+        assert_eq!(multipart_boundary(content_type), None);
+        // ...so the parse as a whole fails closed instead of panicking.
+        assert_eq!(extract_multipart_file(body, content_type), None);
+    }
+
+    /// Any ASCII control byte in the boundary (not just CR/LF) is rejected —
+    /// RFC 2046 §5.1.1's `bcharsnospace` grammar doesn't allow control
+    /// characters in a boundary at all.
+    #[test]
+    fn boundary_with_other_control_chars_is_rejected() {
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=\"a\tb\""),
+            None,
+            "tab is a control character"
+        );
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=\"a\u{0007}b\""),
+            None,
+            "BEL is a control character"
+        );
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=\"a\u{007f}b\""),
+            None,
+            "DEL is a control character"
         );
     }
 
