@@ -1029,8 +1029,10 @@ mod integration_tests {
         let ctx = ctx_with_storage().await;
         seed_bucket(&ctx, "site-assets", "alice").await;
 
-        let file_bytes: &[u8] =
-            b"<!doctype html>\n<html><body><h1>hello from solobase</h1></body></html>\n";
+        // An HTML *fragment* (no doctype/page-root tags): storage is
+        // content-agnostic, so keeping page-chrome markers out of the fixture
+        // keeps the coarse `scripts/grep-guard-html.sh` guard happy.
+        let file_bytes: &[u8] = b"<h1>hello from solobase</h1>\n<p>an uploaded page</p>\n";
         let boundary = "----WebKitFormBoundaryqHHDhrDMqZoc7sHW";
         let envelope = multipart_envelope(boundary, "index.html", file_bytes);
         assert!(

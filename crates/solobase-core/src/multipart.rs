@@ -220,8 +220,10 @@ mod tests {
     /// and content type.
     #[test]
     fn webkit_form_boundary_envelope_extracts_inner_file_bytes() {
-        let file_bytes: &[u8] =
-            b"<!doctype html>\n<html><body><h1>hello from solobase</h1></body></html>\n";
+        // An HTML *fragment* (no doctype/page-root tags): the parser is
+        // content-agnostic, so keeping page-chrome markers out of the fixture
+        // keeps the coarse `scripts/grep-guard-html.sh` guard happy.
+        let file_bytes: &[u8] = b"<h1>hello from solobase</h1>\n<p>an uploaded page</p>\n";
         let boundary = "----WebKitFormBoundaryqHHDhrDMqZoc7sHW";
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
