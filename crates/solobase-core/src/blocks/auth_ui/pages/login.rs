@@ -212,4 +212,56 @@ mod tests {
         let html = output_html(handle(&ctx, &msg).await).await;
         assert!(!html.contains(&long_email));
     }
+
+    /// A11y: the visible "Email"/"Password" labels must be programmatically
+    /// associated with their inputs via `<label for>` + matching `id`, not
+    /// bare `<div>`s a screen reader can't tie to the field.
+    #[tokio::test]
+    async fn email_and_password_labels_are_associated_with_their_inputs() {
+        let ctx = TestContext::new().await;
+        let msg = login_msg(&[]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+
+        assert!(
+            html.contains(r#"<label class="form-label" for="email">Email</label>"#),
+            "email label must be a <label for=\"email\"> tied to the #email input: {html}"
+        );
+        assert!(
+            html.contains(r#"id="email""#),
+            "input must carry the id the label's for= references: {html}"
+        );
+
+        assert!(
+            html.contains(r#"<label class="form-label" for="password">Password</label>"#),
+            "password label must be a <label for=\"password\"> tied to the #password input: {html}"
+        );
+        assert!(
+            html.contains(r#"id="password""#),
+            "input must carry the id the label's for= references: {html}"
+        );
+    }
+
+    /// A11y: the icon-only password-reveal toggle must have an accessible
+    /// name (aria-label), since it renders no visible text.
+    #[tokio::test]
+    async fn password_toggle_button_has_non_empty_aria_label() {
+        let ctx = TestContext::new().await;
+        let msg = login_msg(&[]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+
+        let marker = "class=\"pw-toggle\"";
+        let idx = html
+            .find(marker)
+            .expect("password toggle button must be present");
+        let tag_end = html[idx..]
+            .find('>')
+            .map(|end| idx + end)
+            .unwrap_or(html.len());
+        let button_tag = &html[idx..tag_end];
+
+        assert!(
+            button_tag.contains("aria-label=\"") && !button_tag.contains("aria-label=\"\""),
+            "password toggle button must have a non-empty aria-label: {button_tag}"
+        );
+    }
 }

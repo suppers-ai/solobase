@@ -144,7 +144,7 @@ pub(super) fn pw_field(id: &str, placeholder: &str, minlength: Option<&str>) -> 
                 placeholder=(placeholder)
                 required
                 minlength=[minlength];
-            button type="button" class="pw-toggle" onclick={"togglePw(this)"} {
+            button type="button" class="pw-toggle" aria-label="Toggle password visibility" onclick={"togglePw(this)"} {
                 (ui::icons::eye_off())
             }
         }
