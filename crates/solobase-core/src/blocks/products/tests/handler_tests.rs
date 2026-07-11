@@ -751,6 +751,115 @@ async fn overview_highlights_products_nav_via_request_path() {
     );
 }
 
+/// When `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS` is off and the catalog is
+/// empty, the Overview page used to render a bare, actionless stat grid — a
+/// live 403 on the gated user route (`/b/products/api/products`) was the
+/// only signal that self-serve selling was disabled. It must now name the
+/// config var and point at Settings, and must NOT show the "Add product"
+/// CTA that belongs to the enabled+empty state (that CTA is safe either
+/// way — it targets the *admin* create route, which isn't gated by this
+/// flag — but the two states render distinct copy, so assert only the
+/// disabled-state text appears).
+#[tokio::test]
+async fn overview_shows_disabled_notice_when_user_products_off() {
+    let ctx = ctx().await; // no ALLOW_USER_PRODUCTS config → defaults to false
+    let (msg, _input) = admin_get_msg("/b/products/");
+    let html = output_to_html(super::super::pages::overview(&ctx, &msg).await).await;
+
+    assert!(
+        html.contains("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS"),
+        "disabled notice should name the exact config var: {html}"
+    );
+    assert!(
+        html.contains("Settings"),
+        "disabled notice should point at how to enable it: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/b/products/admin/settings""#),
+        "disabled notice's action should link to the Settings page: {html}"
+    );
+    assert!(
+        !html.contains("Add your first product"),
+        "disabled overview should not show the enabled+empty CTA copy: {html}"
+    );
+    assert!(
+        !html.contains(r#"href="/b/products/admin/manage""#),
+        "disabled overview should not show a create-product CTA: {html}"
+    );
+}
+
+/// Enabled + empty catalog: the Overview page must show a working
+/// "Add your first product" CTA to the real admin create path (Manage
+/// Products, which owns the "+ New Product" modal), and must not show the
+/// disabled-state notice.
+#[tokio::test]
+async fn overview_shows_add_product_cta_when_enabled_and_empty() {
+    let ctx = ctx_with(&[("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "true")]).await;
+    let (msg, _input) = admin_get_msg("/b/products/");
+    let html = output_to_html(super::super::pages::overview(&ctx, &msg).await).await;
+
+    assert!(
+        html.contains("Add your first product"),
+        "enabled+empty overview should show the add-product CTA: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/b/products/admin/manage""#),
+        "CTA should link to the real create path (Manage Products): {html}"
+    );
+    assert!(
+        !html.contains("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS"),
+        "enabled overview should not show the disabled-state notice: {html}"
+    );
+}
+
+/// Once the catalog has products, the empty-state block (CTA or notice)
+/// disappears entirely regardless of the enabled flag.
+#[tokio::test]
+async fn overview_hides_empty_state_once_products_exist() {
+    let ctx = ctx_with(&[("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "true")]).await;
+    let (c, c_input) = admin_create_msg(
+        "/admin/b/products/products",
+        serde_json::json!({ "name": "Cloud Hosting", "base_price": 29.99 }),
+    );
+    dispatch_admin(&ctx, c, c_input).await;
+
+    let (msg, _input) = admin_get_msg("/b/products/");
+    let html = output_to_html(super::super::pages::overview(&ctx, &msg).await).await;
+
+    assert!(
+        !html.contains("Add your first product"),
+        "CTA should be gone once the catalog has products: {html}"
+    );
+}
+
+/// The Overview CTA's destination (Manage Products) must actually own a
+/// working create flow, not just be a plausible-looking link — assert the
+/// "+ New Product" trigger, the create modal, and its submit handler are
+/// all present.
+#[tokio::test]
+async fn manage_products_page_renders_create_product_modal() {
+    let ctx = ctx().await;
+    let (msg, _input) = admin_get_msg("/b/products/admin/manage");
+    let html = output_to_html(super::super::pages::manage_products(&ctx, &msg).await).await;
+
+    assert!(
+        html.contains("+ New Product"),
+        "manage page should render the create-product trigger: {html}"
+    );
+    assert!(
+        html.contains(r#"id="create-product""#),
+        "manage page should render the create-product modal: {html}"
+    );
+    assert!(
+        html.contains("handleCreateProduct"),
+        "manage page should wire the create-product submit handler: {html}"
+    );
+    assert!(
+        html.contains("/b/products/api/admin/products"),
+        "create-product JS should post to the real admin create endpoint: {html}"
+    );
+}
+
 /// The products list pages adopt `ui::components::data_table`, which carries
 /// the PR #75 mobile card-collapse fix via `td[data-label]`. Assert the manage
 /// page renders the `.data-table` structure with per-cell data labels (so the
