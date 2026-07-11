@@ -361,6 +361,7 @@ impl AuthService for AuthServiceImpl {
         let has = match role {
             Role::Admin => crate::blocks::auth::helpers::get_user_roles(ctx, &uid.0)
                 .await
+                .map_err(|e| AuthError::Internal(e.to_string()))?
                 .iter()
                 .any(|r| r == "admin"),
             Role::User => true, // any authenticated user
@@ -521,7 +522,11 @@ mod tests {
             .await
             .expect("assign admin via roles table");
 
-        let roles = crate::blocks::auth::helpers::get_user_roles(&*ctx, &user.id).await;
+        let roles = crate::blocks::auth::helpers::get_user_roles(&*ctx, &user.id)
+            .await
+            .expect(
+                "get_user_roles must succeed (TestContext::with_admin has no WRAP enforcement)",
+            );
         assert!(
             roles.iter().any(|r| r == "admin"),
             "merged resolver must see the roles-table admin grant: {roles:?}"

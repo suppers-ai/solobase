@@ -78,38 +78,59 @@ use crate::blocks::admin::USER_ROLES_TABLE;
 pub(crate) mod helpers {
     use super::*;
 
+    /// Resolve `user_id`'s merged role set: the inline `users.role` (the
+    /// bootstrap path) plus any rows in the legacy `USER_ROLES_TABLE`
+    /// (multi-role history / admin-IAM grants), deduped since both can
+    /// produce `"admin"` for the bootstrapped admin.
+    ///
+    /// Both reads propagate `Err` instead of swallowing it (SB-3): a WRAP
+    /// denial or transient DB error on `USER_ROLES_TABLE` must not look
+    /// identical to "user has no roles" — that would silently 403 every
+    /// admin (`AuthServiceImpl::require_role`), re-insert a duplicate admin
+    /// row on every login (`ensure_admin_role`), and stamp empty roles on
+    /// API keys (`authenticate_api_key`). `NotFound` on the inline-role read
+    /// is the one case that is genuinely "no role from this source", not a
+    /// failure, and stays non-fatal.
     pub(crate) async fn get_user_roles(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
-    ) -> Vec<String> {
-        // Plan A2 stores role inline on `users.role`; legacy
-        // USER_ROLES_TABLE carries multi-role-per-user history. Merge
-        // both: the inline role is the bootstrap path, the table is the
-        // legacy path. Dedup since both can produce "admin" for the
-        // bootstrapped admin.
+    ) -> Result<Vec<String>, repo::RepoError> {
+        use wafer_block::ErrorCode;
+
         use crate::util::RecordExt;
+
         let mut roles: Vec<String> = Vec::new();
-        if let Ok(rec) = db::get(ctx, USERS_TABLE, user_id).await {
-            let inline = rec.str_field("role");
-            if !inline.is_empty() {
-                roles.push(inline.to_string());
+        match db::get(ctx, USERS_TABLE, user_id).await {
+            Ok(rec) => {
+                let inline = rec.str_field("role");
+                if !inline.is_empty() {
+                    roles.push(inline.to_string());
+                }
+            }
+            Err(e) if e.code == ErrorCode::NotFound => {}
+            Err(e) => {
+                return Err(repo::RepoError::Db(format!(
+                    "get_user_roles: users lookup: {e}"
+                )))
             }
         }
+
         let filters = vec![Filter {
             field: "user_id".to_string(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
         }];
-        if let Ok(records) = db::list_all(ctx, USER_ROLES_TABLE, filters).await {
-            for rec in &records {
-                if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
-                    if !roles.iter().any(|r| r == role) {
-                        roles.push(role.to_string());
-                    }
+        let records = db::list_all(ctx, USER_ROLES_TABLE, filters)
+            .await
+            .map_err(|e| repo::RepoError::Db(format!("get_user_roles: roles table lookup: {e}")))?;
+        for rec in &records {
+            if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
+                if !roles.iter().any(|r| r == role) {
+                    roles.push(role.to_string());
                 }
             }
         }
-        roles
+        Ok(roles)
     }
 
     /// Resolve user roles, idempotently granting `admin` if the user's email
@@ -126,27 +147,30 @@ pub(crate) mod helpers {
     /// to be done explicitly via the admin UI / DB. Removing roles silently
     /// on login would be an availability foot-gun (one typo in env locks
     /// everyone out).
+    ///
+    /// Propagates [`repo::RepoError`] (SB-3) when the underlying roles read
+    /// fails — a WRAP denial or DB error must not be mistaken for "user has
+    /// no admin row yet" and drive a duplicate insert into `USER_ROLES_TABLE`.
     pub(crate) async fn ensure_admin_role(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         email: &str,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, repo::RepoError> {
         // Read the bootstrap-admin email *before* the role lookup. The
         // common case in production is "unset" — early-return then,
-        // skipping the role table read and the second `db::create` path
-        // entirely. Authenticated routes mint tokens often enough that the
-        // saved DB reads accumulate.
+        // skipping the second `db::create` path entirely. Authenticated
+        // routes mint tokens often enough that the saved DB reads accumulate.
         let admin_email =
             config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
                 .await;
 
-        let mut roles = get_user_roles(ctx, user_id).await;
+        let mut roles = get_user_roles(ctx, user_id).await?;
 
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
         {
-            return roles;
+            return Ok(roles);
         }
 
         // Email matches and admin role is missing — grant it.
@@ -171,7 +195,7 @@ pub(crate) mod helpers {
                 );
             }
         }
-        roles
+        Ok(roles)
     }
 
     /// Whether new-account registration is allowed
@@ -558,8 +582,18 @@ pub async fn authenticate_api_key(
         return;
     }
 
-    // Fetch roles from user_roles collection (roles are not stored on the user record)
-    let roles = helpers::get_user_roles(ctx, &key_row.user_id).await;
+    // Fetch roles from user_roles collection (roles are not stored on the
+    // user record). Mirrors the key_row/user lookups above: a real DB error
+    // (WRAP denial, connection blip) must not silently stamp an empty/wrong
+    // roles list on an otherwise-valid key — log it and fall back to
+    // anonymous instead (SB-3).
+    let roles = match helpers::get_user_roles(ctx, &key_row.user_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(user_id = %key_row.user_id, "authenticate_api_key: roles lookup failed: {e}");
+            return;
+        }
+    };
     let roles_str = roles.join(",");
 
     // Set auth meta (same fields as JWT auth)
@@ -620,10 +654,21 @@ mod api_key_lifecycle_tests {
 
     #[tokio::test]
     async fn active_user_key_authenticates() {
+        // SB-3: `get_user_roles` now surfaces (rather than swallows) a
+        // denied read of the admin-owned USER_ROLES_TABLE, so this WRAP
+        // fixture must carry the real grant admin declares for the auth
+        // block (`ResourceGrant::read_write(AUTH_BLOCK_ID, USER_ROLES_TABLE)`
+        // in `blocks/admin/mod.rs`) — sourced from the real block so the
+        // fixture can't drift from production.
+        use wafer_run::Block;
+
+        use crate::blocks::admin::AdminBlock;
+
+        let grants = AdminBlock::new().info().grants;
         let ctx =
             TestContext::with_auth()
                 .await
-                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+                .with_wrap("suppers-ai/auth", grants, "suppers-ai/admin");
         let uid = seed_user_and_key(&ctx, "raw-active-key").await;
 
         let mut msg = Message::new("http");
@@ -649,5 +694,58 @@ mod api_key_lifecycle_tests {
         authenticate_api_key(&ctx, "raw-disabled-key", &mut msg).await;
         // No auth meta stamped → request stays anonymous.
         assert_eq!(msg.get_meta(META_AUTH_USER_ID), "");
+    }
+}
+
+// SB-3: `get_user_roles` used to swallow both DB reads with `if let
+// Ok(...)`, so a WRAP-grant regression or transient DB error yielded an
+// empty/partial roles list indistinguishable from "user genuinely has no
+// roles" — silently 403ing every admin (`require_role`), re-inserting a
+// duplicate admin row on every login (`ensure_admin_role`), and stamping
+// empty roles on API keys (`authenticate_api_key`). These tests pin the
+// fix: a denied/failed roles read is now an `Err`, not an empty `Vec`.
+#[cfg(test)]
+mod get_user_roles_error_surfacing_tests {
+    use super::helpers::{ensure_admin_role, get_user_roles};
+    use crate::test_support::TestContext;
+
+    #[tokio::test]
+    async fn denied_roles_table_read_is_an_error_not_empty_roles() {
+        // Auth owns `suppers_ai__auth__users` (Rule 3 own-resource — always
+        // reachable) but not `suppers_ai__admin__user_roles` (admin-owned).
+        // In production, admin's own block-level grant
+        // (`ResourceGrant::read_write(AUTH_BLOCK_ID, USER_ROLES_TABLE)` in
+        // `blocks/admin/mod.rs`) makes that read succeed; passing no grants
+        // here simulates that grant regressing/missing.
+        let ctx = TestContext::with_auth().await.with_wrap(
+            "suppers-ai/auth",
+            Vec::new(),
+            "suppers-ai/admin",
+        );
+
+        let res = get_user_roles(&ctx, "some-user-id").await;
+        assert!(
+            res.is_err(),
+            "a denied/failed roles read must be an Err, not empty roles"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_admin_role_propagates_denied_roles_read_instead_of_inserting() {
+        // If the roles-table read fails, `ensure_admin_role` must not
+        // silently treat that as "no admin row yet" and insert a duplicate
+        // — it must propagate the error and skip the insert entirely.
+        let ctx = TestContext::with_auth().await.with_wrap(
+            "suppers-ai/auth",
+            Vec::new(),
+            "suppers-ai/admin",
+        );
+
+        let res = ensure_admin_role(&ctx, "some-user-id", "admin@example.com").await;
+        assert!(
+            res.is_err(),
+            "ensure_admin_role must propagate a denied roles read instead of \
+             proceeding to (possibly duplicate-)insert the admin grant"
+        );
     }
 }
