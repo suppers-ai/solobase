@@ -129,19 +129,22 @@ mod tests {
         // must render it exactly like every other shared-helper password
         // field: `type="password"` (visually masked, not plaintext), the eye
         // toggle to reveal/edit it, and the "(set)" placeholder rather than
-        // "Not configured" once a value exists. This matches the old
-        // hand-rolled field's behavior byte-for-byte (both it and the shared
-        // `render_field` populate the input's `value=` attribute so the
-        // existing key can be edited in place — masking is visual/toggle-based,
-        // not source-redaction; see `settings_form.rs`'s own
-        // `password_field_is_masked_with_eye_toggle_...` test for the same
-        // contract).
+        // "Not configured" once a value exists. Masking is now
+        // source-redaction, not just visual: the raw value must never appear
+        // in the rendered HTML at all (previously it sat in the `value=`
+        // attribute in plaintext, readable via page source / devtools — see
+        // `settings_form.rs`'s own `password_field_is_masked_with_eye_toggle_
+        // and_never_echoes_the_raw_value` test for the same contract).
         let mut ctx = TestContext::new().await;
         ctx.set_config("SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "super-secret-value");
         let msg = anon_msg("retrieve", "/b/admin/settings/email");
 
         let html = settings_body(&ctx, &msg).await.into_string();
 
+        assert!(
+            !html.contains("super-secret-value"),
+            "the raw API key must never reach the rendered HTML: {html}"
+        );
         assert!(
             html.contains(r#"type="password""#),
             "the API key field must render as a masked password input: {html}"

@@ -27,30 +27,26 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
 use super::{logs::audit_log, settings::VARIABLES_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
-use crate::{
-    blocks::auth::USERS_TABLE,
-    http::{err_bad_request, err_forbidden, err_internal, err_not_found},
-    util::RecordExt,
-};
-
-/// Masked placeholder shown in place of a sensitive value.
-pub(super) const MASKED_VALUE: &str = "********";
-
-/// SEC-060: a config value is sensitive when the row's `sensitive` flag is set
-/// **or** the key follows the `_SECRET` / `_KEY` suffix convention. Both
-/// surfaces (JSON `handle_list*` and the SSR variable tables) must agree on
-/// this — masking on the flag alone leaked a `*_SECRET` value whenever an admin
-/// forgot to flip the flag. This is the single source of truth for that rule.
-pub(super) fn is_sensitive_key(key: &str, sensitive_flag: i64) -> bool {
-    sensitive_flag == 1 || key.ends_with("_SECRET") || key.ends_with("_KEY")
-}
-
 /// SSRF URL validator for `InputType::Url` writes. The single implementation
 /// lives in [`crate::util::validate_url_value`]; re-exported here so the admin
 /// variable create/update paths and the generic settings form
 /// (`ui::settings_form::save_settings`) validate through the exact same impl and
 /// can't diverge on what a URL value is allowed to be.
 pub(super) use crate::util::validate_url_value;
+/// `MASKED_VALUE` / `is_sensitive_key`: the single source of truth lives in
+/// [`crate::util`] so the generic ConfigVar-driven settings form
+/// (`ui::settings_form`) can share it too — masking on a DB `sensitive` flag
+/// (or `InputType::Password`) alone leaked a `*_SECRET`/`*_KEY` value
+/// whenever a var/row wasn't explicitly marked. Both surfaces (JSON
+/// `handle_list*`, the SSR variable tables, and the shared settings form)
+/// must agree on this rule; re-exported here so existing `ops::`-qualified
+/// call sites in this module tree keep working.
+pub(super) use crate::util::{is_sensitive_key, MASKED_VALUE};
+use crate::{
+    blocks::auth::USERS_TABLE,
+    http::{err_bad_request, err_forbidden, err_internal, err_not_found},
+    util::RecordExt,
+};
 
 /// Bulk-fetch the roles assigned to each of `user_ids` in a single `In`-filter
 /// query, bucketed back into a `user_id -> [role]` map.
@@ -431,22 +427,14 @@ pub(super) async fn update_variable(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn is_sensitive_key_honors_flag_and_suffix() {
-        // Flag set → sensitive regardless of name.
-        assert!(is_sensitive_key("PLAIN", 1));
-        // SEC-060: suffix makes it sensitive even when the flag is clear.
-        assert!(is_sensitive_key("STRIPE_SECRET", 0));
-        assert!(is_sensitive_key("JWT_KEY", 0));
-        // Neither flag nor suffix → not sensitive.
-        assert!(!is_sensitive_key("SITE_NAME", 0));
-    }
+    // `is_sensitive_key_honors_flag_and_suffix` lives in `crate::util`'s test
+    // module now, alongside the function it tests (moved when
+    // `is_sensitive_key`/`MASKED_VALUE` were promoted to the shared
+    // single-source location — see the doc comment on the re-export above).
 
     // --- End-to-end regression tests for the security drifts this module
     // closes. They run the ops functions against the real DatabaseBlock (via
     // TestContext) so they exercise the same statements both surfaces now share.
-
     use crate::test_support::{admin_msg, TestContext};
 
     /// Assert an ops call succeeded. `OutputStream` (the `Err` arm) isn't
