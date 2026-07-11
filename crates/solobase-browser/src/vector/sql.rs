@@ -1,6 +1,8 @@
 //! Pure SQL-string and BLOB-packing helpers for `BrowserVectorService`.
 //!
-//! Kept dep-free and side-effect-free so they unit-test on native.
+//! Side-effect-free and native-testable: no `wasm_bindgen`/browser-bridge
+//! calls here, so these unit-test on native even though the module imports
+//! `wafer_core::interfaces::vector::service::DistanceMetric`.
 
 use wafer_core::interfaces::vector::service::DistanceMetric;
 
@@ -102,6 +104,46 @@ pub fn build_registry_delete_sql(name: &str) -> (String, String) {
         format!(r#"DELETE FROM "{REGISTRY_TABLE}" WHERE name = ?"#),
         serde_json::json!([name]).to_string(),
     )
+}
+
+/// Outcome of comparing an existing registry row's config (if any) against
+/// an incoming `create_index` request's config for the same index name.
+/// `BrowserVectorService::create_index` uses this to decide whether to
+/// proceed (write the registry row + run the idempotent DDL), silently
+/// no-op (the legitimate SW-restart recovery case: the same config was
+/// already registered), or fail with `VectorError::IndexAlreadyExists` —
+/// matching the native `wafer-block-sqlite` backend's contract for a
+/// genuine name collision (`create_index_duplicate_fails`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryConflict {
+    /// No existing row for this name — a genuine create.
+    New,
+    /// An existing row's config exactly matches the incoming request — the
+    /// SW-restart recovery case. Safe to no-op (re-running the idempotent
+    /// DDL and re-writing the identical row is harmless).
+    IdenticalNoOp,
+    /// An existing row's config differs in dimensions, metric, or
+    /// keyword_search. A real name collision: silently overwriting the
+    /// registry row here would leave the `_vectors`/`_meta` tables (and
+    /// their already-stored rows) out of sync with the new config, so this
+    /// must be rejected rather than applied.
+    Mismatch,
+}
+
+/// Classifies a `create_index(name, incoming)` call against `name`'s
+/// existing registry row, if any. Both config tuples are
+/// `(dimensions, metric, keyword_search)`. `DistanceMetric` is a discrete
+/// enum (`Cosine`/`Euclidean`/`DotProduct`), not a float, so this
+/// comparison is exact equality — no epsilon/rounding ambiguity.
+pub fn classify_registry_conflict(
+    existing: Option<(u32, DistanceMetric, bool)>,
+    incoming: (u32, DistanceMetric, bool),
+) -> RegistryConflict {
+    match existing {
+        None => RegistryConflict::New,
+        Some(e) if e == incoming => RegistryConflict::IdenticalNoOp,
+        Some(_) => RegistryConflict::Mismatch,
+    }
 }
 
 /// Encodes a [`DistanceMetric`] for the registry `metric` column. A storage
@@ -514,6 +556,58 @@ mod tests {
         assert!(sql.starts_with("DELETE FROM"));
         assert!(sql.contains(REGISTRY_TABLE));
         assert_eq!(params, serde_json::json!(["idx"]).to_string());
+    }
+
+    // ─── create_index re-create guard (registry conflict classification) ──
+
+    #[test]
+    fn classify_registry_conflict_no_existing_row_is_new() {
+        let incoming = (384, DistanceMetric::Cosine, false);
+        assert_eq!(
+            classify_registry_conflict(None, incoming),
+            RegistryConflict::New
+        );
+    }
+
+    #[test]
+    fn classify_registry_conflict_identical_config_is_idempotent_noop() {
+        // The SW-restart recovery case: re-registering the exact same
+        // config after a cold cache must not error.
+        let cfg = (384, DistanceMetric::Cosine, true);
+        assert_eq!(
+            classify_registry_conflict(Some(cfg), cfg),
+            RegistryConflict::IdenticalNoOp
+        );
+    }
+
+    #[test]
+    fn classify_registry_conflict_different_dimensions_is_mismatch() {
+        let existing = (384, DistanceMetric::Cosine, false);
+        let incoming = (768, DistanceMetric::Cosine, false);
+        assert_eq!(
+            classify_registry_conflict(Some(existing), incoming),
+            RegistryConflict::Mismatch
+        );
+    }
+
+    #[test]
+    fn classify_registry_conflict_different_metric_is_mismatch() {
+        let existing = (384, DistanceMetric::Cosine, false);
+        let incoming = (384, DistanceMetric::Euclidean, false);
+        assert_eq!(
+            classify_registry_conflict(Some(existing), incoming),
+            RegistryConflict::Mismatch
+        );
+    }
+
+    #[test]
+    fn classify_registry_conflict_different_keyword_search_is_mismatch() {
+        let existing = (384, DistanceMetric::Cosine, false);
+        let incoming = (384, DistanceMetric::Cosine, true);
+        assert_eq!(
+            classify_registry_conflict(Some(existing), incoming),
+            RegistryConflict::Mismatch
+        );
     }
 
     #[test]
