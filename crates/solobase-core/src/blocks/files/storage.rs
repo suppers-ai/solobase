@@ -264,8 +264,16 @@ async fn collect_with_cap(
 
 /// Escape SQL LIKE wildcards (`%`, `_`) and the escape char itself (`\`) in
 /// user-supplied search terms so a user searching for `100% off` doesn't
-/// also match arbitrary characters. The literal escape character `\` is
-/// already understood by SQLite / Postgres' default LIKE.
+/// also match arbitrary characters.
+///
+/// SQLite's `LIKE` has *no* default escape character — a bare backslash is
+/// just a literal byte, so escaping here would be silently inert on its own.
+/// What makes it effective is the `wafer-sql-utils` `FilterOp::Like` builder
+/// (used by [`handle_search`]'s query below), which renders an explicit
+/// `ESCAPE '\'` clause on every backend (SQLite/D1 and Postgres) — see
+/// `wafer-sql-utils::query::leaf_expr`. Without that clause, a query
+/// containing `_` or `%` would match as a wildcard instead of a literal
+/// character.
 fn escape_like(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for c in input.chars() {
@@ -835,6 +843,40 @@ mod integration_tests {
             .unwrap_or_default()
     }
 
+    /// Seed an [`OBJECTS_TABLE`] row directly (bypassing `handle_upload_object`
+    /// / the real storage backend, same as [`seed_bucket`] does for buckets) —
+    /// enough to exercise `handle_search`'s DB query.
+    async fn seed_object(ctx: &TestContext, bucket: &str, key: &str, owner: &str) {
+        let data = crate::util::json_map(json!({
+            "bucket": bucket,
+            "key": key,
+            "size": 0,
+            "content_type": "application/octet-stream",
+            "status": "complete",
+            "uploaded_by": owner,
+            "uploaded_at": crate::util::now_rfc3339(),
+        }));
+        db::create(ctx, OBJECTS_TABLE, data)
+            .await
+            .expect("seed object");
+    }
+
+    fn search_result_keys(v: &serde_json::Value) -> Vec<String> {
+        v.get("records")
+            .and_then(|r| r.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|rec| {
+                        rec.get("data")
+                            .and_then(|d| d.get("key"))
+                            .and_then(|k| k.as_str())
+                            .map(str::to_string)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Single source of truth: the admin bucket listing now reads
     /// [`BUCKETS_TABLE`] (every bucket) instead of `store::list_folders`, so it
     /// can no longer diverge from the per-user listing that already read the
@@ -875,6 +917,43 @@ mod integration_tests {
         let out = handle_stats(&ctx, &admin_msg("retrieve", "/admin/storage/stats")).await;
         let body = output_json(out).await;
         assert_eq!(body.get("bucket_count").and_then(|v| v.as_i64()), Some(2));
+    }
+
+    /// Regression test for SB-5. [`escape_like`] backslash-escapes `_`/`%`/`\`
+    /// in the search term, but that escaping is only *effective* because
+    /// `handle_search`'s `FilterOp::Like` filter now renders an explicit
+    /// `ESCAPE '\'` clause (`wafer-sql-utils`, SB-5A) — SQLite's `LIKE` has NO
+    /// default escape character, so a bare `\` in the pattern is just an
+    /// ordinary literal byte without that clause.
+    ///
+    /// Seeds a file whose name contains `_` (`my_report.pdf`) alongside a
+    /// decoy that an *unescaped* `_` wildcard would also match
+    /// (`myXreport.pdf`); asserting the result is exactly the underscore file
+    /// (not zero, not both) rules out either pre-SB-5A failure mode. Verified
+    /// (2026-07-11) against wafer-run main (543e788, pre-ESCAPE): the pattern
+    /// becomes `%my\_report%` with a literal backslash that appears in no
+    /// real filename, so the query actually matched **zero** rows — worse
+    /// than "underscore still wildcards", `escape_like`'s output broke search
+    /// entirely on SQLite/D1. Against wafer-run `fix/sb5a-sql-like-escape`
+    /// (b1e6c68, ESCAPE `'\'` present) this passes.
+    #[tokio::test]
+    async fn search_escapes_underscore_as_literal_not_wildcard() {
+        let ctx = TestContext::with_files().await;
+        seed_object(&ctx, "bucket", "my_report.pdf", "alice").await;
+        // Decoy: only matches `%my_report%` if `_` is treated as a
+        // single-char wildcard instead of the literal `_` it should be.
+        seed_object(&ctx, "bucket", "myXreport.pdf", "alice").await;
+
+        let mut msg = auth_msg("retrieve", "/b/storage/api/search", "alice");
+        msg.set_meta("req.query.q", "my_report");
+
+        let out = handle_search(&ctx, &msg).await;
+        let keys = search_result_keys(&output_json(out).await);
+        assert_eq!(
+            keys,
+            vec!["my_report.pdf"],
+            "underscore in query must be escaped as a literal, not treated as a wildcard (got: {keys:?})"
+        );
     }
 }
 
