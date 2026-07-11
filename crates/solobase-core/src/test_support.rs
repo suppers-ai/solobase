@@ -38,6 +38,19 @@ pub struct TestContext {
     config: Arc<HashMap<String, String>>,
     /// Placeholder for dynamically registered blocks — populated by Task 6.
     pub blocks: Arc<Mutex<HashMap<String, Arc<dyn Block>>>>,
+    /// `BlockInfo` for every block registered via [`Self::register_block`],
+    /// keyed by (and kept in sync with) `blocks`. Backs
+    /// `Context::registered_blocks()` so handler code that gates behavior on
+    /// "is block X registered?" (e.g. the vector block's backend-availability
+    /// check, `blocks::vector::service::vector_backend_available`) sees the
+    /// same signal in tests that a real `RuntimeContext` — whose
+    /// `registered_blocks()` reflects its sealed startup snapshot — would
+    /// produce in production. A plain `Vec` (not wrapped in the `blocks`
+    /// mutex) is enough: `register_block` already takes `&mut self`, so no
+    /// interior mutability is needed to update it, and `registered_blocks()`
+    /// can return a borrowed slice directly instead of cloning through a
+    /// lock guard.
+    block_infos: Vec<wafer_run::BlockInfo>,
     /// WRAP-enforcement caller identity. `None` = WRAP checks skipped (the
     /// default — keeps existing tests untouched). Set via [`with_wrap`].
     caller_id: Option<String>,
@@ -62,6 +75,7 @@ impl TestContext {
             database_block,
             config: Arc::new(HashMap::new()),
             blocks: Arc::new(Mutex::new(HashMap::new())),
+            block_infos: Vec::new(),
             caller_id: None,
             wrap_grants: Vec::new(),
             wrap_admin_block: String::new(),
@@ -246,6 +260,17 @@ impl TestContext {
     /// list; tests register a real or fake `UserPortalBlock` so the call
     /// resolves.
     pub fn register_block(&mut self, name: &str, block: Arc<dyn Block>) {
+        // Keep `block_infos` a deduplicated mirror of `blocks`'s keys — a
+        // block re-registered under the same name (e.g. `set_config`
+        // calling `register_block("wafer-run/config", ..)` again) replaces
+        // its old entry rather than appending a duplicate. The registration
+        // name (not whatever `block.info().name` happens to report) is
+        // authoritative, matching how `blocks` itself is keyed.
+        self.block_infos.retain(|b| b.name != name);
+        let mut info = block.info();
+        info.name = name.to_string();
+        self.block_infos.push(info);
+
         self.blocks
             .lock()
             .expect("blocks mutex poisoned")
@@ -330,6 +355,10 @@ impl Context for TestContext {
 
     fn is_cancelled(&self) -> bool {
         false
+    }
+
+    fn registered_blocks(&self) -> &[wafer_run::BlockInfo] {
+        &self.block_infos
     }
 
     fn config_get(&self, key: &str) -> Option<&str> {

@@ -64,6 +64,31 @@ use crate::{
 // there (no in-block `route` shim, no `starts_with` ordering guards).
 
 // ---------------------------------------------------------------------------
+// Backend-availability gate
+// ---------------------------------------------------------------------------
+
+/// 503 for every op that needs the `wafer-run/vector` backend when it isn't
+/// registered on this runtime (native solobase ships no native vector
+/// engine — see `pages_ui.rs` module docs).
+///
+/// Every `vclient::*` call below (`create_index`, `list_indexes`, `upsert`,
+/// `query`, …) targets that one block, so its absence surfaces as
+/// `ErrorCode::NotFound: block 'wafer-run/vector' not found` — the *same*
+/// error code the per-op branches below already use for a semantically
+/// different thing ("this index doesn't exist"). Pattern-matching on the
+/// wire error would conflate the two; checking
+/// `service::vector_backend_available` up front (the same check the `/b/vector/`
+/// UI page uses to render its "backend not available" callout) disambiguates
+/// them and lets every handler degrade the same way instead of a handful
+/// misreporting "index not found" and the rest 500ing.
+fn err_vector_backend_unavailable() -> OutputStream {
+    OutputStream::error(WaferError::new(
+        ErrorCode::Unavailable,
+        "vector backend (wafer-run/vector) is not available on this deployment",
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // POST /b/vector/api/indexes — create an index
 // ---------------------------------------------------------------------------
 
@@ -85,6 +110,9 @@ pub(super) async fn create_index(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let raw = input.collect_to_bytes().await;
     // Accept either JSON (programmatic clients) or URL-encoded form
     // (htmx modal). Parse via the shared helper, then map fields explicitly
@@ -219,6 +247,13 @@ pub(super) async fn create_index(
 // ---------------------------------------------------------------------------
 
 pub(super) async fn list_indexes(ctx: &dyn Context) -> OutputStream {
+    // No backend registered → no indexes to report. Mirrors the `/b/vector/`
+    // UI page's empty state (`pages_ui::index_list_page`): callers that only
+    // ever list should see "nothing here" rather than an error, since an
+    // empty result is already a legitimate response shape for this endpoint.
+    if !service::vector_backend_available(ctx) {
+        return ok_json(&serde_json::json!({ "indexes": Vec::<String>::new() }));
+    }
     match discover_indexes(ctx).await {
         Ok(indexes) => ok_json(&serde_json::json!({ "indexes": indexes })),
         Err(e) => err_internal("list indexes failed", e),
@@ -252,6 +287,9 @@ async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> 
 // ---------------------------------------------------------------------------
 
 pub(super) async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let name = path_param(msg, "name", "/b/vector/api/indexes/");
     if name.is_empty() {
         return err_bad_request("index name is required");
@@ -297,6 +335,9 @@ struct UpsertBody {
 }
 
 pub(super) async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let raw = input.collect_to_bytes().await;
     let body: UpsertBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -326,6 +367,9 @@ pub(super) async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStrea
 // ---------------------------------------------------------------------------
 
 pub(super) async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let (index, id) = extract_index_and_id(msg);
     if index.is_empty() {
         return err_bad_request("index is required");
@@ -370,6 +414,12 @@ fn extract_index_and_id(msg: &Message) -> (&str, &str) {
 // ---------------------------------------------------------------------------
 
 pub(super) async fn stats(ctx: &dyn Context) -> OutputStream {
+    // Same "no backend → nothing to report" empty-list shape as
+    // `list_indexes` above — `stats` is a per-index-count listing, not a
+    // write/query op, so an absent backend just means zero indexes to count.
+    if !service::vector_backend_available(ctx) {
+        return ok_json(&serde_json::json!({ "indexes": Vec::<serde_json::Value>::new() }));
+    }
     let indexes = match discover_indexes(ctx).await {
         Ok(v) => v,
         Err(e) => return err_internal("stats failed", e),
@@ -415,6 +465,9 @@ struct QueryBody {
 const DEFAULT_TOP_K: usize = 10;
 
 pub(super) async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let raw = input.collect_to_bytes().await;
     let mut body: QueryBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -605,6 +658,9 @@ struct IngestResponse {
 /// optionally add context summaries, embed, and upsert. The response tells
 /// the caller how many chunks landed.
 pub(super) async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    if !service::vector_backend_available(ctx) {
+        return err_vector_backend_unavailable();
+    }
     let raw = input.collect_to_bytes().await;
     let body: IngestBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -944,6 +1000,138 @@ mod ingest_cleanup_tests {
             200,
             "a genuine NotFound from list_ids must still be tolerated as \
              'no prior chunks', not treated as fatal"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests: GET /b/vector/api/indexes degrades gracefully when the
+// `wafer-run/vector` backend block isn't registered (the live-server 500
+// this fix closes), and still lists real indexes when it is.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod backend_availability_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use wafer_run::{Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent};
+
+    use super::*;
+    use crate::test_support::{output_is_error, output_json, output_status, TestContext};
+
+    /// Minimal `wafer-run/vector` stand-in that answers `vector.list_indexes`
+    /// with one fixed storage-prefixed stem, mirroring the shape the real
+    /// `wafer-block-sqlite` vector service returns.
+    struct FakeListIndexesBlock;
+
+    #[async_trait]
+    impl RunBlock for FakeListIndexesBlock {
+        fn info(&self) -> BlockInfo {
+            BlockInfo::new("wafer-run/vector", "0.0.1", "vector@v1", "test fake")
+                .category(BlockCategory::Service)
+        }
+
+        async fn handle(
+            &self,
+            _ctx: &dyn Context,
+            msg: Message,
+            _input: InputStream,
+        ) -> OutputStream {
+            match msg.kind.as_str() {
+                wafer_block::common::ServiceOp::VECTOR_LIST_INDEXES => {
+                    let resp = wafer_block::wire::vector::ListIndexesResponse {
+                        indexes: vec!["suppers_ai__vector__docs".to_string()],
+                    };
+                    OutputStream::respond(
+                        wafer_block::codec::encode(&resp).expect("encode list_indexes response"),
+                    )
+                }
+                other => OutputStream::error(WaferError::new(
+                    ErrorCode::Unimplemented,
+                    format!("FakeListIndexesBlock has no handler for '{other}'"),
+                )),
+            }
+        }
+
+        async fn lifecycle(
+            &self,
+            _ctx: &dyn Context,
+            _e: LifecycleEvent,
+        ) -> Result<(), WaferError> {
+            Ok(())
+        }
+    }
+
+    /// `TestContext::with_vector()` on its own — no `wafer-run/vector` block
+    /// registered — is exactly the default native-server configuration
+    /// (`docs/checks/...` bug report: native solobase ships no
+    /// `wafer-run/vector` backend). Before this fix, `list_indexes` blindly
+    /// propagated the backend's `NotFound: block 'wafer-run/vector' not
+    /// found` through `err_internal`, which is what surfaced as the live
+    /// 500 `GET /b/vector/api/indexes` returned.
+    #[tokio::test]
+    async fn list_indexes_returns_200_when_backend_absent() {
+        let ctx = TestContext::with_vector().await;
+
+        let out = list_indexes(&ctx).await;
+
+        assert_eq!(
+            output_status(out).await,
+            200,
+            "list_indexes must not 500 when the wafer-run/vector backend isn't registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_indexes_returns_empty_list_when_backend_absent() {
+        let ctx = TestContext::with_vector().await;
+
+        let out = list_indexes(&ctx).await;
+
+        assert_eq!(
+            output_json(out).await,
+            serde_json::json!({ "indexes": [] }),
+            "backend-absent list must be a clean empty result, matching the \
+             /b/vector/ UI page's existing empty-state behavior"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_indexes_still_lists_real_indexes_when_backend_registered() {
+        let mut ctx = TestContext::with_vector().await;
+        ctx.register_block("wafer-run/vector", Arc::new(FakeListIndexesBlock));
+
+        let out = list_indexes(&ctx).await;
+
+        assert_eq!(
+            output_json(out).await,
+            serde_json::json!({ "indexes": ["docs"] }),
+            "once the backend is registered, list_indexes must go back to \
+             reporting real indexes instead of short-circuiting to empty"
+        );
+    }
+
+    /// Write-shaped ops (as opposed to the list-shaped `list_indexes`) must
+    /// surface a clear, typed `Unavailable` error instead of either a raw
+    /// 500 or a misleading `NotFound: index not found` — the same
+    /// `ErrorCode::NotFound` the backend's "block not found" and an app's
+    /// "index not found" both use, which is exactly the ambiguity the
+    /// up-front `vector_backend_available` check avoids.
+    #[tokio::test]
+    async fn create_index_returns_unavailable_when_backend_absent() {
+        let ctx = TestContext::with_vector().await;
+
+        let body = InputStream::from_bytes(
+            serde_json::to_vec(&serde_json::json!({ "name": "docs" })).unwrap(),
+        );
+        let msg = crate::test_support::admin_msg("create", "/b/vector/api/indexes");
+        let out = create_index(&ctx, &msg, body).await;
+
+        assert!(
+            output_is_error(out, "Unavailable").await,
+            "create_index must report Unavailable (503), not NotFound or Internal, \
+             when the wafer-run/vector backend isn't registered"
         );
     }
 }
