@@ -171,6 +171,37 @@ function submitSettings(e) {{
     )
 }
 
+/// Render just the field groups for each [`SettingsSection`] — a heading
+/// plus its inputs, values loaded from the config client — with NO enclosing
+/// `<form>`, submit button, or submit script.
+///
+/// Most callers want the full self-contained form ([`settings_form`], which
+/// is a thin wrapper around this). This lower-level entry point is for a
+/// caller that already lives inside another `<form>` element it doesn't own
+/// — e.g. `blocks/admin/pages/email.rs`, embedded in the admin Settings-tab
+/// shell's own `<form>` (`ui::templates::form_page`). HTML forms can't
+/// nest — a second literal `<form>` there would have its start tag silently
+/// dropped by the browser's parser and its close tag would prematurely close
+/// the outer one — so that caller renders fields only and leaves form/submit
+/// ownership to its host.
+pub async fn render_sections(ctx: &dyn Context, sections: &[SettingsSection<'_>]) -> Markup {
+    let values = load_values(ctx, sections).await;
+    let empty = String::new();
+    html! {
+        @for (i, section) in sections.iter().enumerate() {
+            h3 style=(format!(
+                "font-size:1rem;font-weight:600;margin:{} 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)",
+                if i == 0 { "0" } else { "1.5rem" }
+            )) {
+                (section.icon) " " (section.title)
+            }
+            @for var in section.vars {
+                (render_field(var, values.get(&var.key).unwrap_or(&empty)))
+            }
+        }
+    }
+}
+
 /// Render the full ConfigVar-driven settings form: a `#settings-form` posting
 /// JSON to `post_url`, with one titled section per [`SettingsSection`], a
 /// "Save Settings" button, and the shared submit snippet. Current values are
@@ -185,21 +216,10 @@ pub async fn settings_form(
     sections: &[SettingsSection<'_>],
     extra: Markup,
 ) -> Markup {
-    let values = load_values(ctx, sections).await;
-    let empty = String::new();
+    let fields = render_sections(ctx, sections).await;
     html! {
         form #settings-form onsubmit="return submitSettings(event)" {
-            @for (i, section) in sections.iter().enumerate() {
-                h3 style=(format!(
-                    "font-size:1rem;font-weight:600;margin:{} 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)",
-                    if i == 0 { "0" } else { "1.5rem" }
-                )) {
-                    (section.icon) " " (section.title)
-                }
-                @for var in section.vars {
-                    (render_field(var, values.get(&var.key).unwrap_or(&empty)))
-                }
-            }
+            (fields)
             (extra)
             button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
         }
