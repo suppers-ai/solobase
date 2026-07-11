@@ -12,6 +12,7 @@ use crate::{
             repo::{local_credentials, users},
             USERS_TABLE,
         },
+        auth_ui::redirect::{default_post_login_redirect, is_safe_local_redirect},
         errors::{error_response, ErrorCode},
     },
     http::{err_bad_request, err_internal, ResponseBuilder},
@@ -190,7 +191,9 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Mint tokens, persist the refresh + session rows, build the cookie
-    // (only when email verification is NOT required).
+    // (only when email verification is NOT required) — this is the
+    // auto-login path: a brand-new user is fully signed in by the time this
+    // response reaches the browser, no separate login step needed.
     let issued =
         match issue_tokens_and_cookie(ctx, &user.id, &email_lower, &roles, "password", None, 0)
             .await
@@ -198,6 +201,20 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             Ok(i) => i,
             Err(r) => return r,
         };
+
+    // Role-aware post-login default (Fix 2 / signup UX): a brand-new signup
+    // is (almost) never an admin, so this sends them to `/b/userportal/`
+    // instead of the silent bounce to `/b/auth/login` the page used to do —
+    // same single-sourced rule Fix 1 applies to login/OAuth/bootstrap.
+    let post_login_raw =
+        config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;
+    let admin_default = if is_safe_local_redirect(&post_login_raw) {
+        post_login_raw
+    } else {
+        "/b/admin/".to_string()
+    };
+    let is_admin = roles.iter().any(|r| r == "admin");
+    let default_redirect = default_post_login_redirect(is_admin, &admin_default);
 
     ResponseBuilder::new()
         .status(201)
@@ -208,6 +225,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             "token_type": "Bearer",
             "expires_in": issued.access_lifetime,
             "email_verified": true,
+            "default_redirect": default_redirect,
             "user": {
                 "id": user.id,
                 "email": email_lower,
@@ -215,4 +233,109 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
                 "name": user.display_name
             }
         }))
+}
+
+/// Signup UX (Fix 2) regression tests. Before this fix, a successful signup
+/// with verification NOT required already auto-logged the caller in
+/// (tokens issued, cookie set) but the page's JS ignored that and
+/// unconditionally navigated to `/b/auth/login` — a silent bounce with no
+/// feedback. These tests drive the real [`handle`] end-to-end and assert on
+/// the `default_redirect` the (now role-aware) auto-login response carries,
+/// plus that the verification-required path still does NOT auto-login.
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::test_support::{output_json, TestContext};
+
+    async fn ctx_with_crypto() -> TestContext {
+        let mut ctx = TestContext::with_auth().await;
+        let svc = Arc::new(
+            wafer_block_crypto::service::Argon2JwtCryptoService::new(
+                "test-jwt-secret-padded-to-min-32-bytes-aaaa".to_string(),
+            )
+            .expect("test secret is long enough"),
+        );
+        let crypto_block: Arc<dyn wafer_run::Block> =
+            Arc::new(wafer_core::service_blocks::crypto::CryptoBlock::new(svc));
+        ctx.register_block("wafer-run/crypto", crypto_block);
+        ctx
+    }
+
+    async fn signup(ctx: &TestContext, email: &str, password: &str) -> serde_json::Value {
+        let body = serde_json::json!({"email": email, "password": password}).to_string();
+        let out = handle(ctx, InputStream::from_bytes(body.into_bytes())).await;
+        output_json(out).await
+    }
+
+    #[tokio::test]
+    async fn regular_signup_auto_logs_in_and_defaults_to_userportal() {
+        let ctx = ctx_with_crypto().await;
+
+        let resp = signup(&ctx, "newuser@example.com", "correct-horse-battery").await;
+
+        assert_eq!(resp["email_verified"], true);
+        assert!(
+            resp["access_token"].is_string() && !resp["access_token"].as_str().unwrap().is_empty(),
+            "verification not required — signup must auto-login (issue a token): {resp}"
+        );
+        assert_eq!(
+            resp["default_redirect"], "/b/userportal/",
+            "brand-new non-admin signup must land on the user portal, not \
+             bounce to /b/auth/login with no feedback: {resp}"
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_email_signup_defaults_to_admin_home() {
+        let mut ctx = ctx_with_crypto().await;
+        ctx.set_config(
+            "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL",
+            "admin@example.com",
+        );
+
+        let resp = signup(&ctx, "admin@example.com", "correct-horse-battery").await;
+
+        assert_eq!(resp["user"]["roles"], serde_json::json!(["admin"]));
+        assert_eq!(resp["default_redirect"], "/b/admin/");
+    }
+
+    #[tokio::test]
+    async fn verification_required_does_not_auto_login() {
+        let mut ctx = ctx_with_crypto().await;
+        ctx.set_config("SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "true");
+
+        let resp = signup(&ctx, "pending@example.com", "correct-horse-battery").await;
+
+        assert_eq!(resp["email_verified"], false);
+        assert!(
+            resp.get("access_token").is_none(),
+            "verification required — signup must NOT auto-login: {resp}"
+        );
+        assert!(
+            resp.get("default_redirect").is_none(),
+            "no redirect target is minted when the user isn't logged in yet: {resp}"
+        );
+
+        // The account was still created — a duplicate signup must return the
+        // generic "already registered" response, not a fresh 201.
+        let user = users::find_by_email(&ctx, "pending@example.com")
+            .await
+            .unwrap()
+            .expect("user row created even though verification is pending");
+        assert!(!user.email_verified);
+    }
+
+    #[tokio::test]
+    async fn duplicate_email_signup_response_has_no_default_redirect() {
+        let ctx = ctx_with_crypto().await;
+        signup(&ctx, "dupe@example.com", "correct-horse-battery").await;
+
+        // Second attempt with the same email — [SEC-035] generic response,
+        // no tokens, so no redirect target either.
+        let resp = signup(&ctx, "dupe@example.com", "some-other-password").await;
+        assert!(resp.get("access_token").is_none());
+        assert!(resp.get("default_redirect").is_none());
+    }
 }

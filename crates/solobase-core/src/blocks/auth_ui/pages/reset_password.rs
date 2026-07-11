@@ -34,7 +34,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "Reset Password",
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Reset your password."),
             html! {
                 div .login-container {
                     div .login-logo {
@@ -106,7 +106,7 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
         title,
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Reset your password."),
             html! {
                 div .login-container {
                     div .login-logo {

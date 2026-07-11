@@ -22,7 +22,7 @@ use crate::{
             repo::{bootstrap_tokens, users},
             service::hash_token,
         },
-        auth_ui::redirect::is_safe_local_redirect,
+        auth_ui::redirect::{default_post_login_redirect, is_safe_local_redirect},
         errors::error_response,
     },
     http::{
@@ -102,11 +102,16 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     //    `/b/auth/dashboard` target is not a registered route (404).
     let post_login_raw =
         config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;
-    let dest = if is_safe_local_redirect(&post_login_raw) {
+    let admin_default = if is_safe_local_redirect(&post_login_raw) {
         post_login_raw
     } else {
         "/b/admin/".to_string()
     };
+    // Bootstrap redemption always creates the admin account (step 2 above),
+    // so `is_admin` is always `true` here — routed through the same
+    // single-sourced rule as login/OAuth (`redirect::default_post_login_redirect`)
+    // for consistency, not because the outcome differs.
+    let dest = default_post_login_redirect(true, &admin_default);
     ResponseBuilder::new()
         .status(302)
         .set_cookie(&issued.cookie)

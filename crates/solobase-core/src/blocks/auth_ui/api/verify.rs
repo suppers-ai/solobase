@@ -149,7 +149,7 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
         title,
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Verify your email."),
             html! {
                 div .login-container {
                     div .login-logo {

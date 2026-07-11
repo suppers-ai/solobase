@@ -26,14 +26,16 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     } else {
         String::new()
     };
-    let post_login_raw = ctx
-        .config_get("SOLOBASE_SHARED__POST_LOGIN_REDIRECT")
-        .unwrap_or("/b/admin/")
-        .to_string();
-    let post_login = if is_safe_local_redirect(&post_login_raw) {
-        post_login_raw
+    // Signup UX (Fix 2): the signup page can send a brand-new user here with
+    // `?email=...` after redirecting them for email verification, so they
+    // don't have to retype it. Rendered as an attribute value — maud
+    // HTML-escapes it, and an over-long value is simply dropped rather than
+    // rendered.
+    let raw_email = msg.get_meta("req.query.email").to_string();
+    let prefill_email = if raw_email.len() <= 255 {
+        raw_email
     } else {
-        "/b/admin/".to_string()
+        String::new()
     };
     let logo_url = &config.logo_url;
 
@@ -65,7 +67,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "Sign In",
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Sign in to continue."),
             html! {
                 div .login-container {
                     div .login-logo {
@@ -103,11 +105,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
                     form #form .login-form onsubmit="return handleLogin(event)" {
                         input type="hidden" #redirect value=(redirect);
-                        input type="hidden" #post_login value=(post_login);
 
                         div .form-group {
                             label .form-label for="email" { "Email" }
-                            input .form-input type="email" #email placeholder="you@example.com" required;
+                            input .form-input type="email" #email placeholder="you@example.com" value=(prefill_email) required;
                         }
 
                         div .form-group {
@@ -142,4 +143,73 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
 
     ui::html_response(markup)
+}
+
+#[cfg(test)]
+mod tests {
+    use wafer_run::Message;
+
+    use super::handle;
+    use crate::test_support::{output_html, TestContext};
+
+    fn login_msg(query: &[(&str, &str)]) -> Message {
+        let mut msg = Message::new("http.request");
+        for (k, v) in query {
+            msg.set_meta(format!("req.query.{k}"), *v);
+        }
+        msg
+    }
+
+    /// Explicit, safe `?redirect=` params must still be honored — rendered
+    /// into the hidden `#redirect` field the login script reads first,
+    /// ahead of the role-aware `default_redirect` the JSON API returns.
+    #[tokio::test]
+    async fn renders_safe_redirect_into_hidden_field() {
+        let ctx = TestContext::new().await;
+        let msg = login_msg(&[("redirect", "/b/userportal/profile")]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+        assert!(
+            html.contains(r#"id="redirect" type="hidden" value="/b/userportal/profile""#),
+            "safe redirect must be rendered into the hidden field: {html}"
+        );
+    }
+
+    /// Open-redirect protection is unchanged by this fix: an unsafe
+    /// `?redirect=` (protocol-relative, foreign scheme, etc.) must still be
+    /// dropped rather than rendered.
+    #[tokio::test]
+    async fn rejects_unsafe_redirect_renders_empty_hidden_field() {
+        let ctx = TestContext::new().await;
+        let msg = login_msg(&[("redirect", "//evil.com")]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+        assert!(
+            html.contains(r#"id="redirect" type="hidden" value="""#),
+            "unsafe redirect must not be rendered: {html}"
+        );
+        assert!(!html.contains("evil.com"));
+    }
+
+    /// Signup UX (Fix 2): the signup page can send a brand-new user here
+    /// with `?email=...` so they don't have to retype it.
+    #[tokio::test]
+    async fn prefills_email_from_query_param() {
+        let ctx = TestContext::new().await;
+        let msg = login_msg(&[("email", "alice@example.com")]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+        assert!(
+            html.contains(r#"value="alice@example.com""#),
+            "email query param must prefill the email input: {html}"
+        );
+    }
+
+    /// Defensive cap — an absurd `?email=` value is dropped rather than
+    /// rendered (mirrors the 255-char cap `api/signup.rs` enforces on input).
+    #[tokio::test]
+    async fn ignores_overlong_email_query_param() {
+        let ctx = TestContext::new().await;
+        let long_email = format!("{}@example.com", "a".repeat(300));
+        let msg = login_msg(&[("email", &long_email)]);
+        let html = output_html(handle(&ctx, &msg).await).await;
+        assert!(!html.contains(&long_email));
+    }
 }

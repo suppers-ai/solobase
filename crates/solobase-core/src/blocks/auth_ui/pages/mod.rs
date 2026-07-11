@@ -185,7 +185,7 @@ async function handleLogin(ev){
       var maxAge=d.expires_in||1800;
       document.cookie='auth_token='+d.access_token+'; Path=/; SameSite=Lax; Max-Age='+maxAge+secure;
     }
-    var redir=$('redirect').value||$('post_login').value||'/';
+    var redir=$('redirect').value||d.default_redirect||'/';
     window.location.href=redir;
   }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Sign In'}
   return false;
@@ -213,7 +213,7 @@ async function handleLogin(ev){
     var r=await fetch('/b/auth/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
     var d=await r.json();
     if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Invalid credentials');btn.disabled=false;btn.textContent='Sign In';return false}
-    var redir=$('redirect').value||$('post_login').value||'/';
+    var redir=$('redirect').value||d.default_redirect||'/';
     window.location.href=redir;
   }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Sign In'}
   return false;
@@ -224,6 +224,92 @@ async function handleForgot(){
   $('error').style.display='none';$('info').style.display='none';
   try{await fetch('/b/auth/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
   showInfo('If that email is registered, a password reset link has been sent.');
+}
+"#
+    }
+}
+
+/// JS that drives the signup form.
+///
+/// Mirrors [`login_script`]'s wasm32/native split: on browser (wasm32)
+/// targets the server runs inside a Service Worker and `Set-Cookie` from a
+/// SW-synthetic response doesn't persist, so the auto-login cookie is also
+/// set from the response body client-side there; native gets the version
+/// without the client-side assignment since the server's `Set-Cookie`
+/// already works.
+///
+/// Two outcomes from `POST /b/auth/api/signup`:
+/// - `email_verified === false` (verification required): stays on the
+///   signup page and shows the "check your email" panel — no auto-login
+///   happened server-side, so there's nothing to navigate to yet. The
+///   "Back to Sign In" link is rewritten to carry `?email=` so the user
+///   doesn't have to retype it once they've verified.
+/// - otherwise: the API already auto-logged the user in (tokens issued,
+///   cookie set) — navigate straight to the role-aware `default_redirect`
+///   the response computed, honoring an explicit `redirect` param first.
+///   This replaces the old unconditional bounce to `/b/auth/login`, which
+///   ignored the fact the user was already authenticated.
+pub(super) fn signup_script() -> &'static str {
+    #[cfg(target_arch = "wasm32")]
+    {
+        r#"
+var $=function(id){return document.getElementById(id)};
+function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex'}
+async function handleSignup(ev){
+  ev.preventDefault();
+  var btn=$('btn');btn.disabled=true;btn.textContent='Creating account...';
+  $('error').style.display='none';
+  var email=$('email').value,pw=$('password').value;
+  try{
+    var r=await fetch('/b/auth/api/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
+    var d=await r.json();
+    if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Signup failed');btn.disabled=false;btn.textContent='Create Account';return false}
+    if(d.email_verified===false){
+      $('form').style.display='none';$('signin-link').style.display='none';
+      $('verify-msg').textContent='We sent a verification link to '+email+'. Click the link to activate your account.';
+      var back=$('back-to-signin');
+      if(back){var qs='email='+encodeURIComponent(email);var r2=$('redirect').value;if(r2){qs+='&redirect='+encodeURIComponent(r2)}back.setAttribute('href','/b/auth/login?'+qs);}
+      $('success').style.display='block';
+    }else{
+      if(d.access_token){
+        var secure=location.protocol==='https:'?'; Secure':'';
+        var maxAge=d.expires_in||1800;
+        document.cookie='auth_token='+d.access_token+'; Path=/; SameSite=Lax; Max-Age='+maxAge+secure;
+      }
+      var redir=$('redirect').value||d.default_redirect||'/';
+      window.location.href=redir;
+    }
+  }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Create Account'}
+  return false;
+}
+"#
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        r#"
+var $=function(id){return document.getElementById(id)};
+function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex'}
+async function handleSignup(ev){
+  ev.preventDefault();
+  var btn=$('btn');btn.disabled=true;btn.textContent='Creating account...';
+  $('error').style.display='none';
+  var email=$('email').value,pw=$('password').value;
+  try{
+    var r=await fetch('/b/auth/api/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
+    var d=await r.json();
+    if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Signup failed');btn.disabled=false;btn.textContent='Create Account';return false}
+    if(d.email_verified===false){
+      $('form').style.display='none';$('signin-link').style.display='none';
+      $('verify-msg').textContent='We sent a verification link to '+email+'. Click the link to activate your account.';
+      var back=$('back-to-signin');
+      if(back){var qs='email='+encodeURIComponent(email);var r2=$('redirect').value;if(r2){qs+='&redirect='+encodeURIComponent(r2)}back.setAttribute('href','/b/auth/login?'+qs);}
+      $('success').style.display='block';
+    }else{
+      var redir=$('redirect').value||d.default_redirect||'/';
+      window.location.href=redir;
+    }
+  }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Create Account'}
+  return false;
 }
 "#
     }

@@ -29,7 +29,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "Bootstrap Admin",
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Set up your admin account."),
             html! {
                 div .login-container {
                     div .login-logo {
