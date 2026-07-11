@@ -198,9 +198,13 @@ impl StorageService for R2StorageService {
             cursor = listed.cursor();
             if cursor.is_none() {
                 // `truncated() == true` is documented to always come with a
-                // cursor; bail rather than loop forever if that contract
-                // is ever violated.
-                break;
+                // cursor. If that contract is ever violated, we cannot tell
+                // whether more objects remain under this prefix — falling
+                // through to `Ok(())` would silently report success on a
+                // partial delete. Fail loudly instead.
+                return Err(StorageError::Internal(
+                    "R2 reported truncated results with no cursor".into(),
+                ));
             }
         }
 
