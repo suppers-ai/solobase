@@ -16,7 +16,7 @@ use crate::{
             repo::{oauth_pkce, provider_links, users},
             USERS_TABLE,
         },
-        auth_ui::redirect::is_safe_local_redirect,
+        auth_ui::redirect::{default_post_login_redirect, is_safe_local_redirect},
     },
     http::{err_bad_request, err_forbidden, err_internal, err_internal_no_cause, ResponseBuilder},
     util::json_map,
@@ -164,11 +164,16 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
     let post_login_raw =
         config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;
-    let post_login = if is_safe_local_redirect(&post_login_raw) {
+    let admin_default = if is_safe_local_redirect(&post_login_raw) {
         post_login_raw
     } else {
         "/b/admin/".to_string()
     };
+    // Role-aware default (#1 onboarding bug fix): a non-admin OAuth login
+    // must never default into the admin-only destination above — see
+    // `redirect::default_post_login_redirect`.
+    let is_admin = roles.iter().any(|r| r == "admin");
+    let post_login = default_post_login_redirect(is_admin, &admin_default);
     let redirect_url = format!("{}{}", frontend_url.trim_end_matches('/'), post_login);
 
     ResponseBuilder::new()
@@ -668,7 +673,13 @@ mod security_regression_tests {
     /// Build a ctx with auth migrations, a crypto block (token minting), a mock
     /// Google network block, OAuth enabled, and a seeded PKCE state row so the
     /// callback's single-use state redemption succeeds.
-    async fn ctx_for_oauth(userinfo_email: &str) -> TestContext {
+    ///
+    /// `extra_config` is folded into the same `wafer-run/config` block as the
+    /// OAuth flags below (e.g. `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL`
+    /// for the role-aware-redirect tests) — it can't be layered on afterward
+    /// via `TestContext::set_config`, which would replace this block wholesale
+    /// and drop the OAuth flags the callback needs to get past its own gates.
+    async fn ctx_for_oauth(userinfo_email: &str, extra_config: &[(&str, &str)]) -> TestContext {
         let mut ctx = TestContext::with_auth().await;
 
         // Crypto block — issue_tokens_and_cookie signs JWTs and pulls random
@@ -708,6 +719,9 @@ mod security_regression_tests {
             "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
             "client-secret",
         );
+        for (k, v) in extra_config {
+            cfg_svc.set(k, v);
+        }
         let cfg_block: Arc<dyn Block> = Arc::new(ConfigBlock::new(Arc::new(cfg_svc)));
         ctx.register_block("wafer-run/config", cfg_block);
 
@@ -746,7 +760,7 @@ mod security_regression_tests {
         // session row (the drift that made OAuth logins invisible on the
         // userportal device list).
         let email = "newoauth@example.com";
-        let ctx = ctx_for_oauth(email).await;
+        let ctx = ctx_for_oauth(email, &[]).await;
 
         let out = handle(&ctx, &callback_msg()).await;
         let status = crate::test_support::output_status(out).await;
@@ -767,11 +781,51 @@ mod security_regression_tests {
         );
     }
 
+    /// #1 onboarding bug fix: a brand-new non-admin OAuth login must default
+    /// into `/b/userportal/`, not the admin-only `/b/admin/` default.
+    #[tokio::test]
+    async fn oauth_login_non_admin_redirects_to_userportal() {
+        let email = "oauthuser@example.com";
+        let ctx = ctx_for_oauth(email, &[]).await;
+
+        let out = handle(&ctx, &callback_msg()).await;
+        let location = crate::test_support::output_header(out, "Location")
+            .await
+            .expect("302 redirect must set a Location header");
+        assert!(
+            location.ends_with("/b/userportal/"),
+            "non-admin OAuth login must default to the user portal, not the \
+             admin-only route: {location}"
+        );
+    }
+
+    /// Companion to the above: an admin (email matches the configured
+    /// bootstrap admin email) still gets the operator-configured admin
+    /// default — the fix is role-aware, not a blanket redirect change.
+    #[tokio::test]
+    async fn oauth_login_admin_email_redirects_to_admin_home() {
+        let email = "oauthadmin@example.com";
+        let ctx = ctx_for_oauth(
+            email,
+            &[("SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", email)],
+        )
+        .await;
+
+        let out = handle(&ctx, &callback_msg()).await;
+        let location = crate::test_support::output_header(out, "Location")
+            .await
+            .expect("302 redirect must set a Location header");
+        assert!(
+            location.ends_with("/b/admin/"),
+            "admin OAuth login must still default to the admin home: {location}"
+        );
+    }
+
     #[tokio::test]
     async fn disabled_user_cannot_oauth_in() {
         // Seed a DISABLED user with the email the provider will return.
         let email = "disabled@example.com";
-        let ctx = ctx_for_oauth(email).await;
+        let ctx = ctx_for_oauth(email, &[]).await;
 
         let user = users::insert(
             &ctx,
@@ -835,7 +889,7 @@ mod security_regression_tests {
         // Seed a SOFT-DELETED (but not `disabled`) user with the email the
         // provider will return.
         let email = "softdeleted@example.com";
-        let ctx = ctx_for_oauth(email).await;
+        let ctx = ctx_for_oauth(email, &[]).await;
 
         let user = users::insert(
             &ctx,

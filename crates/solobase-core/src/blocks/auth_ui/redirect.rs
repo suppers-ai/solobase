@@ -47,6 +47,35 @@ pub fn is_safe_local_redirect(path: &str) -> bool {
     true
 }
 
+/// Fixed landing page for authenticated non-admin users. See
+/// `blocks/userportal/mod.rs` (`BlockEndpoint::get("/b/userportal/")`,
+/// `AuthLevel::Authenticated`) for the route this points at — every
+/// authenticated user (admin or not) can load it.
+pub const USER_PORTAL_HOME: &str = "/b/userportal/";
+
+/// Single-sourced post-login **default** — the destination used once an
+/// explicit, validated `next`/`redirect` param has already been ruled out.
+///
+/// This is the fix for the #1 onboarding bug: every success path (form
+/// login, JSON login, OAuth callback, bootstrap redemption) used to default
+/// to the operator-configured `SOLOBASE_SHARED__POST_LOGIN_REDIRECT`
+/// (`/b/admin/` unless overridden) regardless of the caller's role. A
+/// brand-new non-admin signup landed on an admin-only route and hit a 403
+/// dead-end. Non-admins now default to [`USER_PORTAL_HOME`] instead; admins
+/// keep the operator-configured destination.
+///
+/// `configured_admin_default` must already be validated by the caller (via
+/// [`is_safe_local_redirect`]) — this function does not re-validate it,
+/// matching every existing call site's `is_safe_local_redirect(..) ..else
+/// "/b/admin/"` fallback pattern.
+pub fn default_post_login_redirect(is_admin: bool, configured_admin_default: &str) -> String {
+    if is_admin {
+        configured_admin_default.to_string()
+    } else {
+        USER_PORTAL_HOME.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +140,29 @@ mod tests {
         assert!(!is_safe_local_redirect("/%5Cevil.com"));
         assert!(!is_safe_local_redirect("/%5cevil.com"));
         assert!(!is_safe_local_redirect("/path%5cmore"));
+    }
+
+    #[test]
+    fn default_post_login_redirect_sends_admin_to_configured_default() {
+        assert_eq!(default_post_login_redirect(true, "/b/admin/"), "/b/admin/");
+        // Even a custom operator-configured admin default is honored.
+        assert_eq!(
+            default_post_login_redirect(true, "/b/admin/reports"),
+            "/b/admin/reports"
+        );
+    }
+
+    #[test]
+    fn default_post_login_redirect_never_sends_non_admin_to_admin_default() {
+        // This is the #1 onboarding bug: a non-admin must never default into
+        // an admin-only URL, no matter what the operator configured.
+        assert_eq!(
+            default_post_login_redirect(false, "/b/admin/"),
+            USER_PORTAL_HOME
+        );
+        assert_eq!(
+            default_post_login_redirect(false, "/b/admin/reports"),
+            USER_PORTAL_HOME
+        );
     }
 }

@@ -18,7 +18,7 @@ pub async fn handle(ctx: &dyn Context, _msg: &Message) -> OutputStream {
         "Change Password",
         &config,
         auth_split(
-            brand_panel(&config),
+            brand_panel(&config, "Update your password."),
             html! {
                 div .login-container {
                     div .login-logo {
