@@ -4,7 +4,7 @@ use wafer_run::{context::Context, InputStream, Message, OutputStream};
 
 use crate::{
     blocks::email::DEFAULT_MAILGUN_BASE_URL,
-    http::{err_bad_request, ok_json},
+    http::{err_bad_request, err_internal, ok_json},
     ui::icons,
 };
 
@@ -121,8 +121,71 @@ pub async fn handle_save_email_settings(
     };
     for field in EMAIL_SETTINGS_KEYS {
         if let Some(value) = body.get(field.key) {
-            let _ = config::set(ctx, field.key, value).await;
+            // Surface the first write failure instead of reporting a false
+            // "saved" — the page JS renders a success toast unless the
+            // response is an error (see `submitEmailSettings` above), so a
+            // swallowed error here silently drops Mailgun config changes.
+            if let Err(e) = config::set(ctx, field.key, value).await {
+                return err_internal("Failed to save email settings", e);
+            }
         }
     }
     ok_json(&serde_json::json!({"message": "Email settings saved"}))
+}
+
+#[cfg(test)]
+mod tests {
+    use wafer_run::{streams::output::TerminalNotResponse, InputStream};
+
+    use super::*;
+    use crate::test_support::{anon_msg, output_json, TestContext};
+
+    fn email_body() -> serde_json::Value {
+        serde_json::json!({
+            "SUPPERS_AI__EMAIL__MAILGUN_API_KEY": "key-123",
+            "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN": "mg.example.com",
+        })
+    }
+
+    #[tokio::test]
+    async fn save_email_settings_reports_failure_when_config_set_fails() {
+        // No `wafer-run/config` block registered on this TestContext, so every
+        // `config::set` call fails with NotFound (mirrors
+        // `save_settings_surfaces_config_set_failure` in `ui/settings_form.rs`,
+        // the established way this test infra exercises a config::set
+        // failure). Before the fix, the save loop swallowed the error via
+        // `let _ = config::set(...)` and returned success anyway.
+        let ctx = TestContext::new().await;
+        let msg = anon_msg("create", "/b/admin/email");
+        let input = InputStream::from_bytes(serde_json::to_vec(&email_body()).unwrap());
+
+        let out = handle_save_email_settings(&ctx, &msg, input).await;
+
+        assert!(
+            matches!(
+                out.collect_buffered().await,
+                Err(TerminalNotResponse::Error(_))
+            ),
+            "a failed config::set must surface as an error, not a success toast"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_email_settings_reports_success_when_all_writes_succeed() {
+        let mut ctx = TestContext::new().await;
+        // Registers a real `wafer-run/config` service block so `config::set`
+        // succeeds (see `TestContext::set_config`).
+        ctx.set_config("SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "");
+        let msg = anon_msg("create", "/b/admin/email");
+        let input = InputStream::from_bytes(serde_json::to_vec(&email_body()).unwrap());
+
+        let out = handle_save_email_settings(&ctx, &msg, input).await;
+        let body = output_json(out).await;
+
+        assert_eq!(body["message"], "Email settings saved");
+
+        // The value was actually persisted, not just reported as saved.
+        let stored = config::get_default(&ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "").await;
+        assert_eq!(stored, "key-123");
+    }
 }
