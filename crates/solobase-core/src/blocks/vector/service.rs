@@ -53,6 +53,26 @@ pub fn display_index_name(stored: &str) -> &str {
     stored.strip_prefix(TABLE_PREFIX).unwrap_or(stored)
 }
 
+/// True when the `wafer-run/vector` backend block is registered on this
+/// runtime.
+///
+/// Native solobase ships no native vector engine (see the module docs on
+/// `pages_ui::index_list_page`) — the `wafer-run/vector` service block is
+/// only present on the browser-WASM build or when a runtime config wires
+/// one in. Without it, every `vclient::*` call in `pages.rs` fails with
+/// `ErrorCode::NotFound: block 'wafer-run/vector' not found`, which is
+/// indistinguishable (same error code) from a genuine "index not found".
+/// Checking `registered_blocks()` up front — instead of pattern-matching on
+/// that ambiguous `NotFound`, which the API's per-index-op error branches
+/// already use for a different meaning — lets both the UI page and every
+/// JSON API handler detect the missing backend unambiguously and degrade
+/// gracefully. Single source of truth so the two call sites can't drift.
+pub fn vector_backend_available(ctx: &dyn Context) -> bool {
+    ctx.registered_blocks()
+        .iter()
+        .any(|b| b.name == "wafer-run/vector")
+}
+
 /// Validate that an index name only contains characters that are safe
 /// to interpolate into SQL identifiers (alphanumeric + underscore).
 ///

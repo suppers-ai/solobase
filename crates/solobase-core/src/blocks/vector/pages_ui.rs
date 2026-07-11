@@ -7,7 +7,7 @@ use maud::{html, Markup};
 use wafer_core::clients::vector as vclient;
 use wafer_run::{context::Context, Message, OutputStream};
 
-use super::service::{display_index_name, IndexRow};
+use super::service::{display_index_name, vector_backend_available, IndexRow};
 use crate::ui::{
     self,
     shell::Crumb,
@@ -170,11 +170,9 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // creating/upserting against an index would 500 with "block not found".
     // Detect the missing backend at page render so we can hide the Create
     // button and surface an actionable callout instead of letting the user
-    // hit a generic htmx error.
-    let backend_available = ctx
-        .registered_blocks()
-        .iter()
-        .any(|b| b.name == "wafer-run/vector");
+    // hit a generic htmx error. Single-sourced with the JSON API's own
+    // backend-availability gate (`pages.rs`) via `service::vector_backend_available`.
+    let backend_available = vector_backend_available(ctx);
 
     let body = list_page(
         PageHeader {
