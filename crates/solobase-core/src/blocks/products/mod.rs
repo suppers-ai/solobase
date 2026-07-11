@@ -89,7 +89,7 @@ crate::solobase_feature_block! {
                 "slug": {"type": "string"},
                 "base_price": {"type": "number"},
                 "currency": {"type": "string"},
-                "status": {"type": "string", "description": "draft | active | archived"},
+                "status": {"type": "string", "description": "draft | active"},
                 "category": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "metadata": {"type": "object"},
@@ -97,6 +97,12 @@ crate::solobase_feature_block! {
                 "stock": {"type": "integer"},
                 "group_id": {"type": "string"},
                 "type_id": {"type": "string"},
+                "group_template_id": {"type": "string"},
+                "product_template_id": {"type": "string"},
+                "pricing_template_id": {"type": "string"},
+                "requires": {"type": "string"},
+                "created_by": {"type": "string"},
+                "deleted_at": {"type": ["string", "null"], "format": "date-time", "description": "Null unless the product has been soft-deleted."},
                 "created_at": {"type": "string", "format": "date-time"},
                 "updated_at": {"type": "string", "format": "date-time"}
             }

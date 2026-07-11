@@ -572,6 +572,10 @@ mod discovery_tests {
             refresh["requestBody"]["content"]["application/json"]["schema"]["required"],
             serde_json::json!(["refresh_token"]),
         );
+        assert!(
+            refresh.get("security").is_none(),
+            "refresh is AuthLevel::Public — must not carry a security requirement: {refresh}"
+        );
     }
 
     #[tokio::test]
@@ -630,6 +634,27 @@ mod discovery_tests {
             "number",
             "catalog response schema must match the real products row shape: {catalog}"
         );
+        // The product object schema must cover every column the migration
+        // declares (see `001_products_schema.sqlite.sql`), not just a subset
+        // — `SELECT *` means all 22 columns land in the real response.
+        // `created_by`/`deleted_at` were previously missing entirely; pin
+        // them (plus the other four FK/requires columns) so the gap can't
+        // silently reopen.
+        let product_props = &catalog["responses"]["200"]["content"]["application/json"]["schema"]
+            ["properties"]["records"]["items"]["properties"]["data"]["properties"];
+        for field in [
+            "group_template_id",
+            "product_template_id",
+            "pricing_template_id",
+            "requires",
+            "created_by",
+            "deleted_at",
+        ] {
+            assert!(
+                !product_props[field].is_null(),
+                "product schema is missing real column `{field}`: {product_props}"
+            );
+        }
 
         let detail = &paths["/b/products/catalog/{id}"]["get"];
         assert!(
