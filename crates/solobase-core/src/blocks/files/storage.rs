@@ -479,25 +479,22 @@ async fn handle_upload_object(
         return err_bad_request("Missing bucket name");
     }
 
-    let key = msg.query("key").to_string();
-    if key.is_empty() {
+    let request_content_type = msg.get_meta("req.content_type").to_string();
+    let is_multipart = crate::multipart::multipart_boundary(&request_content_type).is_some();
+
+    let query_key = msg.query("key").to_string();
+    // For raw-body uploads the key can only come from the URL, so its absence
+    // is fatal before buffering anything. Multipart bodies carry a fallback
+    // (the file part's filename), so that check happens after parsing below.
+    if query_key.is_empty() && !is_multipart {
         return err_bad_request("Missing object key (pass as ?key=filename)");
     }
-    if !is_valid_storage_key(&key) {
+    if !query_key.is_empty() && !is_valid_storage_key(&query_key) {
         return err_bad_request("Invalid object key");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
         return err_forbidden("Access denied to this bucket");
     }
-
-    let content_type = {
-        let ct = msg.get_meta("req.content_type");
-        if ct.is_empty() {
-            "application/octet-stream".to_string()
-        } else {
-            ct.to_string()
-        }
-    };
 
     // Best-effort sweep before quota check: orphan `pending` rows (from
     // previous uploads where the storage put failed AND the compensating
@@ -512,19 +509,59 @@ async fn handle_upload_object(
     //   - total `max_storage_bytes` (depends on current usage; checked once
     //     after we know the body's full size)
     // The chunked check uses the user's *file-size* cap as a hard ceiling
-    // since that's the smaller of the two.
+    // since that's the smaller of the two. For multipart bodies the cap
+    // applies to the envelope — a slight over-estimate (the extracted file
+    // is always smaller than its envelope), never an under-estimate.
     let quota = super::quota::get_user_quota(ctx, msg.user_id()).await;
-    let body_bytes = match collect_with_cap(input, quota.max_file_size_bytes).await {
-        Ok(buf) => buf,
-        Err(_) => {
-            return err_bad_request(&format!(
-                "File exceeds maximum size of {} bytes",
-                quota.max_file_size_bytes
-            ));
-        }
+    let Ok(body_bytes) = collect_with_cap(input, quota.max_file_size_bytes).await else {
+        return err_bad_request(&format!(
+            "File exceeds maximum size of {} bytes",
+            quota.max_file_size_bytes
+        ));
     };
 
-    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), body_bytes.len() as i64).await {
+    // Browser uploads (`FormData` + fetch) arrive as `multipart/form-data`:
+    // the body is a boundary envelope AROUND the file, not the file itself.
+    // Extract the file part and store ITS bytes/content type/size — storing
+    // the raw body would corrupt the object (the pre-fix behavior). Raw-body
+    // uploads (programmatic clients POSTing the bytes directly) keep the
+    // body as the content.
+    let (content, key, content_type) = if is_multipart {
+        let Some(file) =
+            crate::multipart::extract_multipart_file(&body_bytes, &request_content_type)
+        else {
+            return err_bad_request("Multipart body contains no file part");
+        };
+        let key = if query_key.is_empty() {
+            file.filename.unwrap_or_default()
+        } else {
+            query_key
+        };
+        if key.is_empty() {
+            return err_bad_request("Missing object key (pass as ?key=filename)");
+        }
+        if !is_valid_storage_key(&key) {
+            return err_bad_request("Invalid object key");
+        }
+        // The part's own Content-Type wins; fall back to extension-based
+        // detection on the key (which itself falls back to octet-stream).
+        let content_type = file
+            .content_type
+            .filter(|ct| !ct.is_empty())
+            .unwrap_or_else(|| {
+                wafer_core::mime::mime_for_ext(std::path::Path::new(&key)).to_string()
+            });
+        (file.content, key, content_type)
+    } else {
+        let content_type = if request_content_type.is_empty() {
+            "application/octet-stream".to_string()
+        } else {
+            request_content_type
+        };
+        (body_bytes, query_key, content_type)
+    };
+
+    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), content.len() as i64).await {
         return r;
     }
 
@@ -533,7 +570,7 @@ async fn handle_upload_object(
     let pending_data = crate::util::json_map(serde_json::json!({
         "bucket": bucket,
         "key": key,
-        "size": body_bytes.len(),
+        "size": content.len(),
         "content_type": content_type,
         "status": "pending",
         "uploaded_by": msg.user_id(),
@@ -545,7 +582,7 @@ async fn handle_upload_object(
         Err(e) => return err_internal("Failed to reserve upload slot", e),
     };
 
-    match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
+    match store::put(ctx, bucket, &key, &content, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
             let update_data = crate::util::json_map(serde_json::json!({ "status": "complete" }));
@@ -815,10 +852,287 @@ mod tests {
 
 #[cfg(test)]
 mod integration_tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use async_trait::async_trait;
     use serde_json::json;
+    use wafer_core::{
+        interfaces::storage::service::{
+            FolderInfo, ListOptions as StoreListOptions, ObjectInfo, ObjectList, StorageError,
+            StorageService,
+        },
+        service_blocks::storage::StorageBlock,
+    };
 
     use super::*;
     use crate::test_support::{admin_msg, auth_msg, output_json, TestContext};
+
+    /// `(folder, key)` → `(bytes, content_type)`.
+    type MemObjects = HashMap<(String, String), (Vec<u8>, String)>;
+
+    /// In-memory [`StorageService`] so upload tests exercise the production
+    /// `wafer-run/storage` [`StorageBlock`] wire protocol end-to-end (the
+    /// typed `store::put`/`store::get` clients round-trip through the real
+    /// handler) without touching the filesystem.
+    #[derive(Default)]
+    struct MemStorage {
+        objects: Mutex<MemObjects>,
+    }
+
+    #[async_trait]
+    impl StorageService for MemStorage {
+        async fn put(
+            &self,
+            folder: &str,
+            key: &str,
+            data: &[u8],
+            content_type: &str,
+        ) -> Result<(), StorageError> {
+            self.objects.lock().unwrap().insert(
+                (folder.to_string(), key.to_string()),
+                (data.to_vec(), content_type.to_string()),
+            );
+            Ok(())
+        }
+
+        async fn get(
+            &self,
+            folder: &str,
+            key: &str,
+        ) -> Result<(Vec<u8>, ObjectInfo), StorageError> {
+            let guard = self.objects.lock().unwrap();
+            let (data, content_type) = guard
+                .get(&(folder.to_string(), key.to_string()))
+                .ok_or(StorageError::NotFound)?;
+            Ok((
+                data.clone(),
+                ObjectInfo {
+                    key: key.to_string(),
+                    size: data.len() as i64,
+                    content_type: content_type.clone(),
+                    last_modified: chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0)
+                        .expect("epoch"),
+                },
+            ))
+        }
+
+        async fn delete(&self, folder: &str, key: &str) -> Result<(), StorageError> {
+            self.objects
+                .lock()
+                .unwrap()
+                .remove(&(folder.to_string(), key.to_string()));
+            Ok(())
+        }
+
+        async fn list(
+            &self,
+            _folder: &str,
+            _opts: &StoreListOptions,
+        ) -> Result<ObjectList, StorageError> {
+            Ok(ObjectList {
+                objects: vec![],
+                total_count: 0,
+            })
+        }
+
+        async fn create_folder(&self, _name: &str, _public: bool) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        async fn delete_folder(&self, _name: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        async fn list_folders(&self) -> Result<Vec<FolderInfo>, StorageError> {
+            Ok(vec![])
+        }
+    }
+
+    /// `TestContext::with_files()` plus a real `wafer-run/storage` block over
+    /// [`MemStorage`], so `handle_upload_object` can complete its `store::put`.
+    async fn ctx_with_storage() -> TestContext {
+        let mut ctx = TestContext::with_files().await;
+        ctx.register_block(
+            "wafer-run/storage",
+            Arc::new(StorageBlock::new(Arc::new(MemStorage::default()))),
+        );
+        ctx
+    }
+
+    /// Build a browser-shaped `multipart/form-data` envelope around
+    /// `file_bytes` (one `name="file"` part carrying `filename` +
+    /// `Content-Type: text/html`), mirroring what `FormData` + fetch send.
+    fn multipart_envelope(boundary: &str, filename: &str, file_bytes: &[u8]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(b"Content-Type: text/html\r\n\r\n");
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        body
+    }
+
+    /// Build the upload request message the router would produce for
+    /// `POST /b/storage/api/buckets/{bucket}/objects?key={key}`.
+    fn upload_msg(bucket: &str, key: &str, content_type: &str) -> Message {
+        let mut msg = auth_msg(
+            "create",
+            &format!("/b/storage/api/buckets/{bucket}/objects"),
+            "alice",
+        );
+        msg.set_meta("req.param.name", bucket);
+        if !key.is_empty() {
+            msg.set_meta("req.query.key", key);
+        }
+        msg.set_meta("req.content_type", content_type);
+        msg
+    }
+
+    /// Fetch the single OBJECTS_TABLE metadata row (asserting there is
+    /// exactly one) and return its `(size, content_type, status)`.
+    async fn sole_object_row(ctx: &TestContext) -> (i64, String, String) {
+        let rows = db::list_all(ctx, OBJECTS_TABLE, vec![])
+            .await
+            .expect("list object rows");
+        assert_eq!(rows.len(), 1, "expected exactly one object metadata row");
+        let data = &rows[0].data;
+        (
+            data.get("size")
+                .and_then(crate::util::json_as_i64)
+                .expect("size field"),
+            data.get("content_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            data.get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        )
+    }
+
+    /// CRUX regression (found by driving the live app): a browser `FormData`
+    /// upload arrives as `multipart/form-data`, and the handler used to store
+    /// the RAW multipart envelope as the object content — every browser
+    /// upload was corrupted (serving the file returned the envelope, and the
+    /// recorded `size` was the envelope size). The handler must store the
+    /// extracted FILE PART bytes, the part's content type, and the real
+    /// content length.
+    #[tokio::test]
+    async fn upload_multipart_stores_file_bytes_not_envelope() {
+        let ctx = ctx_with_storage().await;
+        seed_bucket(&ctx, "site-assets", "alice").await;
+
+        let file_bytes: &[u8] =
+            b"<!doctype html>\n<html><body><h1>hello from solobase</h1></body></html>\n";
+        let boundary = "----WebKitFormBoundaryqHHDhrDMqZoc7sHW";
+        let envelope = multipart_envelope(boundary, "index.html", file_bytes);
+        assert!(
+            envelope.len() > file_bytes.len(),
+            "envelope must be strictly larger than the file for the size assertion to bite"
+        );
+
+        let msg = upload_msg(
+            "site-assets",
+            "index.html",
+            &format!("multipart/form-data; boundary={boundary}"),
+        );
+        let out = handle_upload_object(&ctx, &msg, InputStream::from_bytes(envelope)).await;
+        let resp = output_json(out).await;
+        assert_eq!(
+            resp.get("uploaded").and_then(|v| v.as_bool()),
+            Some(true),
+            "upload failed: {resp}"
+        );
+
+        let (stored, info) = store::get(&ctx, "site-assets", "index.html")
+            .await
+            .expect("stored object");
+        assert_eq!(
+            stored, file_bytes,
+            "stored content must be the file bytes, not the multipart envelope"
+        );
+        assert_eq!(
+            info.content_type, "text/html",
+            "stored content type must come from the file part, not the multipart request header"
+        );
+
+        let (size, content_type, status) = sole_object_row(&ctx).await;
+        assert_eq!(
+            size,
+            file_bytes.len() as i64,
+            "metadata size must be the extracted content length, not the envelope length"
+        );
+        assert_eq!(content_type, "text/html");
+        assert_eq!(status, "complete");
+    }
+
+    /// Non-multipart (raw body) uploads keep the existing behavior: the body
+    /// IS the content — programmatic clients that POST raw bytes with a
+    /// concrete content type must not regress.
+    #[tokio::test]
+    async fn upload_raw_body_stores_body_as_is() {
+        let ctx = ctx_with_storage().await;
+        seed_bucket(&ctx, "raw-bucket", "alice").await;
+
+        let body: &[u8] = b"plain bytes, no envelope";
+        let msg = upload_msg("raw-bucket", "notes.txt", "text/plain");
+        let out = handle_upload_object(&ctx, &msg, InputStream::from_bytes(body.to_vec())).await;
+        let resp = output_json(out).await;
+        assert_eq!(
+            resp.get("uploaded").and_then(|v| v.as_bool()),
+            Some(true),
+            "upload failed: {resp}"
+        );
+
+        let (stored, info) = store::get(&ctx, "raw-bucket", "notes.txt")
+            .await
+            .expect("stored object");
+        assert_eq!(stored, body, "raw body must be stored unchanged");
+        assert_eq!(info.content_type, "text/plain");
+
+        let (size, content_type, status) = sole_object_row(&ctx).await;
+        assert_eq!(size, body.len() as i64);
+        assert_eq!(content_type, "text/plain");
+        assert_eq!(status, "complete");
+    }
+
+    /// A multipart upload without `?key=` falls back to the file part's
+    /// `filename` as the object key (the URL query param still wins when
+    /// present).
+    #[tokio::test]
+    async fn upload_multipart_without_query_key_uses_part_filename() {
+        let ctx = ctx_with_storage().await;
+        seed_bucket(&ctx, "site-assets", "alice").await;
+
+        let file_bytes: &[u8] = b"body";
+        let boundary = "XBOUNDARYX";
+        let envelope = multipart_envelope(boundary, "from-part.html", file_bytes);
+
+        let msg = upload_msg(
+            "site-assets",
+            "",
+            &format!("multipart/form-data; boundary={boundary}"),
+        );
+        let out = handle_upload_object(&ctx, &msg, InputStream::from_bytes(envelope)).await;
+        let resp = output_json(out).await;
+        assert_eq!(
+            resp.get("key").and_then(|v| v.as_str()),
+            Some("from-part.html"),
+            "key must fall back to the part filename: {resp}"
+        );
+
+        let (stored, _) = store::get(&ctx, "site-assets", "from-part.html")
+            .await
+            .expect("stored object");
+        assert_eq!(stored, file_bytes);
+    }
 
     async fn seed_bucket(ctx: &TestContext, name: &str, owner: &str) {
         let data = crate::util::json_map(json!({
