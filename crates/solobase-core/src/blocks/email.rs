@@ -44,6 +44,79 @@ pub(crate) fn resolve_base_url(configured: &str) -> &str {
     }
 }
 
+/// The email block's own declared config vars. Single source of truth for
+/// both `BlockInfo::config_keys` and the admin Email settings page (rendered
+/// via `ui::settings_form`, not a parallel `EmailSettingField` tuple table —
+/// see `blocks/admin/pages/email.rs`, which selects the Mailgun subset by key
+/// via `config_vars::var_in` rather than re-declaring these).
+pub(crate) fn config_vars() -> Vec<ConfigVar> {
+    vec![
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__MAILGUN_API_KEY",
+            "API key from your Mailgun account.",
+            "",
+        )
+        .name("Mailgun API Key")
+        .input_type(InputType::Password)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN",
+            "Sending domain configured in Mailgun (e.g. mg.example.com).",
+            "",
+        )
+        .name("Mailgun Domain")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__MAILGUN_FROM",
+            "Sender address for emails. Leave empty for default (noreply@domain).",
+            "",
+        )
+        .name("From Address")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO",
+            "Reply-to address for emails. Leave empty to omit.",
+            "",
+        )
+        .name("Reply-To Address")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__MAILGUN_BASE_URL",
+            "Mailgun API base URL (US: https://api.mailgun.net, EU: https://api.eu.mailgun.net)",
+            DEFAULT_MAILGUN_BASE_URL,
+        )
+        .name("Mailgun Base URL")
+        // A real URL field (unlike the shared helper's other optional/blank
+        // text fields) — SEC/SSRF: mark it `Url` so `settings_form::save_settings`
+        // runs it through `validate_url_value` on write. The old hand-rolled
+        // admin save loop never validated this field at all.
+        .input_type(InputType::Url)
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__RATE_LIMIT_MAX",
+            "Maximum emails per caller per window (0 disables rate limiting)",
+            &DEFAULT_RATE_LIMIT_MAX.to_string(),
+        )
+        .name("Rate Limit (max emails)")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS",
+            "Rate limit window in seconds",
+            &DEFAULT_RATE_LIMIT_WINDOW_SECS.to_string(),
+        )
+        .name("Rate Limit Window (seconds)")
+        .optional(),
+        ConfigVar::new(
+            "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS",
+            "Comma-separated allow-list of recipient glob patterns (e.g. \
+             `*@example.com,admin@*`). Empty = allow all (with startup warning).",
+            "",
+        )
+        .name("Allowed Recipient Patterns")
+        .optional(),
+    ]
+}
+
 crate::solobase_feature_block! {
     /// Email sending via the Mailgun HTTP API (`suppers-ai/email`).
     pub struct EmailBlock;
@@ -55,50 +128,7 @@ crate::solobase_feature_block! {
             .requires(vec!["wafer-run/network".into(), "wafer-run/config".into()])
             .category(wafer_run::BlockCategory::Service)
             .description("Email sending service via Mailgun HTTP API. Supports raw email sending and templated emails for verification, password reset, welcome messages, and payment notifications. Used internally by the auth block for email verification and password reset flows.")
-            .config_keys(vec![
-                ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "Mailgun API key", "")
-                    .name("Mailgun API Key")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "Mailgun sending domain", "")
-                    .name("Mailgun Domain")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_FROM", "From address for emails", "")
-                    .name("From Address")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "Reply-to address", "")
-                    .name("Reply-To Address")
-                    .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__EMAIL__MAILGUN_BASE_URL",
-                    "Mailgun API base URL (US: https://api.mailgun.net, EU: https://api.eu.mailgun.net)",
-                    DEFAULT_MAILGUN_BASE_URL,
-                )
-                .name("Mailgun Base URL")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__EMAIL__RATE_LIMIT_MAX",
-                    "Maximum emails per caller per window (0 disables rate limiting)",
-                    &DEFAULT_RATE_LIMIT_MAX.to_string(),
-                )
-                .name("Rate Limit (max emails)")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS",
-                    "Rate limit window in seconds",
-                    &DEFAULT_RATE_LIMIT_WINDOW_SECS.to_string(),
-                )
-                .name("Rate Limit Window (seconds)")
-                .optional(),
-                ConfigVar::new(
-                    "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS",
-                    "Comma-separated allow-list of recipient glob patterns (e.g. \
-                     `*@example.com,admin@*`). Empty = allow all (with startup warning).",
-                    "",
-                )
-                .name("Allowed Recipient Patterns")
-                .optional(),
-            ])
+            .config_keys(config_vars())
     },
     handle: |this, ctx, msg, input| {
         match msg.kind.as_str() {
