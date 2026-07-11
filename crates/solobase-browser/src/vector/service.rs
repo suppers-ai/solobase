@@ -87,7 +87,9 @@ impl VectorService for BrowserVectorService {
         for s in stmts {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
-        bridge::dbFlush().await;
+        bridge::dbFlush()
+            .await
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
         self.indexes
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -110,7 +112,9 @@ impl VectorService for BrowserVectorService {
         for s in stmts {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
-        bridge::dbFlush().await;
+        bridge::dbFlush()
+            .await
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
         self.indexes
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -155,7 +159,9 @@ impl VectorService for BrowserVectorService {
             bridge::db_exec_raw(&stmt.sql, &stmt.params_json)
                 .map_err(|e| VectorError::Internal(js_err(e)))?;
         }
-        bridge::dbFlush().await;
+        bridge::dbFlush()
+            .await
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
         Ok(())
     }
 
@@ -295,7 +301,9 @@ impl VectorService for BrowserVectorService {
         for s in stmts {
             bridge::db_exec_raw(&s, &params_json).map_err(|e| VectorError::Internal(js_err(e)))?;
         }
-        bridge::dbFlush().await;
+        bridge::dbFlush()
+            .await
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
         Ok(())
     }
 
