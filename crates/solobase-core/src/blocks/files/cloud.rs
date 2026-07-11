@@ -53,6 +53,14 @@ async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
+/// Upper bound on `expires_in_hours` for a share link (one year). Caller
+/// input is otherwise unbounded, and both `chrono::Duration::hours` and
+/// `DateTime + Duration` panic on overflow in chrono 0.4.44 — a huge value
+/// (e.g. `i64::MAX`) would panic the handler on this reachable request path.
+/// Non-positive values are rejected too since they'd mint an
+/// already-expired share.
+const MAX_SHARE_EXPIRY_HOURS: i64 = 24 * 365;
+
 async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
@@ -105,9 +113,28 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
     };
 
     let now = chrono::Utc::now();
-    let expires_at = body
-        .expires_in_hours
-        .map(|h| (now + chrono::Duration::hours(h)).to_rfc3339());
+    let expires_at = match body.expires_in_hours {
+        None => None,
+        Some(h) if !(1..=MAX_SHARE_EXPIRY_HOURS).contains(&h) => {
+            return err_bad_request(&format!(
+                "expires_in_hours must be between 1 and {MAX_SHARE_EXPIRY_HOURS}"
+            ));
+        }
+        Some(h) => {
+            // `try_hours` + `checked_add_signed` instead of `Duration::hours`
+            // + `+` — both of the latter panic on overflow in chrono 0.4.44.
+            // The range check above already excludes anything that would
+            // overflow; these keep the arithmetic itself panic-free even if
+            // that bound is ever loosened.
+            let Some(duration) = chrono::Duration::try_hours(h) else {
+                return err_bad_request("expires_in_hours out of range");
+            };
+            let Some(expiry) = now.checked_add_signed(duration) else {
+                return err_bad_request("expires_in_hours out of range");
+            };
+            Some(expiry.to_rfc3339())
+        }
+    };
 
     let mut data = crate::util::json_map(serde_json::json!({
         "token": token,
@@ -287,13 +314,134 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use wafer_core::interfaces::storage::service as storage_service;
     use wafer_run::InputStream;
 
     use super::*;
-    use crate::test_support::{auth_msg, output_is_error, TestContext};
+    use crate::test_support::{auth_msg, output_is_error, output_json, TestContext};
 
     fn share_body(bucket: &str, key: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({ "bucket": bucket, "key": key })).unwrap()
+    }
+
+    /// Minimal `StorageService` fake whose `get` always succeeds, so
+    /// `handle_create_share`'s file-existence check passes without wiring a
+    /// real storage backend (filesystem/S3) into the test. Only `get` needs
+    /// a meaningful implementation for the expiry-validation tests below.
+    struct AlwaysFoundStorageService;
+
+    #[wafer_block::wafer_async_trait]
+    impl storage_service::StorageService for AlwaysFoundStorageService {
+        async fn put(
+            &self,
+            _folder: &str,
+            _key: &str,
+            _data: &[u8],
+            _content_type: &str,
+        ) -> Result<(), storage_service::StorageError> {
+            Ok(())
+        }
+
+        async fn get(
+            &self,
+            _folder: &str,
+            key: &str,
+        ) -> Result<(Vec<u8>, storage_service::ObjectInfo), storage_service::StorageError> {
+            Ok((
+                b"fake body".to_vec(),
+                storage_service::ObjectInfo {
+                    key: key.to_string(),
+                    size: 9,
+                    content_type: "text/plain".to_string(),
+                    last_modified: chrono::Utc::now(),
+                },
+            ))
+        }
+
+        async fn delete(
+            &self,
+            _folder: &str,
+            _key: &str,
+        ) -> Result<(), storage_service::StorageError> {
+            Ok(())
+        }
+
+        async fn list(
+            &self,
+            _folder: &str,
+            _opts: &storage_service::ListOptions,
+        ) -> Result<storage_service::ObjectList, storage_service::StorageError> {
+            Ok(storage_service::ObjectList {
+                objects: vec![],
+                total_count: 0,
+            })
+        }
+
+        async fn create_folder(
+            &self,
+            _name: &str,
+            _public: bool,
+        ) -> Result<(), storage_service::StorageError> {
+            Ok(())
+        }
+
+        async fn delete_folder(&self, _name: &str) -> Result<(), storage_service::StorageError> {
+            Ok(())
+        }
+
+        async fn list_folders(
+            &self,
+        ) -> Result<Vec<storage_service::FolderInfo>, storage_service::StorageError> {
+            Ok(vec![])
+        }
+    }
+
+    /// Build a `TestContext` with a real crypto block (share-token signing
+    /// goes through `crypto::sign`) and a fake storage block whose `get`
+    /// always succeeds (the file-existence check needs *some* answer), plus
+    /// one bucket owned by `owner`. This is the minimum needed to drive
+    /// `handle_create_share` past bucket/key validation, the ownership
+    /// check, and the file-existence check, into the `expires_in_hours`
+    /// handling under test — without it, every case below would stop early
+    /// (PermissionDenied / NotFound) and never exercise the fix.
+    async fn ctx_with_owned_bucket(bucket: &str, owner: &str) -> TestContext {
+        let mut ctx = TestContext::with_files().await;
+
+        let crypto_svc = Arc::new(
+            wafer_block_crypto::service::Argon2JwtCryptoService::new(
+                // ≥ 32 bytes for HMAC-SHA256 minimum-length check.
+                "test-jwt-secret-padded-to-min-32-bytes-aaaa".to_string(),
+            )
+            .expect("test secret is long enough"),
+        );
+        ctx.register_block(
+            "wafer-run/crypto",
+            Arc::new(wafer_core::service_blocks::crypto::CryptoBlock::new(
+                crypto_svc,
+            )),
+        );
+
+        ctx.register_block(
+            "wafer-run/storage",
+            crate::blocks::storage::create(
+                Arc::new(AlwaysFoundStorageService),
+                Arc::from("suppers-ai/admin"),
+            ),
+        );
+
+        let data = crate::util::json_map(serde_json::json!({
+            "name": bucket,
+            "public": false,
+            "created_by": owner,
+            "created_at": crate::util::now_rfc3339(),
+        }));
+        db::create(&ctx, crate::blocks::files::storage::BUCKETS_TABLE, data)
+            .await
+            .expect("seed bucket");
+
+        ctx
     }
 
     /// Regression (SEC-064): the share path used to inline its own bucket/key
@@ -360,6 +508,88 @@ mod tests {
         assert!(
             output_is_error(out, "PermissionDenied").await,
             "valid input should pass validation and hit the ownership check"
+        );
+    }
+
+    /// SB-4: `expires_in_hours` used to be fed straight into
+    /// `chrono::Duration::hours` and `now + duration`, both of which PANIC
+    /// on overflow in chrono 0.4.44. A huge value on this authenticated,
+    /// reachable request path must produce a 400, not a handler panic.
+    #[tokio::test]
+    async fn create_share_rejects_huge_expiry_without_panicking() {
+        let ctx = ctx_with_owned_bucket("my-bucket", "u1").await;
+        let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+        let body = serde_json::to_vec(&serde_json::json!({
+            "bucket": "my-bucket",
+            "key": "f",
+            "expires_in_hours": i64::MAX,
+        }))
+        .unwrap();
+        let out = handle_create_share(&ctx, &msg, InputStream::from_bytes(body)).await;
+        assert!(
+            output_is_error(out, "InvalidArgument").await,
+            "huge expiry must be a 400, not a handler panic"
+        );
+    }
+
+    /// Zero/negative hours would mint an already-expired share (or, for
+    /// very negative values, also overflow the same arithmetic) — rejected
+    /// the same as an out-of-range positive value.
+    #[tokio::test]
+    async fn create_share_rejects_non_positive_expiry() {
+        for hours in [0_i64, -1, i64::MIN] {
+            let ctx = ctx_with_owned_bucket("my-bucket", "u1").await;
+            let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+            let body = serde_json::to_vec(&serde_json::json!({
+                "bucket": "my-bucket",
+                "key": "f",
+                "expires_in_hours": hours,
+            }))
+            .unwrap();
+            let out = handle_create_share(&ctx, &msg, InputStream::from_bytes(body)).await;
+            assert!(
+                output_is_error(out, "InvalidArgument").await,
+                "non-positive expires_in_hours ({hours}) must be rejected"
+            );
+        }
+    }
+
+    /// The range/overflow guard must not reject legitimate input: a normal
+    /// in-range value still produces a share whose persisted `expires_at`
+    /// is a correct ~24h-out timestamp.
+    #[tokio::test]
+    async fn create_share_valid_expiry_produces_future_timestamp() {
+        let ctx = ctx_with_owned_bucket("my-bucket", "u1").await;
+        let msg = auth_msg("create", "/b/cloudstorage/shares", "u1");
+        let body = serde_json::to_vec(&serde_json::json!({
+            "bucket": "my-bucket",
+            "key": "f",
+            "expires_in_hours": 24,
+        }))
+        .unwrap();
+        let before = chrono::Utc::now();
+        let out = handle_create_share(&ctx, &msg, InputStream::from_bytes(body)).await;
+        let resp = output_json(out).await;
+        let id = resp
+            .get("id")
+            .and_then(|v| v.as_str())
+            .expect("successful create_share returns an id")
+            .to_string();
+
+        let record = db::get(&ctx, SHARES_TABLE, &id).await.expect("share row");
+        let expires_at = record
+            .data
+            .get("expires_at")
+            .and_then(|v| v.as_str())
+            .expect("expires_at set for a 24h share");
+        let parsed = chrono::DateTime::parse_from_rfc3339(expires_at)
+            .expect("valid rfc3339")
+            .with_timezone(&chrono::Utc);
+        let expected_min = before + chrono::Duration::hours(23);
+        let expected_max = before + chrono::Duration::hours(25);
+        assert!(
+            parsed > expected_min && parsed < expected_max,
+            "expires_at should be ~24h in the future, got {expires_at}"
         );
     }
 }
