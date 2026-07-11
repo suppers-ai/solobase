@@ -76,6 +76,32 @@ crate::solobase_feature_block! {
     info: |_this| {
         use wafer_run::{AuthLevel, CollectionSchema};
 
+        // Product row shape (see `migrations/001_products_schema.sqlite.sql`),
+        // reused below by the public catalog list/detail response schemas —
+        // `db::get`/`db::paginated_list` return a `Record { id, data }` where
+        // `data` is the full column map (`id` included).
+        let product_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "slug": {"type": "string"},
+                "base_price": {"type": "number"},
+                "currency": {"type": "string"},
+                "status": {"type": "string", "description": "draft | active | archived"},
+                "category": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "metadata": {"type": "object"},
+                "image_url": {"type": "string"},
+                "stock": {"type": "integer"},
+                "group_id": {"type": "string"},
+                "type_id": {"type": "string"},
+                "created_at": {"type": "string", "format": "date-time"},
+                "updated_at": {"type": "string", "format": "date-time"}
+            }
+        });
+
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
@@ -158,8 +184,58 @@ crate::solobase_feature_block! {
                 BlockEndpoint::patch("/b/products/api/admin/purchases/{id}/refund").summary("Refund purchase").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/products/api/admin/stats").summary("Stats").auth(AuthLevel::Admin),
                 // Public + authenticated user surface
-                BlockEndpoint::get("/b/products/catalog").summary("Browse catalog"),
-                BlockEndpoint::get("/b/products/catalog/{id}").summary("Product detail"),
+                // Public catalog — highest-value developer-facing surface of
+                // this block; accurate shapes read from `handlers.rs`
+                // (`handle_catalog` → `crud::crud_list` → `RecordList`,
+                // `handle_get_product_public` → `db::get` → `Record`). Full
+                // schema coverage of the admin/purchase/checkout API is a
+                // follow-up.
+                BlockEndpoint::get("/b/products/catalog")
+                    .summary("Browse catalog")
+                    .description("Public list of active products, sorted by name.")
+                    .query_params_schema(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "page": {"type": "integer", "default": 1},
+                            "page_size": {"type": "integer", "default": 20, "maximum": 100}
+                        }
+                    }))
+                    .output_schema(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "records": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "data": product_schema
+                                    }
+                                }
+                            },
+                            "total_count": {"type": "integer"},
+                            "page": {"type": "integer"},
+                            "page_size": {"type": "integer"}
+                        }
+                    }))
+                    .tags(&["products"]),
+                BlockEndpoint::get("/b/products/catalog/{id}")
+                    .summary("Product detail")
+                    .path_params_schema(serde_json::json!({
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                            "id": {"type": "string"}
+                        }
+                    }))
+                    .output_schema(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "data": product_schema
+                        }
+                    }))
+                    .tags(&["products"]),
                 BlockEndpoint::post("/b/products/checkout").summary("Stripe checkout").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/products/purchases").summary("Create purchase").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/products/purchases").summary("List purchases").auth(AuthLevel::Authenticated),

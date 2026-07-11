@@ -57,9 +57,71 @@ crate::solobase_feature_block! {
                 BlockEndpoint::get("/b/storage/{bucket}/{prefix...}/").summary("Object list (nested)").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/api/buckets").summary("List buckets").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/storage/api/buckets").summary("Create bucket").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects").summary("List objects").auth(AuthLevel::Authenticated),
+                // Schemas below mirror the real shapes read from
+                // `storage.rs` (`handle_list_objects`/`handle_get_object`,
+                // wire types `wafer_block::wire::storage::{ObjectList,
+                // ObjectInfo}`). These are the two highest-value developer
+                // endpoints for browsing a bucket; full coverage of the
+                // remaining storage routes (buckets, shares, quotas) is a
+                // follow-up.
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects")
+                    .summary("List objects")
+                    .auth(AuthLevel::Authenticated)
+                    .path_params_schema(serde_json::json!({
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                            "name": {"type": "string", "description": "Bucket name"}
+                        }
+                    }))
+                    .query_params_schema(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "prefix": {"type": "string", "description": "Key prefix filter"},
+                            "page": {"type": "integer", "default": 1},
+                            "page_size": {"type": "integer", "default": 50, "maximum": 100}
+                        }
+                    }))
+                    .output_schema(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "objects": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {"type": "string"},
+                                        "size": {"type": "integer", "description": "Size in bytes"},
+                                        "content_type": {"type": "string"},
+                                        "last_modified": {"type": "string", "format": "date-time"}
+                                    }
+                                }
+                            },
+                            "total_count": {"type": "integer"}
+                        }
+                    }))
+                    .tags(&["storage"]),
                 BlockEndpoint::post("/b/storage/api/buckets/{name}/objects").summary("Upload file").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}").summary("Download file").auth(AuthLevel::Authenticated),
+                // No output_schema: the success response is the raw object
+                // body (`Content-Type` set from the stored object's MIME
+                // type), not JSON — see `handle_get_object`'s
+                // `ResponseBuilder::new().body(data, &info.content_type)`.
+                // `path_params_schema` alone is enough to surface this
+                // endpoint's request shape in `/openapi.json` without
+                // mislabeling the response as `application/json`.
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}")
+                    .summary("Download file")
+                    .description("Returns the raw object bytes with the stored Content-Type — not a JSON envelope.")
+                    .auth(AuthLevel::Authenticated)
+                    .path_params_schema(serde_json::json!({
+                        "type": "object",
+                        "required": ["name", "key"],
+                        "properties": {
+                            "name": {"type": "string", "description": "Bucket name"},
+                            "key": {"type": "string", "description": "Object key (may contain '/')"}
+                        }
+                    }))
+                    .tags(&["storage"]),
                 BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}").summary("Delete file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/direct/{token}").summary("Access shared file"),
                 BlockEndpoint::get("/b/cloudstorage/").summary("Shares + quota page").auth(AuthLevel::Authenticated),

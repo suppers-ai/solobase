@@ -106,12 +106,23 @@ pub async fn handle_request(
         let is_openapi = path == "/openapi.json";
         let host = msg.header("host").to_string();
         let server_url = format!("https://{}", host);
-        let project_name = host.split('.').next().unwrap_or("Solobase Project");
+        // The project/display name for the discovery documents (OpenAPI
+        // `info.title` and the agent-card `name`). Previously this was
+        // derived from the `Host` header (`host.split('.').next()`), which
+        // produced garbage for IP-addressed hosts — e.g. `127.0.0.1:8093`
+        // yielded the literal title `"127"`. `SOLOBASE_SHARED__APP_NAME` is
+        // the existing single-sourced display-name config var (already used
+        // for emails, the login page, and the browser `<title>` — see
+        // `blocks/email.rs`, `ui/mod.rs`), so discovery documents reuse it
+        // instead of inventing a second name knob; it falls back to the
+        // constant `"Solobase"`, never to the host.
+        let project_name =
+            config_client::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await;
 
         let body = if is_openapi {
-            wafer_core::discovery::generate_openapi(block_infos, project_name, "", &server_url)
+            wafer_core::discovery::generate_openapi(block_infos, &project_name, "", &server_url)
         } else {
-            wafer_core::discovery::generate_agent_card(block_infos, project_name, "", &server_url)
+            wafer_core::discovery::generate_agent_card(block_infos, &project_name, "", &server_url)
         };
 
         // [SEC-073] Only emit `Access-Control-Allow-Origin: *` in dev. These
@@ -422,6 +433,213 @@ async fn collect_buffered_with_prelude(
         Some(StreamEvent::Drop) => Err(TerminalNotResponse::Drop),
         Some(StreamEvent::Continue(msg)) => Err(TerminalNotResponse::Continue(msg)),
         None => Err(TerminalNotResponse::Malformed),
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    //! Covers the two OpenAPI/agent-card fixes:
+    //!  1. `info.title` (and the agent-card `name`) comes from
+    //!     `SOLOBASE_SHARED__APP_NAME` (fallback `"Solobase"`), never from
+    //!     the `Host` header — an IP-addressed host used to yield the
+    //!     literal title `"127"`.
+    //!  2. The core developer-facing auth/storage/products endpoints now
+    //!     declare schemas, so `wafer_core::discovery::generate_openapi`
+    //!     (which skips any endpoint failing `has_schema()`) includes them.
+
+    use wafer_run::{Block, BlockInfo, InputStream};
+
+    use super::handle_request;
+    use crate::{
+        blocks::{auth_ui::AuthUiBlock, files::FilesBlock, products::ProductsBlock},
+        features::AllEnabled,
+        test_support::{anon_msg, collect_or_panic, TestContext},
+    };
+
+    /// `BlockInfo` for the three blocks this PR added schemas to, fetched
+    /// from the real block structs (not hand-rolled fixtures) so the test
+    /// exercises the actual declarations shipped in `blocks/{auth_ui,files,
+    /// products}/mod.rs`.
+    fn real_block_infos() -> Vec<BlockInfo> {
+        vec![
+            AuthUiBlock::new().info(),
+            FilesBlock::new().info(),
+            ProductsBlock::new().info(),
+        ]
+    }
+
+    async fn discovery_json(ctx: &TestContext, path: &str, host: &str) -> serde_json::Value {
+        let mut msg = anon_msg("retrieve", path);
+        msg.set_meta("http.header.host", host);
+        let out = handle_request(
+            ctx,
+            msg,
+            InputStream::from_bytes(Vec::new()),
+            None,
+            "test-jwt-secret",
+            &AllEnabled,
+            &real_block_infos(),
+            &[],
+        )
+        .await;
+        let buf = collect_or_panic(out).await;
+        serde_json::from_slice(&buf.body).expect("discovery response is valid JSON")
+    }
+
+    #[tokio::test]
+    async fn openapi_title_falls_back_to_solobase_not_host_derived_127() {
+        let ctx = TestContext::new().await;
+        // The exact host shape that produced the bug: an IP:port `Host`
+        // header. `host.split('.').next()` on `"127.0.0.1:8093"` yields
+        // the literal string `"127"`.
+        let body = discovery_json(&ctx, "/openapi.json", "127.0.0.1:8093").await;
+
+        assert_eq!(
+            body["info"]["title"], "Solobase",
+            "no SOLOBASE_SHARED__APP_NAME configured — title must fall back to the constant, not derive from the Host header: {body}"
+        );
+        assert_ne!(body["info"]["title"], "127");
+    }
+
+    #[tokio::test]
+    async fn openapi_title_honors_configured_app_name() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SOLOBASE_SHARED__APP_NAME", "Acme Corp");
+        let body = discovery_json(&ctx, "/openapi.json", "127.0.0.1:8093").await;
+
+        assert_eq!(body["info"]["title"], "Acme Corp");
+    }
+
+    #[tokio::test]
+    async fn agent_card_name_uses_the_same_configured_project_name() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SOLOBASE_SHARED__APP_NAME", "Acme Corp");
+        let body = discovery_json(&ctx, "/.well-known/agent.json", "127.0.0.1:8093").await;
+
+        assert_eq!(
+            body["name"], "Acme Corp",
+            "agent-card generation must use the same corrected project_name as openapi: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn openapi_documents_core_auth_endpoints_with_schemas() {
+        let ctx = TestContext::new().await;
+        let body = discovery_json(&ctx, "/openapi.json", "solobase.example.com").await;
+        let paths = &body["paths"];
+
+        let login = &paths["/b/auth/api/login"]["post"];
+        assert!(
+            !login.is_null(),
+            "login must appear in /openapi.json: {body}"
+        );
+        assert_eq!(
+            login["requestBody"]["content"]["application/json"]["schema"]["required"],
+            serde_json::json!(["email", "password"]),
+            "login request schema must match the real handler body: {login}"
+        );
+        assert!(
+            !login["responses"]["200"]["content"]["application/json"]["schema"].is_null(),
+            "login response schema missing: {login}"
+        );
+        assert!(
+            login.get("security").is_none(),
+            "login is AuthLevel::Public — must not carry a security requirement: {login}"
+        );
+
+        let me = &paths["/b/auth/api/me"]["get"];
+        assert!(!me.is_null(), "me must appear in /openapi.json: {body}");
+        assert_eq!(
+            me["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["user"]
+                ["properties"]["roles"]["type"],
+            "array",
+            "me response schema must match api/me.rs's {{user: {{..., roles: [...]}}}} shape: {me}"
+        );
+        assert_eq!(
+            me["security"][0]["bearerAuth"],
+            serde_json::json!([]),
+            "me is AuthLevel::Authenticated — must carry bearerAuth security: {me}"
+        );
+
+        // /b/auth/api/refresh was previously entirely undeclared (dispatched
+        // in handle() but absent from .endpoints) — now documented.
+        let refresh = &paths["/b/auth/api/refresh"]["post"];
+        assert!(
+            !refresh.is_null(),
+            "refresh must appear in /openapi.json now that it's declared: {body}"
+        );
+        assert_eq!(
+            refresh["requestBody"]["content"]["application/json"]["schema"]["required"],
+            serde_json::json!(["refresh_token"]),
+        );
+    }
+
+    #[tokio::test]
+    async fn openapi_documents_core_storage_endpoints_with_schemas() {
+        let ctx = TestContext::new().await;
+        let body = discovery_json(&ctx, "/openapi.json", "solobase.example.com").await;
+        let paths = &body["paths"];
+
+        let list = &paths["/b/storage/api/buckets/{name}/objects"]["get"];
+        assert!(
+            !list.is_null(),
+            "list-objects must appear in /openapi.json: {body}"
+        );
+        assert_eq!(
+            list["parameters"]
+                .as_array()
+                .expect("list-objects has path+query parameters")
+                .iter()
+                .filter(|p| p["in"] == "path" && p["name"] == "name")
+                .count(),
+            1,
+            "list-objects must declare the {{name}} bucket path param: {list}"
+        );
+        assert!(
+            !list["responses"]["200"]["content"]["application/json"]["schema"]["properties"]
+                ["objects"]
+                .is_null(),
+            "list-objects response schema must match ObjectList {{objects, total_count}}: {list}"
+        );
+
+        let get_obj = &paths["/b/storage/api/buckets/{name}/objects/{key}"]["get"];
+        assert!(
+            !get_obj.is_null(),
+            "get-object must appear in /openapi.json: {body}"
+        );
+        assert!(
+            get_obj["responses"]["200"].get("content").is_none(),
+            "get-object returns raw bytes, not JSON — must not claim an application/json response: {get_obj}"
+        );
+    }
+
+    #[tokio::test]
+    async fn openapi_documents_core_products_endpoints_with_schemas() {
+        let ctx = TestContext::new().await;
+        let body = discovery_json(&ctx, "/openapi.json", "solobase.example.com").await;
+        let paths = &body["paths"];
+
+        let catalog = &paths["/b/products/catalog"]["get"];
+        assert!(
+            !catalog.is_null(),
+            "catalog list must appear in /openapi.json: {body}"
+        );
+        assert_eq!(
+            catalog["responses"]["200"]["content"]["application/json"]["schema"]["properties"]
+                ["records"]["items"]["properties"]["data"]["properties"]["base_price"]["type"],
+            "number",
+            "catalog response schema must match the real products row shape: {catalog}"
+        );
+
+        let detail = &paths["/b/products/catalog/{id}"]["get"];
+        assert!(
+            !detail.is_null(),
+            "product detail must appear in /openapi.json: {body}"
+        );
+        assert_eq!(
+            detail["parameters"][0]["name"], "id",
+            "product detail must declare the {{id}} path param: {detail}"
+        );
     }
 }
 

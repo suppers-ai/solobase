@@ -204,15 +204,133 @@ crate::solobase_feature_block! {
                 .summary("Claimed organizations")
                 .auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/auth/oauth/login").summary("Start OAuth flow"),
-            // JSON API
-            BlockEndpoint::post("/b/auth/api/login").summary("Authenticate with email/password"),
-            BlockEndpoint::post("/b/auth/api/signup").summary("Create account"),
+            // JSON API — schemas below mirror the real request/response
+            // shapes read from the handlers (`api/login.rs`, `api/signup.rs`,
+            // `api/me.rs`, `api/refresh.rs`, `api/logout.rs`), same pattern
+            // as `blocks/messages/mod.rs`. These are the core developer-facing
+            // auth endpoints; full schema coverage of every `/b/auth/*` route
+            // (OAuth, api-keys, password reset, bootstrap) is a follow-up.
+            BlockEndpoint::post("/b/auth/api/login")
+                .summary("Authenticate with email/password")
+                .input_schema(serde_json::json!({
+                    "type": "object",
+                    "required": ["email", "password"],
+                    "properties": {
+                        "email": {"type": "string", "format": "email"},
+                        "password": {"type": "string"}
+                    }
+                }))
+                .output_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "access_token": {"type": "string"},
+                        "refresh_token": {"type": "string"},
+                        "token_type": {"type": "string", "const": "Bearer"},
+                        "expires_in": {"type": "integer", "description": "Access token lifetime in seconds"},
+                        "default_redirect": {"type": "string", "description": "Role-aware post-login redirect path"},
+                        "user": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "email": {"type": "string"},
+                                "roles": {"type": "array", "items": {"type": "string"}},
+                                "name": {"type": "string"}
+                            }
+                        }
+                    }
+                }))
+                .tags(&["auth"]),
+            BlockEndpoint::post("/b/auth/api/signup")
+                .summary("Create account")
+                .input_schema(serde_json::json!({
+                    "type": "object",
+                    "required": ["email", "password"],
+                    "properties": {
+                        "email": {"type": "string", "format": "email"},
+                        "password": {"type": "string"},
+                        "name": {"type": "string", "description": "Optional display name"}
+                    }
+                }))
+                .output_schema(serde_json::json!({
+                    "type": "object",
+                    "description": "Auto-logs in (issues tokens) unless email verification is required, in which case only email_verified/message/user are returned.",
+                    "properties": {
+                        "email_verified": {"type": "boolean"},
+                        "message": {"type": "string", "description": "Present when verification is required or the email is already registered"},
+                        "access_token": {"type": "string"},
+                        "refresh_token": {"type": "string"},
+                        "token_type": {"type": "string", "const": "Bearer"},
+                        "expires_in": {"type": "integer"},
+                        "default_redirect": {"type": "string"},
+                        "user": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "email": {"type": "string"},
+                                "roles": {"type": "array", "items": {"type": "string"}},
+                                "name": {"type": "string"}
+                            }
+                        }
+                    }
+                }))
+                .tags(&["auth"]),
             BlockEndpoint::post("/b/auth/api/logout")
                 .summary("Sign out")
-                .auth(AuthLevel::Authenticated),
+                .auth(AuthLevel::Authenticated)
+                .output_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"}
+                    }
+                }))
+                .tags(&["auth"]),
             BlockEndpoint::get("/b/auth/api/me")
                 .summary("Get current user")
-                .auth(AuthLevel::Authenticated),
+                .auth(AuthLevel::Authenticated)
+                .output_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "email": {"type": "string"},
+                                "name": {"type": "string"},
+                                "roles": {"type": "array", "items": {"type": "string"}},
+                                "created_at": {"type": "string", "format": "date-time"},
+                                "avatar_url": {"type": "string"}
+                            }
+                        }
+                    }
+                }))
+                .tags(&["auth"]),
+            // Was previously undeclared entirely (dispatched in `handle()`
+            // but absent from `.endpoints`), which meant it was excluded
+            // from `/openapi.json` AND from the per-endpoint access-tier
+            // table. Declaring it here (default `AuthLevel::Public`, matching
+            // its actual undeclared-backstop behavior — the `/b/auth/` prefix
+            // route is Public and this endpoint takes no `Authorization`
+            // header, only a `refresh_token` body field) is a documentation
+            // fix only; it does not change effective access.
+            BlockEndpoint::post("/b/auth/api/refresh")
+                .summary("Rotate an access/refresh token pair")
+                .input_schema(serde_json::json!({
+                    "type": "object",
+                    "required": ["refresh_token"],
+                    "properties": {
+                        "refresh_token": {"type": "string"}
+                    }
+                }))
+                .output_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "access_token": {"type": "string"},
+                        "refresh_token": {"type": "string"},
+                        "token_type": {"type": "string", "const": "Bearer"},
+                        "expires_in": {"type": "integer", "description": "Access token lifetime in seconds"}
+                    }
+                }))
+                .tags(&["auth"]),
             BlockEndpoint::post("/b/auth/api/change-password")
                 .summary("Change password")
                 .auth(AuthLevel::Authenticated),
