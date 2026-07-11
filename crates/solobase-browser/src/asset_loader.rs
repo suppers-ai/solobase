@@ -83,7 +83,15 @@ impl LoadAssetCallback for SwAssetLoader {
             }
         };
 
-        let js_result = bridge::load_asset(asset_id, &manifest_json).await;
+        let js_result = match bridge::load_asset(asset_id, &manifest_json).await {
+            Ok(v) => v,
+            Err(e) => {
+                return AssetLoadStatus::Failed(AssetLoadError::Unknown(format!(
+                    "load_asset rejected for asset_id={asset_id}: {}",
+                    bridge::describe(&e)
+                )));
+            }
+        };
         let reply: LoadAssetReply = match serde_wasm_bindgen::from_value(js_result) {
             Ok(r) => r,
             Err(e) => {

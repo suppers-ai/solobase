@@ -74,7 +74,9 @@ impl DbExec for BrowserDatabaseService {
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {e:?}")))?;
         // Persist sql.js to OPFS after every mutating statement (INSERT/UPDATE/
         // DELETE and the ALTER TABLE adds from the lazy column-add path).
-        bridge::dbFlush().await;
+        bridge::dbFlush().await.map_err(|e| {
+            DatabaseError::Internal(format!("flush to OPFS: {}", bridge::describe(&e)))
+        })?;
         Ok(parse_rows_modified(&result))
     }
 

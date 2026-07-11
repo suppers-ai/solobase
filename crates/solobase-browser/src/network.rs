@@ -35,7 +35,9 @@ impl NetworkService for BrowserNetworkService {
 
         let body_bytes: &[u8] = req.body.as_deref().unwrap_or(&[]);
 
-        let js_val = bridge::http_fetch(&req.method, &req.url, &headers_json, body_bytes).await;
+        let js_val = bridge::http_fetch(&req.method, &req.url, &headers_json, body_bytes)
+            .await
+            .map_err(|e| NetworkError::RequestError(bridge::describe(&e)))?;
 
         // The bridge resolves a JS object `{ status, headers, body:
         // Uint8Array }` — decode it directly. `serde_wasm_bindgen`

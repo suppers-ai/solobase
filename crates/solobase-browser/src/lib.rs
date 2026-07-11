@@ -70,7 +70,12 @@ pub use storage::make_storage_service;
 /// `_db` handle inside bridge.js, losing any in-memory state written after
 /// a prior call. Consumers should guard with `is_initialized()` before
 /// calling this on a re-entry path.
+///
+/// Propagates a rejected `dbInit()` promise (sql.js WASM failed to load,
+/// OPFS unavailable, etc.) as `Err` instead of letting it panic the Service
+/// Worker — see `bridge::dbInit`'s `#[wasm_bindgen(catch)]`.
 #[cfg(target_arch = "wasm32")]
-pub async fn db_init() {
-    bridge::dbInit().await;
+pub async fn db_init() -> Result<(), wasm_bindgen::JsValue> {
+    bridge::dbInit().await?;
+    Ok(())
 }

@@ -31,7 +31,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         return Ok(());
     }
 
-    solobase_browser::db_init().await;
+    solobase_browser::db_init().await?;
 
     // ── Phase 1 ─────────────────────────────────────────────────────────────
     // Build the runtime with EMPTY config + EMPTY block_settings + EMPTY
