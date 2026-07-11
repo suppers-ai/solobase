@@ -162,8 +162,52 @@ impl StorageService for R2StorageService {
         Ok(())
     }
 
-    async fn delete_folder(&self, _name: &str) -> Result<(), StorageError> {
-        // Would need to list + batch delete; no-op for now
+    async fn delete_folder(&self, name: &str) -> Result<(), StorageError> {
+        // R2 has no native folder/directory concept — deleting a "folder"
+        // means listing every object under its prefix and deleting each one.
+        // `list()` returns at most 1000 objects per page (R2's own cap), so
+        // we page through with the cursor until `truncated` is false,
+        // batch-deleting each page via `delete_multiple` (also capped at
+        // 1000 keys per call — same limit, so one `delete_multiple` per
+        // page is always within bounds).
+        let prefix = self.folder_prefix(name);
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let mut list_builder = self.bucket.list().prefix(&prefix).limit(1000);
+            if let Some(c) = cursor.take() {
+                list_builder = list_builder.cursor(c);
+            }
+
+            let listed = list_builder
+                .execute()
+                .await
+                .map_err(|e| StorageError::Internal(e.to_string()))?;
+
+            let keys: Vec<String> = listed.objects().iter().map(|obj| obj.key()).collect();
+            if !keys.is_empty() {
+                self.bucket
+                    .delete_multiple(keys)
+                    .await
+                    .map_err(|e| StorageError::Internal(e.to_string()))?;
+            }
+
+            if !listed.truncated() {
+                break;
+            }
+            cursor = listed.cursor();
+            if cursor.is_none() {
+                // `truncated() == true` is documented to always come with a
+                // cursor. If that contract is ever violated, we cannot tell
+                // whether more objects remain under this prefix — falling
+                // through to `Ok(())` would silently report success on a
+                // partial delete. Fail loudly instead.
+                return Err(StorageError::Internal(
+                    "R2 reported truncated results with no cursor".into(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
