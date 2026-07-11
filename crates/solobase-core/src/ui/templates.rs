@@ -115,10 +115,51 @@ pub struct FormSection<'a> {
     pub body: Markup,
 }
 
+/// Shared tab-rail + sections chrome used by [`form_page`] and
+/// [`tabbed_page`] — the `.form-grid` with an optional `.form-tabs` left
+/// rail and the `.form-sections` column.
+fn form_grid(tabs: Option<Vec<(String, String, bool)>>, sections: Vec<FormSection<'_>>) -> Markup {
+    let has_tabs = tabs.is_some();
+    html! {
+        div .(if has_tabs { "form-grid form-grid--with-tabs" } else { "form-grid" }) {
+            @if let Some(t) = tabs {
+                nav .form-tabs aria-label="Form sections" {
+                    ul {
+                        @for (label, href, active) in t {
+                            li .(if active { "is-active" } else { "" }) {
+                                a href=(href) aria-current=[active.then_some("page")] { (label) }
+                            }
+                        }
+                    }
+                }
+            }
+            div .form-sections {
+                @for sec in sections {
+                    section .form-section {
+                        header .form-section__head {
+                            h2 .form-section__title { (sec.title) }
+                            @if let Some(d) = sec.description {
+                                p .form-section__desc { (d) }
+                            }
+                        }
+                        div .form-section__body { (sec.body) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// `form_page` template.
 ///
-/// `tabs` is an optional left-rail of section anchors (used by the admin
-/// Settings consolidation in Phase 3). Pass `None` for a single-column form.
+/// The whole page is ONE `<form>` posting to `submit_url`, with a sticky
+/// save bar. Section bodies therefore must not contain `<form>` elements of
+/// their own (HTML forms cannot nest — the browser drops a nested form's
+/// start tag). For a tabbed shell whose tab bodies own their forms, use
+/// [`tabbed_page`] instead.
+///
+/// `tabs` is an optional left-rail of section anchors. Pass `None` for a
+/// single-column form.
 pub fn form_page(
     header: PageHeader<'_>,
     tabs: Option<Vec<(String, String, bool)>>, // (label, href, is_active)
@@ -127,40 +168,40 @@ pub fn form_page(
     method: &str,
     save_label: &str,
 ) -> Markup {
-    let has_tabs = tabs.is_some();
     html! {
         div .page .page--form {
             (render_header(&header))
             form .form-page action=(submit_url) method=(method) {
-                div .(if has_tabs { "form-grid form-grid--with-tabs" } else { "form-grid" }) {
-                    @if let Some(t) = tabs {
-                        nav .form-tabs aria-label="Form sections" {
-                            ul {
-                                @for (label, href, active) in t {
-                                    li .(if active { "is-active" } else { "" }) {
-                                        a href=(href) aria-current=[active.then_some("page")] { (label) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    div .form-sections {
-                        @for sec in sections {
-                            section .form-section {
-                                header .form-section__head {
-                                    h2 .form-section__title { (sec.title) }
-                                    @if let Some(d) = sec.description {
-                                        p .form-section__desc { (d) }
-                                    }
-                                }
-                                div .form-section__body { (sec.body) }
-                            }
-                        }
-                    }
-                }
+                (form_grid(tabs, sections))
                 footer .form-bar {
                     button type="submit" .btn .btn--primary .btn--md { (save_label) }
                 }
+            }
+        }
+    }
+}
+
+/// `tabbed_page` template — the same tab-rail + section chrome as
+/// [`form_page`], but form-LESS: a `div.form-page` instead of the outer
+/// `<form>`, and no sticky save bar.
+///
+/// For tabbed shells whose tab bodies own their submission story. HTML forms
+/// cannot nest, so a shell that wraps tab bodies in a `<form>` silently
+/// breaks any `<form>` a tab renders — the browser drops the inner form's
+/// start tag, its `action`/`hx-*` attributes vanish, and its inputs (and
+/// submit button) join the outer form. With this shell each tab renders its
+/// own complete `<form>` + submit control (or none, for read-only tabs).
+/// Used by the admin Settings page.
+pub fn tabbed_page(
+    header: PageHeader<'_>,
+    tabs: Vec<(String, String, bool)>, // (label, href, is_active)
+    sections: Vec<FormSection<'_>>,
+) -> Markup {
+    html! {
+        div .page .page--form {
+            (render_header(&header))
+            div .form-page {
+                (form_grid(Some(tabs), sections))
             }
         }
     }

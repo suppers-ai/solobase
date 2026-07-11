@@ -8,7 +8,10 @@ use crate::{
 };
 
 /// Render JUST the permissions settings body. The parent `settings_page`
-/// handler wraps this in `form_page` + the shell.
+/// handler wraps this in the form-less `tabbed_page` shell — the
+/// "Database & Config" subtab's Add-Grant modal renders its own
+/// `<form hx-post="/b/admin/grants/rules">`, which is only valid because
+/// the shell contributes no outer `<form>` to nest in.
 ///
 /// Internal sub-tabs use `?subtab=database|all` to avoid colliding with
 /// the parent path-segment tab system (`/settings/{tab}`).

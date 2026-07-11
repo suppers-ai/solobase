@@ -175,15 +175,16 @@ function submitSettings(e) {{
 /// plus its inputs, values loaded from the config client — with NO enclosing
 /// `<form>`, submit button, or submit script.
 ///
-/// Most callers want the full self-contained form ([`settings_form`], which
-/// is a thin wrapper around this). This lower-level entry point is for a
-/// caller that already lives inside another `<form>` element it doesn't own
-/// — e.g. `blocks/admin/pages/email.rs`, embedded in the admin Settings-tab
-/// shell's own `<form>` (`ui::templates::form_page`). HTML forms can't
-/// nest — a second literal `<form>` there would have its start tag silently
-/// dropped by the browser's parser and its close tag would prematurely close
-/// the outer one — so that caller renders fields only and leaves form/submit
-/// ownership to its host.
+/// Callers want the full self-contained form ([`settings_form`], which is a
+/// thin wrapper around this). This lower-level entry point exists for a
+/// caller that already lives inside another `<form>` element it doesn't own:
+/// HTML forms can't nest — a second literal `<form>` there would have its
+/// start tag silently dropped by the browser's parser and its close tag
+/// would prematurely close the outer one — so such a caller renders fields
+/// only and leaves form/submit ownership to its host. (The admin Settings
+/// shell used to be such a host; it's form-less now — `ui::templates::
+/// tabbed_page` — precisely so every tab can render a complete
+/// [`settings_form`] instead.)
 pub async fn render_sections(ctx: &dyn Context, sections: &[SettingsSection<'_>]) -> Markup {
     let values = load_values(ctx, sections).await;
     let empty = String::new();
