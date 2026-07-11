@@ -62,6 +62,18 @@ crate::solobase_feature_block! {
             ])
             .grants(vec![
                 wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_TABLE),
+                // auth-ui's login/refresh/OAuth-callback handlers call the
+                // shared `ensure_admin_role`/`get_user_roles` helpers
+                // directly (not via the framework `suppers-ai/auth`
+                // service), so WRAP authorizes on their own node_id
+                // ("suppers-ai/auth-ui"). Without this grant, admin login
+                // in the native server hits PermissionDenied reading/
+                // writing user_roles (surfaced as a real error by SB-3;
+                // previously silently swallowed into an empty roles list).
+                wafer_run::ResourceGrant::read_write(
+                    super::auth_ui::AUTH_UI_BLOCK_ID,
+                    USER_ROLES_TABLE,
+                ),
                 wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_TABLE),
                 wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_TABLE),
                 // Every block may upsert its own migration state into block_settings.
@@ -372,6 +384,34 @@ mod grant_tests {
             "admin block must not declare a typed Storage grant for suppers-ai/files \
              — the files block self-admits its own namespace via WRAP Rule 3 (Wave 26 \
              / c18). Found: {storage_grant_for_files:?}"
+        );
+    }
+
+    #[test]
+    fn admin_block_grants_auth_ui_read_write_on_user_roles() {
+        // auth-ui's login/refresh/OAuth-callback handlers call the shared
+        // `ensure_admin_role`/`get_user_roles` helpers directly, so WRAP
+        // authorizes on their own node_id ("suppers-ai/auth-ui"), not the
+        // framework `suppers-ai/auth` service's. Without this grant, admin
+        // login in the native server hits PermissionDenied reading/writing
+        // user_roles — this was previously masked because `get_user_roles`
+        // swallowed the read error into an empty roles list; SB-3 made it
+        // surface as a real error (500 on login), exposing this
+        // pre-existing missing grant. Pin the grant's presence so it can't
+        // silently regress again.
+        use super::{super::auth_ui::AUTH_UI_BLOCK_ID, USER_ROLES_TABLE};
+
+        let admin = AdminBlock::new();
+        let grants = admin.info().grants;
+
+        let auth_ui_user_roles_grant = grants
+            .iter()
+            .find(|g| g.grantee == AUTH_UI_BLOCK_ID && g.resource == USER_ROLES_TABLE);
+
+        assert!(
+            auth_ui_user_roles_grant.is_some_and(|g| g.write),
+            "admin block must declare a read_write grant for {AUTH_UI_BLOCK_ID} on \
+             {USER_ROLES_TABLE} (login path) — found: {auth_ui_user_roles_grant:?}"
         );
     }
 }

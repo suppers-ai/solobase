@@ -117,7 +117,13 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let email = info.email;
 
-    let roles = ensure_admin_role(ctx, &user_id, &email).await;
+    // A WRAP denial or DB error here must not silently resolve to "no
+    // roles" — that would 403 an admin or double-grant on the next login
+    // (SB-3).
+    let roles = match ensure_admin_role(ctx, &user_id, &email).await {
+        Ok(r) => r,
+        Err(e) => return err_internal("Failed to resolve user roles", e),
+    };
 
     // Mint tokens, persist the refresh + session rows, build the cookie via
     // the shared issuance tail. Previously this flow hand-rolled token minting

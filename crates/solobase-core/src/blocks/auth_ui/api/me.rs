@@ -20,7 +20,10 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let Ok(Some(user)) = users::find_by_id(ctx, user_id).await else {
         return err_not_found("User not found");
     };
-    let roles = get_user_roles(ctx, user_id).await;
+    let roles = match get_user_roles(ctx, user_id).await {
+        Ok(r) => r,
+        Err(e) => return err_internal("Failed to resolve user roles", e),
+    };
     ok_json(&serde_json::json!({
         "user": {
             "id": user.id,
@@ -52,7 +55,10 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
 
     match users::update_profile(ctx, user_id, name, avatar_url).await {
         Ok(user) => {
-            let roles = get_user_roles(ctx, user_id).await;
+            let roles = match get_user_roles(ctx, user_id).await {
+                Ok(r) => r,
+                Err(e) => return err_internal("Failed to resolve user roles", e),
+            };
             ok_json(&serde_json::json!({
                 "id": user.id,
                 "email": user.email,

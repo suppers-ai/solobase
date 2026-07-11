@@ -22,7 +22,7 @@ use crate::{
         },
         errors::{error_response, ErrorCode},
     },
-    http::{err_bad_request, ResponseBuilder},
+    http::{err_bad_request, err_internal, ResponseBuilder},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -123,7 +123,13 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     let email = user.email.clone();
-    let roles = ensure_admin_role(ctx, &user_id, &email).await;
+    // A WRAP denial or DB error here must not silently resolve to "no
+    // roles" — that would 403 an admin or double-grant on the next login
+    // (SB-3).
+    let roles = match ensure_admin_role(ctx, &user_id, &email).await {
+        Ok(r) => r,
+        Err(e) => return err_internal("Failed to resolve user roles", e),
+    };
 
     // Preserve the original auth method across refresh — a token issued
     // via OAuth must remain "oauth.<provider>" forever, not silently

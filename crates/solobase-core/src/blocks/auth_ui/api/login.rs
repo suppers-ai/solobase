@@ -80,8 +80,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return error_response(ErrorCode::EmailNotVerified, "Please verify your email before logging in. Check your inbox for the verification link.");
     }
 
-    // Get roles, granting admin role idempotently when ADMIN_EMAIL matches
-    let roles = ensure_admin_role(ctx, &user.id, &email_lower).await;
+    // Get roles, granting admin role idempotently when ADMIN_EMAIL matches.
+    // A WRAP denial or DB error here must not silently resolve to "no
+    // roles" — that would 403 an admin or double-grant on the next login
+    // (SB-3).
+    let roles = match ensure_admin_role(ctx, &user.id, &email_lower).await {
+        Ok(r) => r,
+        Err(e) => return err_internal("Failed to resolve user roles", e),
+    };
 
     // Mint tokens, persist the refresh + session rows, build the cookie.
     let issued =
