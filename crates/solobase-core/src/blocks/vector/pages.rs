@@ -636,17 +636,23 @@ pub(super) async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStrea
     // document_id before we add the new ones, via the typed `vector.list_ids`
     // metadata-equality op. If the index isn't there yet (first-ever ingest,
     // or fresh index) the lookup errors with NotFound and we take that as
-    // "no prior chunks", not as a fatal error.
+    // "no prior chunks", not as a fatal error. Any other error (e.g. WRAP
+    // PermissionDenied, a transient DB failure) must abort the request —
+    // silently treating it as "no prior chunks" would skip cleanup and leave
+    // stale tail chunks in the index that queries then serve.
     let mut prior_filter = MetadataFilter::default();
     prior_filter.equals.insert(
         "document_id".into(),
         serde_json::Value::String(body.document_id.clone()),
     );
-    if let Ok(prior_ids) = vclient::list_ids(ctx, &prefixed, prior_filter).await {
-        if !prior_ids.is_empty() {
-            if let Err(e) = vclient::delete(ctx, &prefixed, prior_ids).await {
-                return err_internal("failed to clear prior chunks", e);
-            }
+    let prior_ids = match vclient::list_ids(ctx, &prefixed, prior_filter).await {
+        Ok(ids) => ids,
+        Err(e) if e.code == ErrorCode::NotFound => Vec::new(),
+        Err(e) => return err_internal("failed to list prior chunks", e),
+    };
+    if !prior_ids.is_empty() {
+        if let Err(e) = vclient::delete(ctx, &prefixed, prior_ids).await {
+            return err_internal("failed to clear prior chunks", e);
         }
     }
 
@@ -779,5 +785,165 @@ pub(super) async fn embed(ctx: &dyn Context, input: InputStream) -> OutputStream
         }),
         Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
         Err(e) => err_internal("embed failed", e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ingest's prior-chunk cleanup must tolerate NotFound only.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod ingest_cleanup_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use wafer_run::{Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent};
+
+    use super::*;
+    use crate::test_support::{output_is_error, output_status, TestContext};
+
+    /// Stub `wafer-run/vector` block that answers `vector.list_ids` with a
+    /// caller-supplied error and errors loudly on anything else.
+    ///
+    /// The ingest cleanup path under test never needs a second vector op:
+    /// a non-NotFound `list_ids` error must abort before chunking/embedding
+    /// even starts, and a NotFound `list_ids` error is only followed by
+    /// chunking — which the tests short-circuit to a zero-chunk response by
+    /// sending whitespace-only text, so no embed/upsert call ever happens.
+    struct StubVectorBlock {
+        list_ids_error: WaferError,
+    }
+
+    #[async_trait]
+    impl RunBlock for StubVectorBlock {
+        fn info(&self) -> BlockInfo {
+            BlockInfo::new(
+                "wafer-run/vector",
+                "0.0.1",
+                "vector@v1",
+                "stub vector block for ingest cleanup tests",
+            )
+            .category(BlockCategory::Service)
+        }
+
+        async fn handle(
+            &self,
+            _ctx: &dyn Context,
+            msg: Message,
+            _input: InputStream,
+        ) -> OutputStream {
+            match msg.kind.as_str() {
+                wafer_block::common::ServiceOp::VECTOR_LIST_IDS => {
+                    OutputStream::error(self.list_ids_error.clone())
+                }
+                other => OutputStream::error(WaferError::new(
+                    ErrorCode::Unimplemented,
+                    format!("StubVectorBlock: unhandled op {other}"),
+                )),
+            }
+        }
+
+        async fn lifecycle(
+            &self,
+            _ctx: &dyn Context,
+            _e: LifecycleEvent,
+        ) -> Result<(), WaferError> {
+            Ok(())
+        }
+    }
+
+    /// Seed a registry row directly so `load_index_metadata` resolves
+    /// model/keyword_search from the DB without calling the vector block —
+    /// `vclient::describe_index` is only the fallback for indexes missing a
+    /// registry row, and we want the stub above to see exactly one op
+    /// (`vector.list_ids`) for the duration of these tests.
+    async fn seed_registry_row(ctx: &dyn Context, prefixed: &str) {
+        db::upsert(
+            ctx,
+            REGISTRY_TABLE,
+            vec![
+                ("prefixed_name".to_string(), serde_json::json!(prefixed)),
+                ("model".to_string(), serde_json::json!(DEFAULT_MODEL)),
+                ("dimensions".to_string(), serde_json::json!(384)),
+                ("keyword_search".to_string(), serde_json::json!(0)),
+            ],
+            vec!["prefixed_name".to_string()],
+            OnConflict::SetColumns(vec![
+                "model".to_string(),
+                "dimensions".to_string(),
+                "keyword_search".to_string(),
+            ]),
+        )
+        .await
+        .expect("seed registry row");
+    }
+
+    /// Body for `ingest` with whitespace-only `text`, so `ingestion::chunk`
+    /// produces zero chunks and the handler returns success right after the
+    /// prior-chunk cleanup step — no embed/upsert vector call needed.
+    fn whitespace_ingest_body(index: &str, document_id: &str) -> InputStream {
+        InputStream::from_bytes(
+            serde_json::to_vec(&serde_json::json!({
+                "index": index,
+                "document_id": document_id,
+                "text": "   ",
+            }))
+            .expect("serialize ingest body"),
+        )
+    }
+
+    #[tokio::test]
+    async fn ingest_aborts_when_prior_chunk_lookup_errors_non_notfound() {
+        let mut ctx = TestContext::with_vector().await;
+        let prefixed = service::prefixed_index_name("cleanup_test_idx_denied");
+        seed_registry_row(&ctx, &prefixed).await;
+        ctx.register_block(
+            "wafer-run/vector",
+            Arc::new(StubVectorBlock {
+                list_ids_error: WaferError::new(
+                    ErrorCode::PermissionDenied,
+                    "WRAP: caller not authorized for this index",
+                ),
+            }),
+        );
+
+        let out = ingest(
+            &ctx,
+            whitespace_ingest_body("cleanup_test_idx_denied", "doc-1"),
+        )
+        .await;
+
+        assert!(
+            output_is_error(out, "Internal").await,
+            "a non-NotFound list_ids error must abort ingest via err_internal, \
+             not be silently swallowed — swallowing it would skip cleanup and \
+             leave stale tail chunks that queries then serve"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_tolerates_notfound_from_prior_chunk_lookup() {
+        let mut ctx = TestContext::with_vector().await;
+        let prefixed = service::prefixed_index_name("cleanup_test_idx_missing");
+        seed_registry_row(&ctx, &prefixed).await;
+        ctx.register_block(
+            "wafer-run/vector",
+            Arc::new(StubVectorBlock {
+                list_ids_error: WaferError::new(ErrorCode::NotFound, "index not found"),
+            }),
+        );
+
+        let out = ingest(
+            &ctx,
+            whitespace_ingest_body("cleanup_test_idx_missing", "doc-1"),
+        )
+        .await;
+
+        assert_eq!(
+            output_status(out).await,
+            200,
+            "a genuine NotFound from list_ids must still be tolerated as \
+             'no prior chunks', not treated as fatal"
+        );
     }
 }
