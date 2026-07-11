@@ -26,7 +26,7 @@ pub use wafer_run::{ConfigVar, InputType};
 
 use crate::{
     http::{err_bad_request, err_internal, ok_json},
-    util::validate_url_value,
+    util::{is_sensitive_key, validate_url_value, MASKED_VALUE},
 };
 
 /// One titled group of settings within a form (e.g. "Stripe", "OAuth Providers").
@@ -71,6 +71,20 @@ fn render_field(var: &ConfigVar, value: &str) -> Markup {
     } else {
         var.name.as_str()
     };
+    // SEC-060: a sensitive field's raw value must never reach the rendered
+    // HTML — masking it only via `type="password"` still leaves the secret
+    // readable in page source / devtools. `is_sensitive_key` is the single
+    // source of truth shared with the admin Variables page
+    // (`blocks::admin::ops::is_sensitive_key`, re-exported from
+    // `crate::util`): sensitive when the var declares `InputType::Password`
+    // *or* its key follows the `_SECRET`/`_KEY` suffix convention, so a var
+    // left on the default `Text` widget by mistake still gets redacted.
+    // `has_value` is captured from the real value (presence only, never its
+    // content) so the placeholder can still distinguish "configured" from
+    // "not configured" without ever exposing the secret itself.
+    let is_sensitive = is_sensitive_key(&var.key, var.is_sensitive() as i64);
+    let has_value = !value.is_empty();
+    let value = if is_sensitive { "" } else { value };
     match var.input_type {
         InputType::Toggle => html! {
             div .form-group style="margin-bottom:1.25rem" {
@@ -86,7 +100,6 @@ fn render_field(var: &ConfigVar, value: &str) -> Markup {
             }
         },
         InputType::Password => {
-            let has_value = !value.is_empty();
             html! {
                 div .form-group style="margin-bottom:1.25rem" {
                     label .form-label for=(var.key) { (label) }
@@ -259,12 +272,27 @@ pub async fn save_settings(
         }
     }
     for var in allowed {
-        if let Some(value) = body.get(&var.key) {
-            // Surface the first write failure instead of reporting a false
-            // "saved" — htmx clients branch on the status, not a 200 body.
-            if let Err(e) = config::set(ctx, &var.key, value).await {
-                return err_internal(&format!("Failed to save {block_label} settings"), e);
-            }
+        let Some(value) = body.get(&var.key) else {
+            continue;
+        };
+        // SEC-060: `render_field` never echoes a sensitive var's real value
+        // back into the DOM (it renders empty + a placeholder instead), so
+        // when the admin re-submits the form without retyping the secret the
+        // browser posts back either an empty string or — if some client
+        // literally round-trips the placeholder — the `MASKED_VALUE` mask
+        // itself. Neither is a real value; treat both as "leave the stored
+        // secret alone" instead of overwriting it with blank/mask bytes.
+        // Only a genuinely retyped value reaches `config::set`. Uses the
+        // same single-sourced `is_sensitive_key` rule as the render path so
+        // the two can't disagree on which fields this guard applies to.
+        let is_sensitive = is_sensitive_key(&var.key, var.is_sensitive() as i64);
+        if is_sensitive && (value.is_empty() || value == MASKED_VALUE) {
+            continue;
+        }
+        // Surface the first write failure instead of reporting a false
+        // "saved" — htmx clients branch on the status, not a 200 body.
+        if let Err(e) = config::set(ctx, &var.key, value).await {
+            return err_internal(&format!("Failed to save {block_label} settings"), e);
         }
     }
     ok_json(&serde_json::json!({"message": "Settings saved"}))
@@ -292,16 +320,47 @@ mod tests {
     }
 
     #[test]
-    fn password_field_is_masked_with_eye_toggle_and_no_value_echoed_when_empty() {
+    fn password_field_is_masked_with_eye_toggle_and_never_echoes_the_raw_value() {
+        // SEC-060: only masking a secret via `type="password"` still leaves
+        // the raw bytes sitting in the HTML `value=` attribute — readable in
+        // page source / devtools. The rendered markup must never contain the
+        // secret at all, regardless of the visual widget.
         let v = var("X__PW", "Secret", InputType::Password);
         let set = render_field(&v, "hunter2").into_string();
+        assert!(
+            !set.contains("hunter2"),
+            "the raw secret must never reach the rendered HTML: {set}"
+        );
         assert!(set.contains(r#"type="password""#));
+        assert!(
+            set.contains(r#"value="""#),
+            "value must render empty: {set}"
+        );
         assert!(set.contains("(set)"));
         // eye toggle present
         assert!(set.contains("i.type=i.type==='password'?'text':'password'"));
 
         let empty = render_field(&v, "").into_string();
         assert!(empty.contains("Not configured"));
+    }
+
+    #[test]
+    fn key_with_secret_suffix_is_redacted_even_without_password_input_type() {
+        // Defense-in-depth: a var accidentally left on the default `Text`
+        // widget whose key still ends `_SECRET`/`_KEY` must not leak either
+        // — the single-sourced `is_sensitive_key` suffix rule catches it
+        // exactly like `blocks::admin::ops::is_sensitive_key` does for the
+        // Variables table, independent of which widget `input_type` picked.
+        let v = var(
+            "LEGACY_APP__WEBHOOK_SECRET",
+            "Webhook Secret",
+            InputType::Text,
+        );
+        let s = render_field(&v, "shh-dont-tell").into_string();
+        assert!(
+            !s.contains("shh-dont-tell"),
+            "a `_SECRET`-suffixed key must be redacted regardless of input_type: {s}"
+        );
     }
 
     #[test]
@@ -357,7 +416,7 @@ mod tests {
     // --- save_settings: URL validation (M16) + error surfacing (M24) ---
     use wafer_run::{streams::output::TerminalNotResponse, InputStream};
 
-    use crate::test_support::TestContext;
+    use crate::test_support::{output_json, TestContext};
 
     async fn run_save(
         ctx: &TestContext,
@@ -409,6 +468,112 @@ mod tests {
                 Err(TerminalNotResponse::Error(_))
             ),
             "a failed config::set must surface as an error, not a 'saved' success"
+        );
+    }
+
+    // --- SEC-060: render_sections never leaks a raw secret into the DOM ---
+
+    #[tokio::test]
+    async fn render_sections_never_leaks_a_stored_secret_into_the_html() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "key-abcdef0123456789");
+        let v = var(
+            "SUPPERS_AI__EMAIL__MAILGUN_API_KEY",
+            "Mailgun API Key",
+            InputType::Password,
+        );
+        let sections = [SettingsSection::new(
+            "Email",
+            html! {},
+            std::slice::from_ref(&v),
+        )];
+        let out = render_sections(&ctx, &sections).await.into_string();
+
+        assert!(
+            !out.contains("key-abcdef0123456789"),
+            "raw secret must never reach the rendered HTML: {out}"
+        );
+        assert!(out.contains("(set)"));
+        assert!(out.contains(r#"type="password""#));
+    }
+
+    // --- SEC-060: save_settings' unchanged-secret guard ---
+
+    #[tokio::test]
+    async fn save_settings_leaves_a_sensitive_field_unchanged_on_empty_or_masked_submit() {
+        let mut ctx = TestContext::new().await;
+        // Registers a real `wafer-run/config` service block (TestContext::set_config)
+        // and seeds the current stored secret.
+        ctx.set_config("X__API_SECRET", "original-secret");
+        let allowed = [var("X__API_SECRET", "API Secret", InputType::Password)];
+
+        // Empty submit (what `render_field` actually emits for a set secret,
+        // per the render-side fix) must not touch the stored value.
+        let out = run_save(&ctx, &allowed, serde_json::json!({"X__API_SECRET": ""})).await;
+        let body = output_json(out).await;
+        assert_eq!(body["message"], "Settings saved");
+        assert_eq!(
+            config::get_default(&ctx, "X__API_SECRET", "").await,
+            "original-secret",
+            "an empty submit for a sensitive field must not clear/overwrite the stored secret"
+        );
+
+        // A literal round-trip of the mask placeholder must also be treated
+        // as "unchanged", not stored as the literal mask string.
+        let out = run_save(
+            &ctx,
+            &allowed,
+            serde_json::json!({"X__API_SECRET": MASKED_VALUE}),
+        )
+        .await;
+        let body = output_json(out).await;
+        assert_eq!(body["message"], "Settings saved");
+        assert_eq!(
+            config::get_default(&ctx, "X__API_SECRET", "").await,
+            "original-secret",
+            "submitting the mask placeholder must not overwrite the stored secret with it"
+        );
+
+        // A genuinely new value must still be written.
+        let out = run_save(
+            &ctx,
+            &allowed,
+            serde_json::json!({"X__API_SECRET": "brand-new-secret"}),
+        )
+        .await;
+        let body = output_json(out).await;
+        assert_eq!(body["message"], "Settings saved");
+        assert_eq!(
+            config::get_default(&ctx, "X__API_SECRET", "").await,
+            "brand-new-secret",
+            "a genuinely retyped secret must be saved"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_settings_still_clears_a_non_sensitive_field_on_empty_submit() {
+        // Non-sensitive fields keep the pre-existing behavior: an empty
+        // submit is a real write (clears the stored value), not "unchanged".
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SOLOBASE_SHARED__APP_NAME", "MyApp");
+        let allowed = [var(
+            "SOLOBASE_SHARED__APP_NAME",
+            "App Name",
+            InputType::Text,
+        )];
+
+        let out = run_save(
+            &ctx,
+            &allowed,
+            serde_json::json!({"SOLOBASE_SHARED__APP_NAME": ""}),
+        )
+        .await;
+        let body = output_json(out).await;
+        assert_eq!(body["message"], "Settings saved");
+        assert_eq!(
+            config::get_default(&ctx, "SOLOBASE_SHARED__APP_NAME", "").await,
+            "",
+            "a non-sensitive field's empty submit is a real write, unlike a sensitive field's"
         );
     }
 }

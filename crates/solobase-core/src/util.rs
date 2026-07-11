@@ -287,6 +287,27 @@ pub(crate) fn validate_url_value(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Masked placeholder shown in place of a sensitive value.
+pub(crate) const MASKED_VALUE: &str = "********";
+
+/// SEC-060: a config value is sensitive when it's explicitly flagged
+/// sensitive **or** the key follows the `_SECRET` / `_KEY` suffix
+/// convention. "Explicitly flagged" means different things on each caller's
+/// substrate — the admin Variables table's DB `sensitive` column for ad hoc
+/// rows, or a declared [`ConfigVar`](wafer_run::ConfigVar)'s
+/// `InputType::Password` for the generic settings form — so callers pass
+/// their own flag in as `1`/`0`. The suffix half of the rule is what both
+/// sides share: masking on the flag alone leaked a `*_SECRET` value whenever
+/// a var/row wasn't explicitly marked.
+///
+/// Single source of truth for "is this key sensitive", used by both the
+/// admin Variables page (`blocks::admin::ops`, re-exported from here) and
+/// the generic ConfigVar-driven settings form (`ui::settings_form`) so the
+/// two admin surfaces can't disagree on what gets redacted.
+pub(crate) fn is_sensitive_key(key: &str, sensitive_flag: i64) -> bool {
+    sensitive_flag == 1 || key.ends_with("_SECRET") || key.ends_with("_KEY")
+}
+
 /// Percent-encode a string for use as an OAuth / `application/x-www-form-urlencoded`
 /// query parameter or form-body value. Delegates to
 /// [`url::form_urlencoded::byte_serialize`] which encodes spaces as `+` and
@@ -702,5 +723,16 @@ mod tests {
     #[test]
     fn rejects_userinfo_localhost_with_external_host() {
         assert!(validate_url_value("http://localhost@evil.com").is_err());
+    }
+
+    #[test]
+    fn is_sensitive_key_honors_flag_and_suffix() {
+        // Flag set → sensitive regardless of name.
+        assert!(is_sensitive_key("PLAIN", 1));
+        // SEC-060: suffix makes it sensitive even when the flag is clear.
+        assert!(is_sensitive_key("STRIPE_SECRET", 0));
+        assert!(is_sensitive_key("JWT_KEY", 0));
+        // Neither flag nor suffix → not sensitive.
+        assert!(!is_sensitive_key("SITE_NAME", 0));
     }
 }
