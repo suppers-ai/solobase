@@ -34,16 +34,18 @@ fn mailgun_vars() -> Vec<ConfigVar> {
         .collect()
 }
 
-/// Render JUST the email settings form body. The parent `settings_page`
-/// handler wraps this in `form_page` + the shell — `form_page` supplies the
-/// page's one `<form>` element and its "Save" button, so this renders fields
-/// only via `settings_form::render_sections` (not the full self-contained
-/// `settings_form::settings_form`, which would nest a second `<form>` inside
-/// that one; see `render_sections`' doc comment).
+/// Render the email settings tab body. The parent `settings_page` handler
+/// wraps this in the form-LESS `tabbed_page` shell, so this tab owns its
+/// `<form>` outright: the full self-contained `settings_form` (its own
+/// `<form id="settings-form">` + "Save Settings" button), posting JSON via
+/// fetch to `POST /b/admin/email` — the `SaveEmailSettings` route that
+/// [`handle_save_email_settings`] serves. Same pattern as every other
+/// block's admin settings page (products / userportal / legalpages /
+/// auth_ui).
 pub async fn settings_body(ctx: &dyn Context, _msg: &Message) -> Markup {
     let vars = mailgun_vars();
     let section = SettingsSection::new("Mailgun Configuration", icons::globe(), &vars);
-    settings_form::render_sections(ctx, &[section]).await
+    settings_form::settings_form(ctx, "/b/admin/email", &[section], maud::html! {}).await
 }
 
 pub async fn handle_save_email_settings(

@@ -10,7 +10,10 @@ use crate::{
 };
 
 /// Render JUST the variables settings body. The parent `settings_page`
-/// handler wraps this in `form_page` + the shell.
+/// handler wraps this in the form-less `tabbed_page` shell — this body's
+/// Add-Variable modal renders its own `<form hx-post="/b/admin/variables">`
+/// (and the htmx-loaded edit modal its own `<form hx-put=...>`), which is
+/// only valid because the shell contributes no outer `<form>` to nest in.
 pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let tab = msg.query("tab");
     let active_tab = if tab == "all" { "all" } else { "blocks" };

@@ -13,7 +13,8 @@ use crate::{
 };
 
 /// Render JUST the network monitoring body. The parent `settings_page`
-/// handler wraps this in `form_page` + the shell.
+/// handler wraps this in the form-less `tabbed_page` shell. This tab is
+/// read-only monitoring — it renders no `<form>` and has nothing to save.
 pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     html! {
         div .filter-bar style="margin-bottom:0.5rem" {
