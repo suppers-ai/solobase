@@ -347,7 +347,11 @@ pub(crate) const GROUP_TEMPLATES_TABLE: &str = "suppers_ai__products__group_temp
 /// Reusable product template definitions (admin-authored).
 pub(crate) const PRODUCT_TEMPLATES_TABLE: &str = "suppers_ai__products__product_templates";
 
-async fn user_products_enabled(ctx: &dyn Context) -> bool {
+/// Whether `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS` is on — gates the
+/// user-facing (non-admin) product/group CRUD routes above. `pub(super)`
+/// so the admin Overview page (`pages::overview`) can render an accurate
+/// notice instead of a silent empty catalog when it's off.
+pub(super) async fn user_products_enabled(ctx: &dyn Context) -> bool {
     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
 }
 

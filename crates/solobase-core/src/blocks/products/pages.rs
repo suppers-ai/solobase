@@ -21,6 +21,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let groups_count = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
     let purchases_count = repo::purchases::count_all(ctx).await.unwrap_or(0);
     let pricing_count = db::count(ctx, PRICING_TABLE, &[]).await.unwrap_or(0);
+    let user_products_enabled = super::handlers::user_products_enabled(ctx).await;
 
     let content = html! {
         (components::page_header("Products Overview", Some("Product catalog statistics"), None))
@@ -30,6 +31,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
             (components::stat_card("Pricing Templates", &pricing_count.to_string(), icons::dollar_sign()))
             (components::stat_card("Purchases", &purchases_count.to_string(), icons::shopping_cart()))
         }
+        (render_overview_empty_state(products_count, user_products_enabled))
     };
 
     ui::shell_page(
@@ -39,6 +41,46 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         content,
     )
     .await
+}
+
+/// Render the Products Overview empty-state guidance in place of a bare,
+/// actionless stat grid. Renders empty markup once the catalog has at least
+/// one product. Two mutually exclusive states while it's empty:
+///
+///   - `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS` off: a live 403 on
+///     `/b/products/api/products` (the user-owned-product route,
+///     `handlers::UserRoute::requires_user_products`) was previously the
+///     only signal a new admin got that self-serve selling is disabled —
+///     name the var and link to Settings, where it's the first toggle in
+///     the Features section. The admin JSON create route
+///     (`/b/products/api/admin/products`) is NOT gated by this flag, so no
+///     CTA is withheld here — this state is purely informational.
+///   - Otherwise: an "Add your first product" CTA straight to the Manage
+///     Products page, which owns the "+ New Product" create modal (the
+///     real create path, wired to that same admin route).
+fn render_overview_empty_state(products_count: i64, user_products_enabled: bool) -> maud::Markup {
+    if products_count > 0 {
+        return html! {};
+    }
+    if user_products_enabled {
+        components::empty_state(
+            icons::package(),
+            "Add your first product",
+            "Your catalog is empty. Add a product to start selling.",
+            Some(html! {
+                a .btn .btn--primary .btn--md href="/b/products/admin/manage" { "+ Add product" }
+            }),
+        )
+    } else {
+        components::empty_state(
+            icons::info(),
+            "User products are turned off",
+            "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS is disabled, so regular users can't create or manage their own product listings yet — you can still add products yourself from Manage Products. Enable this in Settings to let users sell their own products.",
+            Some(html! {
+                a .btn .btn--secondary .btn--md href="/b/products/admin/settings" { "Go to Settings" }
+            }),
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -72,8 +114,15 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     )
     .await;
 
+    let new_product_button = components::button(
+        components::BtnVariant::Primary,
+        components::CtrlSize::Sm,
+        "+ New Product",
+        maud::PreEscaped(r#"type="button" onclick="openModal('create-product')""#.to_string()),
+    );
+
     let content = html! {
-        (components::page_header("Products", Some("Manage your product catalog"), None))
+        (components::page_header("Products", Some("Manage your product catalog"), Some(new_product_button)))
 
         div .filter-bar {
             (components::search_input("search", "Search products...", "/b/products/admin/manage", "#products-content"))
@@ -106,6 +155,9 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
         }
+
+        (render_create_product_modal())
+        script { (maud::PreEscaped(create_product_js())) }
     };
 
     ui::shell_page(
@@ -115,6 +167,80 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         content,
     )
     .await
+}
+
+/// Render the "+ New Product" create modal for the admin Manage Products
+/// page — the real, working create path the Overview empty-state CTA links
+/// to. Submits via `create_product_js` (fetch + JSON) against the existing
+/// admin JSON API (`POST /b/products/api/admin/products`, already
+/// `AuthLevel::Admin`-gated in `mod.rs` and unaffected by
+/// `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS`) rather than an htmx form post —
+/// that endpoint's JSON contract (typed `base_price`, arbitrary optional
+/// fields) is shared with programmatic API clients and shouldn't grow an
+/// implicit urlencoded-vs-JSON coercion path just for this one modal.
+/// Mirrors the bucket-create modal's fetch+JSON+reload pattern
+/// (`pages_user::render_new_bucket_modal` / `files-browser.js`).
+fn render_create_product_modal() -> maud::Markup {
+    components::modal(
+        "create-product",
+        "Add product",
+        html! {
+            form id="create-product-form" onsubmit="return handleCreateProduct(event)" {
+                p .form-error hidden {}
+                div .form-group {
+                    label .form-label .required for="product-name" { "Name" }
+                    input .form-input type="text" id="product-name" name="name" placeholder="e.g. Cloud Hosting" required;
+                }
+                div .form-group {
+                    label .form-label for="product-price" { "Base price" }
+                    input .form-input type="number" id="product-price" name="base_price" step="0.01" min="0" placeholder="0.00";
+                }
+                div .form-group {
+                    label .form-label for="product-currency" { "Currency" }
+                    input .form-input type="text" id="product-currency" name="currency" value="USD" maxlength="3";
+                }
+                div .form-actions {
+                    button .btn .btn-secondary type="button" onclick="closeModal('create-product')" { "Cancel" }
+                    button .btn .btn-primary type="submit" id="create-product-submit" { "Create" }
+                }
+            }
+        },
+    )
+}
+
+/// JS backing [`render_create_product_modal`]. Validates the name
+/// client-side, coerces an optional price to a number (never sends a
+/// stringly-typed `base_price` to the JSON API), posts, and reloads on
+/// success so the new row shows up in the (newest-first) table.
+fn create_product_js() -> &'static str {
+    r#"
+async function handleCreateProduct(ev){
+  ev.preventDefault();
+  var form=document.getElementById('create-product-form');
+  var errEl=form.querySelector('.form-error');
+  var btn=document.getElementById('create-product-submit');
+  var name=document.getElementById('product-name').value.trim();
+  if(!name){errEl.textContent='Name is required.';errEl.hidden=false;return false}
+  var priceRaw=document.getElementById('product-price').value.trim();
+  var currency=document.getElementById('product-currency').value.trim()||'USD';
+  var payload={name:name,currency:currency};
+  if(priceRaw!==''){
+    var price=parseFloat(priceRaw);
+    if(isNaN(price)||price<0){errEl.textContent='Base price must be a positive number.';errEl.hidden=false;return false}
+    payload.base_price=price;
+  }
+  errEl.hidden=true;
+  btn.disabled=true;
+  try{
+    var r=await fetch('/b/products/api/admin/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(r.ok){window.location.reload();return false}
+    var msg='Failed to create product.';
+    try{var d=await r.json();if(d&&d.message)msg=d.message}catch(_){}
+    errEl.textContent=msg;errEl.hidden=false;btn.disabled=false;
+  }catch(e){errEl.textContent='Network error. Please try again.';errEl.hidden=false;btn.disabled=false}
+  return false;
+}
+"#
 }
 
 // ---------------------------------------------------------------------------

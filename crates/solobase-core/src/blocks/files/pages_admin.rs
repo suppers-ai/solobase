@@ -102,6 +102,25 @@ pub fn render_admin_overview_stats(stats: &AdminStats) -> Markup {
     }
 }
 
+/// Render the "create your first bucket" CTA for the empty admin storage
+/// overview. Renders empty markup once at least one bucket exists — this is
+/// a first-run nudge, not a permanent overview fixture. Links to the
+/// Buckets tab, which owns the actual "+ New bucket" trigger (the modal +
+/// `files-browser.js` bootstrap script) — no duplicate modal wiring here.
+pub fn render_admin_overview_empty_cta(bucket_count: i64) -> Markup {
+    if bucket_count > 0 {
+        return html! {};
+    }
+    components::empty_state(
+        icons::folder(),
+        "Create your first bucket",
+        "Buckets hold the files uploaded through Storage. Create one to get started.",
+        Some(html! {
+            a .btn .btn--primary .btn--md href="/b/storage/admin/buckets" { "+ New bucket" }
+        }),
+    )
+}
+
 /// Render the optional "X user(s) with custom quotas" hint card.
 /// Returns an empty markup when `quotas_count == 0`. Pure helper.
 pub fn render_admin_overview_quotas_hint(quotas_count: i64) -> Markup {
@@ -135,6 +154,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Some(admin_tabs("Overview")),
         html! {
             (render_admin_overview_stats(&stats))
+            (render_admin_overview_empty_cta(stats.buckets))
             (render_admin_overview_quotas_hint(stats.quotas_count))
         },
         None,
@@ -575,6 +595,69 @@ mod tests {
         assert!(html.contains(">5<"), "shares count missing: {html}");
         // total_size_bytes 2.5 GB → "2.3 GB" via format_bytes (or close).
         assert!(html.contains("GB"), "size humanization missing: {html}");
+    }
+
+    #[test]
+    fn render_admin_overview_empty_cta_shown_when_zero_buckets() {
+        let html = render_admin_overview_empty_cta(0).into_string();
+        assert!(
+            html.contains("Create your first bucket"),
+            "cta title missing: {html}"
+        );
+        assert!(
+            html.contains(r#"href="/b/storage/admin/buckets""#),
+            "cta should link to the Buckets tab (the real create trigger): {html}"
+        );
+        assert!(html.contains("New bucket"), "cta label missing: {html}");
+    }
+
+    #[test]
+    fn render_admin_overview_empty_cta_hidden_when_buckets_exist() {
+        let html = render_admin_overview_empty_cta(3).into_string();
+        assert!(
+            html.trim().is_empty(),
+            "cta should be hidden once a bucket exists: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn overview_page_shows_create_bucket_cta_when_empty() {
+        use crate::test_support::{admin_msg, output_html, TestContext};
+
+        let ctx = TestContext::with_files().await;
+        let msg = admin_msg("retrieve", "/b/storage/admin/");
+        let html = output_html(overview(&ctx, &msg).await).await;
+
+        assert!(
+            html.contains("Create your first bucket"),
+            "empty-state CTA missing from the live overview render: {html}"
+        );
+        assert!(
+            html.contains(r#"href="/b/storage/admin/buckets""#),
+            "CTA should link to the Buckets tab: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn overview_page_hides_create_bucket_cta_once_a_bucket_exists() {
+        use crate::test_support::{admin_msg, output_html, TestContext};
+
+        let ctx = TestContext::with_files().await;
+        let mut row: std::collections::HashMap<String, serde_json::Value> =
+            std::collections::HashMap::new();
+        row.insert("name".into(), serde_json::json!("photos"));
+        row.insert("created_by".into(), serde_json::json!("admin_1"));
+        db::create(&ctx, BUCKETS_TABLE, row)
+            .await
+            .expect("seed bucket");
+
+        let msg = admin_msg("retrieve", "/b/storage/admin/");
+        let html = output_html(overview(&ctx, &msg).await).await;
+
+        assert!(
+            !html.contains("Create your first bucket"),
+            "CTA should be gone once a bucket exists: {html}"
+        );
     }
 
     #[test]
