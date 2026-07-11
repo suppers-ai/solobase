@@ -5,7 +5,7 @@
 
 use maud::{html, Markup, PreEscaped};
 
-use crate::util::{url_path_encode, RecordExt};
+use crate::util::{format_bytes, format_timestamp, url_path_encode, RecordExt};
 
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.
@@ -388,13 +388,13 @@ pub fn render_objects_table(
                         td data-label="Name" {
                             a href=(download_href) { (filename) }
                         }
-                        td data-label="Size" { (f.size) }
+                        td data-label="Size" { (format_bytes(f.size)) }
                         // Wrap the timestamp in <time> so the visual-baseline
                         // mask `[data-relative-time], .relative-time, time`
-                        // catches it. The raw string is kept as the element
-                        // body for screen readers and the `datetime` attr
-                        // gives machine-readable parseable form.
-                        td data-label="Modified" { time datetime=(f.modified) { (f.modified) } }
+                        // catches it. The visible text is humanized to
+                        // minute precision; the `datetime` attr keeps the
+                        // full raw timestamp as the machine-readable form.
+                        td data-label="Modified" { time datetime=(f.modified) { (format_timestamp(&f.modified)) } }
                         td {
                             button .kebab-trigger
                                 type="button"
@@ -979,7 +979,7 @@ mod tests {
         );
         // file row: filename portion only, no leading prefix
         assert!(html.contains(">a.png<"), "filename missing: {html}");
-        assert!(html.contains("1024"), "size missing");
+        assert!(html.contains("1.0 KB"), "humanized size missing: {html}");
         // kebab menu trigger
         assert!(html.contains(r#"data-action-menu"#), "kebab missing");
         assert!(
@@ -989,6 +989,41 @@ mod tests {
         assert!(
             html.contains(r#"data-key="a.png""#),
             "kebab data-key missing/wrong: {html}"
+        );
+    }
+
+    /// SIZE renders via `format_bytes` (not the raw byte count) and the
+    /// MODIFIED cell's visible text is humanized while the `<time>` element's
+    /// `datetime` attribute keeps the full raw timestamp.
+    #[test]
+    fn render_objects_table_humanizes_size_and_modified() {
+        let f1 = ObjectRow {
+            key: "index.html".into(),
+            size: 105,
+            modified: "2026-07-11T19:13:45.123456789+00:00".into(),
+        };
+        let listing = FolderListing {
+            folders: Vec::new(),
+            files: vec![&f1],
+        };
+        let html = render_objects_table("site-assets", "", &listing).into_string();
+
+        // Size: humanized, not the bare number cell.
+        assert!(html.contains(">105 B<"), "size not humanized: {html}");
+
+        // Modified: full raw timestamp preserved in the datetime attribute...
+        assert!(
+            html.contains(r#"datetime="2026-07-11T19:13:45.123456789+00:00""#),
+            "datetime attr must keep the full timestamp: {html}"
+        );
+        // ...while the visible text is the humanized form, not the raw string.
+        assert!(
+            html.contains(">2026-07-11 19:13<"),
+            "visible modified text not humanized: {html}"
+        );
+        assert!(
+            !html.contains(">2026-07-11T19:13:45.123456789+00:00<"),
+            "raw timestamp must not be the visible text: {html}"
         );
     }
 
@@ -1545,10 +1580,11 @@ mod integration_tests {
 
         let msg = admin_msg("retrieve", "/b/storage/photos/");
         let body = output_html(object_list_page(&ctx, &msg, "photos", "").await).await;
-        // The Size column should show 2048, not 0.
+        // The Size column should show the humanized 2048 ("2.0 KB"), not the
+        // "0 B" a failed TEXT-column coercion would produce.
         assert!(
-            body.contains(r#"data-label="Size">2048<"#),
-            "size cell should be 2048 (got via TEXT fallback): {body}"
+            body.contains(r#"data-label="Size">2.0 KB<"#),
+            "size cell should be 2.0 KB (2048 via TEXT fallback): {body}"
         );
     }
 

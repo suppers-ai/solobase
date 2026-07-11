@@ -21,6 +21,7 @@ pub mod flows;
 pub mod http;
 pub mod messages_schema;
 pub mod migration_helper;
+pub mod multipart;
 pub mod pipeline;
 pub mod routing;
 pub mod ui;

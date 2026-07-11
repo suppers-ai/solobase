@@ -8,7 +8,7 @@ use wafer_run::{context::Context, Message, OutputStream};
 use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::{
     ui::{self, components, icons, shell::Crumb},
-    util::RecordExt,
+    util::{format_bytes, RecordExt},
 };
 
 /// Tabs navigation across the storage-admin sub-pages
@@ -562,18 +562,6 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         msg,
     )
     .await
-}
-
-fn format_bytes(bytes: i64) -> String {
-    if bytes >= 1_073_741_824 {
-        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
-    } else if bytes >= 1_048_576 {
-        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
-    } else if bytes >= 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 #[cfg(test)]
