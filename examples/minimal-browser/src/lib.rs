@@ -22,7 +22,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         return Ok(());
     }
 
-    solobase_browser::db_init().await;
+    solobase_browser::db_init().await?;
 
     let cfg_source: std::sync::Arc<dyn wafer_run::ConfigSource> =
         std::sync::Arc::new(wafer_run::StaticConfigSource::default());
