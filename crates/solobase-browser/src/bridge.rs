@@ -72,7 +72,8 @@ extern "C" {
     /// Execute an HTTP fetch request.
     /// `headers_json` is a JSON object of header key/value pairs.
     /// `body` is the request body bytes (pass empty slice for no body).
-    /// Returns JSON string: `{ status, headers, body: number[] }`.
+    /// Returns a plain JS object `{ status, headers, body: Uint8Array }` —
+    /// NOT a JSON string. Decode directly with `serde_wasm_bindgen::from_value`.
     #[wasm_bindgen(js_name = httpFetch)]
     pub async fn http_fetch(method: &str, url: &str, headers_json: &str, body: &[u8]) -> JsValue;
 

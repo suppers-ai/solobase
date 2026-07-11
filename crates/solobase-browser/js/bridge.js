@@ -714,7 +714,10 @@ export async function readCookieHeader() {
  * @param {string} url
  * @param {string} headersJson - JSON object of header key/value pairs
  * @param {Uint8Array|null} body
- * @returns {string} JSON string: { status, headers, body: number[] }
+ * @returns {{status: number, headers: Object<string, string>, body: Uint8Array}}
+ *   A plain JS object — NOT a JSON string. `network.rs` decodes it directly
+ *   with `serde_wasm_bindgen::from_value`, so `body` is a real `Uint8Array`
+ *   (deserializes straight into `Vec<u8>`) rather than a JSON number array.
  */
 export async function httpFetch(method, url, headersJson, body) {
     const headersObj = JSON.parse(headersJson);
@@ -735,11 +738,10 @@ export async function httpFetch(method, url, headersJson, body) {
     });
 
     const responseBuffer = await response.arrayBuffer();
-    const responseBody = Array.from(new Uint8Array(responseBuffer));
 
-    return JSON.stringify({
+    return {
         status: response.status,
         headers: responseHeaders,
-        body: responseBody,
-    });
+        body: new Uint8Array(responseBuffer),
+    };
 }

@@ -971,6 +971,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cast"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
 name = "castaway"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2948,6 +2954,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minicov"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "minimal-browser"
 version = "0.1.0"
 dependencies = [
@@ -3240,6 +3256,12 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "openssl"
@@ -4285,6 +4307,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "same-file"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4657,6 +4688,7 @@ dependencies = [
  "wafer-sql-utils",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "wasm-streams 0.4.2",
  "web-sys",
 ]
@@ -5818,7 +5850,6 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 [[package]]
 name = "wafer-block"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5842,7 +5873,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-cors"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -5854,7 +5884,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-crypto"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5875,7 +5904,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-fastembed"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "fastembed",
@@ -5886,7 +5914,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-http-listener"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -5901,7 +5928,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-inspector"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "percent-encoding",
@@ -5914,7 +5940,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-local-storage"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5926,7 +5951,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-macro"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5937,7 +5961,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-network"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "futures",
@@ -5954,7 +5977,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-postgres"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "base64ct",
@@ -5975,7 +5997,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-readonly-guard"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "wafer-block",
@@ -5985,7 +6006,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-router"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -5997,7 +6017,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-s3"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -6013,7 +6032,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-security-headers"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "wafer-block",
@@ -6023,7 +6041,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "base64ct",
@@ -6044,7 +6061,6 @@ dependencies = [
 [[package]]
 name = "wafer-block-web"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "tracing",
@@ -6056,7 +6072,6 @@ dependencies = [
 [[package]]
 name = "wafer-core"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6078,7 +6093,6 @@ dependencies = [
 [[package]]
 name = "wafer-flow"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "serde",
  "serde_json",
@@ -6088,7 +6102,6 @@ dependencies = [
 [[package]]
 name = "wafer-run"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "async-trait",
  "base64ct",
@@ -6118,7 +6131,6 @@ dependencies = [
 [[package]]
 name = "wafer-schema"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "serde",
  "serde_json",
@@ -6128,13 +6140,22 @@ dependencies = [
 [[package]]
 name = "wafer-sql-utils"
 version = "0.1.0"
-source = "git+https://github.com/wafer-run/wafer-run?branch=main#543e7882e359d876272df141520c3a47a1dfeb3d"
 dependencies = [
  "sea-query",
  "serde_json",
  "thiserror 2.0.18",
  "wafer-block",
  "wafer-schema",
+]
+
+[[package]]
+name = "walkdir"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+dependencies = [
+ "same-file",
+ "winapi-util",
 ]
 
 [[package]]
@@ -6230,6 +6251,45 @@ checksum = "9a929b2c61f11ba3e9bc35b50c1f25cb38e0e892c0c231ae2b8cf78d5dad4437"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.72"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fde991ccdc895cb7fbaa14b137d62af74d9011be67b71c694bfc40edd3119c"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.72"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e925354648d2a4d1bf205412e36d520a800280622eef4719678d268e5d40e978"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.122"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "684365b586a9a6256c1cc3544eee8680de48d6041142f581776ec7b139622ae9"
 
 [[package]]
 name = "wasm-encoder"
@@ -6457,6 +6517,15 @@ name = "winapi-i686-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-util"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
+dependencies = [
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "winapi-x86_64-pc-windows-gnu"
