@@ -211,6 +211,11 @@ pub fn url_path_encode(s: &str) -> String {
 /// `http://localhost` for local development), must not contain newlines (header
 /// injection), and must not resolve to a private/internal/loopback IP.
 ///
+/// Parses with [`url::Url`] rather than hand-rolled string splitting: `Url`
+/// canonicalizes the scheme/host and `Url::host()` strips userinfo and port
+/// and unwraps IPv6 brackets, so there is no separate "is this really
+/// localhost" string check to go stale relative to the parse.
+///
 /// Single source of truth for the `InputType::Url` write rule, shared by every
 /// config-value write surface — the admin variables page (`blocks::admin::ops`)
 /// and the generic settings form (`ui::settings_form::save_settings`) — so a
@@ -219,59 +224,61 @@ pub(crate) fn validate_url_value(value: &str) -> Result<(), String> {
     if value.is_empty() {
         return Ok(());
     }
-    // Allow relative paths.
+    // Allow relative paths. Checked before `Url::parse`, which errors on a
+    // bare relative path (no scheme) rather than accepting it.
     if value.starts_with('/') && !value.starts_with("//") {
         return Ok(());
     }
-    // Block newlines (header injection).
+    // Block newlines (header injection). `Url::parse` also rejects ASCII
+    // control characters, but keep this as an explicit, readable check with
+    // its own error message rather than relying on parse-error wording.
     if value.contains('\n') || value.contains('\r') {
         return Err("URL must not contain newlines".to_string());
     }
-    // Must be https:// or http://localhost for dev.
-    let is_localhost = value.starts_with("http://localhost");
-    if !value.starts_with("https://") && !is_localhost {
-        return Err("URL must use HTTPS (or http://localhost for development)".to_string());
-    }
-    // Extract hostname and check for private/internal IPs.
-    let host = value
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .and_then(|authority| {
-            // Handle [IPv6]:port
-            if authority.starts_with('[') {
-                authority.strip_prefix('[')?.split(']').next()
-            } else {
-                authority.split(':').next()
-            }
-        })
-        .unwrap_or("");
 
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
-                    || v4.is_loopback()                // 127.x
-                    || v4.is_link_local()              // 169.254.x
-                    || v4.octets()[0] == 0; // 0.0.0.0/8
-                if is_blocked && !is_localhost {
+    let parsed = url::Url::parse(value).map_err(|e| format!("invalid URL: {e}"))?;
+
+    // Must be https:// or http://localhost for dev. `host_str()` is the
+    // canonical, userinfo-stripped host (e.g. `https://user@localhost/`
+    // still yields `Some("localhost")` here), so there is no separate
+    // prefix test that a crafted authority can dodge.
+    let is_localhost = matches!(
+        parsed.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("::1")
+    );
+    match parsed.scheme() {
+        "https" => {}
+        "http" if is_localhost => {}
+        _ => {
+            return Err("URL must use HTTPS (or http://localhost for development)".to_string());
+        }
+    }
+
+    // Check for private/internal IPs using the parsed host, which is
+    // guaranteed to have userinfo and port stripped and IPv6 brackets
+    // removed — unlike the old string-split extraction.
+    match parsed.host() {
+        Some(url::Host::Ipv4(v4)) => {
+            let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
+                || v4.is_loopback()                // 127.x
+                || v4.is_link_local()              // 169.254.x
+                || v4.octets()[0] == 0; // 0.0.0.0/8
+            if is_blocked {
+                return Err("URL must not point to private/internal IP addresses".to_string());
+            }
+        }
+        Some(url::Host::Ipv6(v6)) => {
+            if v6.is_loopback() {
+                return Err("URL must not point to loopback address".to_string());
+            }
+            // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
                     return Err("URL must not point to private/internal IP addresses".to_string());
                 }
             }
-            std::net::IpAddr::V6(v6) => {
-                if v6.is_loopback() {
-                    return Err("URL must not point to loopback address".to_string());
-                }
-                // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
-                if let Some(v4) = v6.to_ipv4_mapped() {
-                    if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
-                        return Err(
-                            "URL must not point to private/internal IP addresses".to_string()
-                        );
-                    }
-                }
-            }
         }
+        Some(url::Host::Domain(_)) | None => {}
     }
     Ok(())
 }
@@ -647,5 +654,30 @@ mod tests {
         assert!(validate_url_value("https://192.168.1.1").is_err());
         assert!(validate_url_value("https://127.0.0.1").is_err());
         assert!(validate_url_value("https://example.com\r\nHost: evil").is_err());
+    }
+
+    /// Bypass #1: a raw `starts_with("http://localhost")` prefix test treats
+    /// any host merely beginning with the string "localhost" as exempt from
+    /// the HTTPS requirement, letting external plain-HTTP hosts through.
+    #[test]
+    fn rejects_localhost_prefixed_external_host_over_http() {
+        assert!(validate_url_value("http://localhost.evil.com/").is_err());
+        assert!(validate_url_value("http://localhostfoo/").is_err());
+    }
+
+    /// Bypass #2: hand-rolled host extraction never stripped userinfo, so
+    /// `user@10.0.0.1` failed to parse as an `IpAddr` and the private-IP
+    /// block was skipped entirely. Combined with bypass #1, a userinfo of
+    /// literally "localhost" also smuggled a private IP in over plain HTTP.
+    #[test]
+    fn rejects_userinfo_masked_private_ip() {
+        assert!(validate_url_value("https://user@10.0.0.1/").is_err());
+        assert!(validate_url_value("http://localhost@10.0.0.1/").is_err());
+    }
+
+    #[test]
+    fn still_allows_plain_https_and_real_localhost() {
+        assert!(validate_url_value("https://api.example.com/x").is_ok());
+        assert!(validate_url_value("http://localhost:8080/x").is_ok());
     }
 }
