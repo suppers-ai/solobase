@@ -2,10 +2,19 @@
 //!
 //! Kept dep-free and side-effect-free so they unit-test on native.
 
+use wafer_core::interfaces::vector::service::DistanceMetric;
+
 /// Returns the DDL statements to create a vector index. Tables:
 /// - `{name}_vectors` — id PK, vector BLOB, metadata TEXT, [text TEXT]
 /// - `{name}_fts` — fts5(id UNINDEXED, text) — only when keyword_search=true
 /// - `{name}_meta` — id PK, rowid INTEGER, metadata TEXT, [text TEXT]
+///
+/// Every statement carries `IF NOT EXISTS`: browsers kill idle Service
+/// Workers within minutes, and the SW's in-memory index cache is rebuilt
+/// from scratch on every restart (see `IndexState` in `service.rs`). A
+/// caller recovering from a cold cache re-calls `create_index` for an index
+/// that may already exist on disk — that must succeed idempotently, not
+/// throw "table already exists".
 pub fn build_create_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<String> {
     let v = format!("{prefixed_name}_vectors");
     let m = format!("{prefixed_name}_meta");
@@ -13,18 +22,140 @@ pub fn build_create_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<
     let text_col = if keyword_search { ", text TEXT" } else { "" };
 
     let mut out = vec![format!(
-        r#"CREATE TABLE "{v}" (id TEXT PRIMARY KEY, vector BLOB NOT NULL, metadata TEXT{text_col})"#
+        r#"CREATE TABLE IF NOT EXISTS "{v}" (id TEXT PRIMARY KEY, vector BLOB NOT NULL, metadata TEXT{text_col})"#
     )];
     if keyword_search {
         let f = format!("{prefixed_name}_fts");
         out.push(format!(
-            r#"CREATE VIRTUAL TABLE "{f}" USING fts5(id UNINDEXED, text)"#
+            r#"CREATE VIRTUAL TABLE IF NOT EXISTS "{f}" USING fts5(id UNINDEXED, text)"#
         ));
     }
     out.push(format!(
-        r#"CREATE TABLE "{m}" (id TEXT PRIMARY KEY, rowid INTEGER, metadata TEXT{text_col})"#
+        r#"CREATE TABLE IF NOT EXISTS "{m}" (id TEXT PRIMARY KEY, rowid INTEGER, metadata TEXT{text_col})"#
     ));
     out
+}
+
+// ─── Index config registry ──────────────────────────────────────────────
+//
+// `dimensions`/`metric`/`keyword_search` aren't recoverable from the
+// `_vectors`/`_meta`/`_fts` tables' own schema (the `vector` column is a
+// plain BLOB with no length constraint, and nothing on disk records which
+// distance metric an index was created with). This table is the only
+// record of that config, so `BrowserVectorService::lookup` can hydrate its
+// in-memory cache after a Service Worker restart instead of returning
+// `IndexNotFound` for an index that is still physically on disk.
+
+/// Table that persists per-index config across Service Worker restarts,
+/// inside the same sql.js OPFS database that stores each index's own
+/// `_vectors`/`_fts`/`_meta` tables. Named with a leading/trailing `__` so
+/// it can never collide with a `{prefixed_name}_vectors|_fts|_meta` table —
+/// index names are restricted to `[A-Za-z0-9_]` and none of those suffixes
+/// match this literal name.
+pub const REGISTRY_TABLE: &str = "__vector_index_registry__";
+
+/// Idempotent DDL for the registry table. Safe to run before every write or
+/// hydration read — a warm cache that already created it pays only a no-op
+/// statement.
+pub fn build_registry_ddl() -> String {
+    format!(
+        r#"CREATE TABLE IF NOT EXISTS "{REGISTRY_TABLE}" (name TEXT PRIMARY KEY, dimensions INTEGER NOT NULL, metric TEXT NOT NULL, keyword_search INTEGER NOT NULL)"#
+    )
+}
+
+/// `INSERT OR REPLACE` the config row for `name` — idempotent, matching the
+/// idempotent DDL above, so re-registering an existing index just refreshes
+/// its row instead of erroring.
+pub fn build_registry_upsert_sql(
+    name: &str,
+    dimensions: u32,
+    metric: DistanceMetric,
+    keyword_search: bool,
+) -> PreparedStmt {
+    PreparedStmt {
+        sql: format!(
+            r#"INSERT OR REPLACE INTO "{REGISTRY_TABLE}" (name, dimensions, metric, keyword_search) VALUES (?, ?, ?, ?)"#
+        ),
+        params_json: serde_json::json!([
+            name,
+            dimensions,
+            metric_to_storage_str(metric),
+            keyword_search as i64
+        ])
+        .to_string(),
+    }
+}
+
+/// `(sql, params_json)` to look up one index's persisted config row by name.
+pub fn build_registry_select_sql(name: &str) -> (String, String) {
+    (
+        format!(
+            r#"SELECT dimensions, metric, keyword_search FROM "{REGISTRY_TABLE}" WHERE name = ?"#
+        ),
+        serde_json::json!([name]).to_string(),
+    )
+}
+
+/// `(sql, params_json)` to remove an index's persisted config row.
+pub fn build_registry_delete_sql(name: &str) -> (String, String) {
+    (
+        format!(r#"DELETE FROM "{REGISTRY_TABLE}" WHERE name = ?"#),
+        serde_json::json!([name]).to_string(),
+    )
+}
+
+/// Encodes a [`DistanceMetric`] for the registry `metric` column. A storage
+/// encoding of our own (not the wire JSON one) so it stays legible and
+/// stable regardless of how `wafer_block::wire::vector::DistanceMetric`'s
+/// serde attributes evolve — this string never leaves the browser's own
+/// sql.js database.
+fn metric_to_storage_str(metric: DistanceMetric) -> &'static str {
+    match metric {
+        DistanceMetric::Cosine => "cosine",
+        DistanceMetric::Euclidean => "euclidean",
+        DistanceMetric::DotProduct => "dot_product",
+    }
+}
+
+/// Inverse of [`metric_to_storage_str`]. `None` on anything else — a
+/// registry row with an unrecognized metric string is corrupt, not a
+/// silently-defaulted `Cosine`.
+fn metric_from_storage_str(s: &str) -> Option<DistanceMetric> {
+    match s {
+        "cosine" => Some(DistanceMetric::Cosine),
+        "euclidean" => Some(DistanceMetric::Euclidean),
+        "dot_product" => Some(DistanceMetric::DotProduct),
+        _ => None,
+    }
+}
+
+/// Parses one registry row — a JSON object as returned by `db_query_raw`
+/// for the query built by [`build_registry_select_sql`] (see
+/// `bridge::db_query_raw`'s doc comment for the row-object JSON shape) —
+/// into `(dimensions, metric, keyword_search)`.
+///
+/// Pulled out of `service.rs` (which is wasm32-only, since it calls the
+/// `bridge` extern functions) so the row-shape parsing — including its
+/// error paths — is unit-testable on native without a real sql.js/OPFS
+/// backing store.
+pub fn parse_registry_row(row: &serde_json::Value) -> Result<(u32, DistanceMetric, bool), String> {
+    let dimensions = row
+        .get("dimensions")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| "registry row missing/non-numeric dimensions".to_string())?
+        as u32;
+    let metric_str = row
+        .get("metric")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "registry row missing/non-string metric".to_string())?;
+    let metric = metric_from_storage_str(metric_str)
+        .ok_or_else(|| format!("registry row has unknown metric {metric_str:?}"))?;
+    let keyword_search = row
+        .get("keyword_search")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| "registry row missing/non-numeric keyword_search".to_string())?
+        != 0;
+    Ok((dimensions, metric, keyword_search))
 }
 
 pub fn build_delete_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<String> {
@@ -181,16 +312,33 @@ mod tests {
     fn create_index_with_keyword_emits_three_tables() {
         let sqls = build_create_index_sql("suppers_ai__vector__docs", true);
         assert_eq!(sqls.len(), 3);
-        assert!(sqls[0].contains(r#"CREATE TABLE "suppers_ai__vector__docs_vectors""#));
+        assert!(
+            sqls[0].contains(r#"CREATE TABLE IF NOT EXISTS "suppers_ai__vector__docs_vectors""#)
+        );
         assert!(sqls[0].contains("vector BLOB"));
         assert!(sqls[0].contains("text TEXT"));
-        assert!(sqls[1].contains(r#"CREATE VIRTUAL TABLE "suppers_ai__vector__docs_fts""#));
+        assert!(sqls[1]
+            .contains(r#"CREATE VIRTUAL TABLE IF NOT EXISTS "suppers_ai__vector__docs_fts""#));
         assert!(sqls[1].contains("USING fts5(id UNINDEXED, text)"));
-        assert!(sqls[2].contains(r#"CREATE TABLE "suppers_ai__vector__docs_meta""#));
+        assert!(sqls[2].contains(r#"CREATE TABLE IF NOT EXISTS "suppers_ai__vector__docs_meta""#));
         assert!(
             sqls[2].contains("text TEXT"),
             "expected _meta to include text column when keyword_search=true"
         );
+    }
+
+    #[test]
+    fn create_index_sql_is_idempotent() {
+        // Re-registering an existing index after a Service Worker restart
+        // (the cache-cold recovery path) must not throw "table already
+        // exists" — every DDL statement needs IF NOT EXISTS.
+        for keyword_search in [true, false] {
+            let sqls = build_create_index_sql("idx", keyword_search);
+            assert!(
+                sqls.iter().all(|s| s.contains("IF NOT EXISTS")),
+                "every create-index statement must be idempotent (keyword_search={keyword_search}): {sqls:?}"
+            );
+        }
     }
 
     #[test]
@@ -314,5 +462,126 @@ mod tests {
         let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", false, &[entry]);
         assert_eq!(stmts.len(), 2);
         assert!(!stmts.iter().any(|s| s.sql.contains("_fts")));
+    }
+
+    // ─── Registry (hydration persistence) ───────────────────────────────
+
+    #[test]
+    fn registry_ddl_is_idempotent_and_targets_registry_table() {
+        let sql = build_registry_ddl();
+        assert!(sql.contains("IF NOT EXISTS"));
+        assert!(sql.contains(REGISTRY_TABLE));
+        assert!(sql.contains("dimensions INTEGER NOT NULL"));
+        assert!(sql.contains("metric TEXT NOT NULL"));
+        assert!(sql.contains("keyword_search INTEGER NOT NULL"));
+    }
+
+    #[test]
+    fn registry_upsert_uses_or_replace_and_binds_all_fields() {
+        let stmt = build_registry_upsert_sql(
+            "suppers_ai__vector__docs",
+            384,
+            DistanceMetric::Cosine,
+            true,
+        );
+        assert!(stmt.sql.contains("INSERT OR REPLACE INTO"));
+        assert!(stmt.sql.contains(REGISTRY_TABLE));
+        let params: serde_json::Value = serde_json::from_str(&stmt.params_json).unwrap();
+        assert_eq!(
+            params,
+            serde_json::json!(["suppers_ai__vector__docs", 384, "cosine", 1])
+        );
+    }
+
+    #[test]
+    fn registry_upsert_encodes_keyword_search_false_as_zero() {
+        let stmt = build_registry_upsert_sql("idx", 3, DistanceMetric::Euclidean, false);
+        let params: serde_json::Value = serde_json::from_str(&stmt.params_json).unwrap();
+        assert_eq!(params, serde_json::json!(["idx", 3, "euclidean", 0]));
+    }
+
+    #[test]
+    fn registry_select_targets_name_and_registry_table() {
+        let (sql, params) = build_registry_select_sql("idx");
+        assert!(sql.contains(REGISTRY_TABLE));
+        assert!(sql.contains("WHERE name = ?"));
+        assert_eq!(params, serde_json::json!(["idx"]).to_string());
+    }
+
+    #[test]
+    fn registry_delete_targets_name_and_registry_table() {
+        let (sql, params) = build_registry_delete_sql("idx");
+        assert!(sql.starts_with("DELETE FROM"));
+        assert!(sql.contains(REGISTRY_TABLE));
+        assert_eq!(params, serde_json::json!(["idx"]).to_string());
+    }
+
+    #[test]
+    fn metric_storage_encoding_roundtrips_for_every_variant() {
+        for metric in [
+            DistanceMetric::Cosine,
+            DistanceMetric::Euclidean,
+            DistanceMetric::DotProduct,
+        ] {
+            let s = metric_to_storage_str(metric);
+            assert_eq!(
+                metric_from_storage_str(s),
+                Some(metric),
+                "storage encoding for {metric:?} must round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn metric_from_storage_str_rejects_unknown_values() {
+        assert_eq!(metric_from_storage_str("manhattan"), None);
+        assert_eq!(metric_from_storage_str(""), None);
+        // Must not silently accept the wire JSON encoding of DotProduct
+        // (serde's `rename_all = "lowercase"` would collapse it to
+        // "dotproduct") — the registry format is deliberately its own.
+        assert_eq!(metric_from_storage_str("dotproduct"), None);
+    }
+
+    #[test]
+    fn parse_registry_row_happy_path() {
+        let row = serde_json::json!({ "dimensions": 384, "metric": "cosine", "keyword_search": 1 });
+        let (dims, metric, kw) = parse_registry_row(&row).expect("valid row parses");
+        assert_eq!(dims, 384);
+        assert_eq!(metric, DistanceMetric::Cosine);
+        assert!(kw);
+    }
+
+    #[test]
+    fn parse_registry_row_keyword_search_zero_is_false() {
+        let row =
+            serde_json::json!({ "dimensions": 3, "metric": "dot_product", "keyword_search": 0 });
+        let (_, metric, kw) = parse_registry_row(&row).expect("valid row parses");
+        assert_eq!(metric, DistanceMetric::DotProduct);
+        assert!(!kw);
+    }
+
+    #[test]
+    fn parse_registry_row_rejects_missing_dimensions() {
+        let row = serde_json::json!({ "metric": "cosine", "keyword_search": 0 });
+        assert!(parse_registry_row(&row).is_err());
+    }
+
+    #[test]
+    fn parse_registry_row_rejects_missing_metric() {
+        let row = serde_json::json!({ "dimensions": 3, "keyword_search": 0 });
+        assert!(parse_registry_row(&row).is_err());
+    }
+
+    #[test]
+    fn parse_registry_row_rejects_unknown_metric() {
+        let row =
+            serde_json::json!({ "dimensions": 3, "metric": "manhattan", "keyword_search": 0 });
+        assert!(parse_registry_row(&row).is_err());
+    }
+
+    #[test]
+    fn parse_registry_row_rejects_missing_keyword_search() {
+        let row = serde_json::json!({ "dimensions": 3, "metric": "cosine" });
+        assert!(parse_registry_row(&row).is_err());
     }
 }

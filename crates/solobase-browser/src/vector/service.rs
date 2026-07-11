@@ -37,9 +37,21 @@ fn matches_filter(metadata: Option<&serde_json::Value>, filter: &MetadataFilter)
     true
 }
 
-/// Per-index config cached in memory after `create_index`. Persisted via the
-/// `wafer_core::interfaces::vector` block's own registry table; this cache
-/// is hydrated on first use by reading that registry.
+/// Per-index config: cached in memory for the lifetime of this
+/// `BrowserVectorService`, and persisted (`dimensions`/`metric`/
+/// `keyword_search`) in the `sql::REGISTRY_TABLE` table inside the same
+/// sql.js OPFS database that holds the index's own
+/// `_vectors`/`_fts`/`_meta` tables.
+///
+/// Browsers kill idle Service Workers within minutes, and
+/// `BrowserVectorService::new()` always starts with an empty `indexes`
+/// map — so on every SW restart the in-memory cache is cold while the
+/// on-disk tables (and this registry row) survive untouched. `lookup`
+/// treats a cache miss as "maybe just cold, not gone": it hydrates from
+/// the registry row before concluding `IndexNotFound`. `create_index`
+/// writes the row (idempotently, mirroring the `IF NOT EXISTS` index-table
+/// DDL); `delete_index` removes it so a deleted index can't hydrate back
+/// from a stale row.
 #[derive(Clone)]
 struct IndexState {
     dimensions: u32,
@@ -71,22 +83,83 @@ impl BrowserVectorService {
         }
     }
 
-    fn lookup(&self, name: &str) -> Option<IndexState> {
-        self.indexes
+    /// Returns the config for `name`, hydrating from the persisted registry
+    /// row on a cache miss before concluding the index is genuinely absent.
+    /// A miss can mean either "no such index" or "cold cache after a
+    /// Service Worker restart" — see the `IndexState` doc comment.
+    fn lookup(&self, name: &str) -> VResult<Option<IndexState>> {
+        if let Some(state) = self
+            .indexes
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(name)
             .cloned()
+        {
+            return Ok(Some(state));
+        }
+        self.hydrate(name)
+    }
+
+    /// Reads `name`'s registry row (if any) and rebuilds it into the
+    /// in-memory cache. Returns `Ok(None)` when there is no such row —
+    /// either the index was never created, or it predates this table
+    /// (unrecoverable; falls back to `IndexNotFound` like a genuinely
+    /// missing index).
+    fn hydrate(&self, name: &str) -> VResult<Option<IndexState>> {
+        // Idempotent — guarantees the table exists so the SELECT below
+        // can't fail with "no such table" on a DB that has never had any
+        // index created in it yet.
+        bridge::db_exec_raw(&sql::build_registry_ddl(), "[]")
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
+
+        let (query, params) = sql::build_registry_select_sql(name);
+        let json =
+            bridge::db_query_raw(&query, &params).map_err(|e| VectorError::Internal(js_err(e)))?;
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+            .map_err(|e| VectorError::Internal(format!("parse registry row: {e}")))?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let (dimensions, metric, keyword_search) = sql::parse_registry_row(row)
+            .map_err(|e| VectorError::Internal(format!("registry row for {name:?}: {e}")))?;
+
+        let state = IndexState {
+            dimensions,
+            metric,
+            keyword_search,
+        };
+        self.indexes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(name.to_string(), state.clone());
+        Ok(Some(state))
     }
 }
 
 #[async_trait::async_trait(?Send)]
 impl VectorService for BrowserVectorService {
     async fn create_index(&self, config: VectorIndexConfig) -> VResult<()> {
+        // Idempotent — ensures the registry table exists before the upsert
+        // below, on the very first index ever created in this DB.
+        bridge::db_exec_raw(&sql::build_registry_ddl(), "[]")
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
+
         let stmts = sql::build_create_index_sql(&config.name, config.keyword_search);
         for s in stmts {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
+
+        // Persist the config so a future cold cache (post-SW-restart) can
+        // hydrate this index instead of returning `IndexNotFound`.
+        let reg = sql::build_registry_upsert_sql(
+            &config.name,
+            config.dimensions,
+            config.metric,
+            config.keyword_search,
+        );
+        bridge::db_exec_raw(&reg.sql, &reg.params_json)
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
+
         bridge::dbFlush()
             .await
             .map_err(|e| VectorError::Internal(js_err(e)))?;
@@ -106,12 +179,20 @@ impl VectorService for BrowserVectorService {
 
     async fn delete_index(&self, name: &str) -> VResult<()> {
         let state = self
-            .lookup(name)
+            .lookup(name)?
             .ok_or_else(|| VectorError::IndexNotFound(name.into()))?;
         let stmts = sql::build_delete_index_sql(name, state.keyword_search);
         for s in stmts {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
+
+        // Clear the registry row too — otherwise a later `lookup` miss
+        // would hydrate a phantom `IndexState` for tables that no longer
+        // exist, turning what should be `IndexNotFound` into an
+        // `Internal` "no such table" error on the next call.
+        let (del_sql, del_params) = sql::build_registry_delete_sql(name);
+        bridge::db_exec_raw(&del_sql, &del_params).map_err(|e| VectorError::Internal(js_err(e)))?;
+
         bridge::dbFlush()
             .await
             .map_err(|e| VectorError::Internal(js_err(e)))?;
@@ -124,7 +205,7 @@ impl VectorService for BrowserVectorService {
 
     async fn upsert(&self, index: &str, entries: Vec<VectorEntry>) -> VResult<()> {
         let state = self
-            .lookup(index)
+            .lookup(index)?
             .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
 
         use base64ct::{Base64, Encoding};
@@ -175,7 +256,7 @@ impl VectorService for BrowserVectorService {
         keyword_query: Option<String>,
     ) -> VResult<Vec<VectorMatch>> {
         let state = self
-            .lookup(index)
+            .lookup(index)?
             .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
 
         let needs_keyword = matches!(mode, SearchMode::Keyword | SearchMode::Hybrid);
@@ -291,7 +372,7 @@ impl VectorService for BrowserVectorService {
 
     async fn delete(&self, index: &str, ids: Vec<String>) -> VResult<()> {
         let state = self
-            .lookup(index)
+            .lookup(index)?
             .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
         if ids.is_empty() {
             return Ok(());
@@ -308,7 +389,7 @@ impl VectorService for BrowserVectorService {
     }
 
     async fn count(&self, index: &str) -> VResult<u64> {
-        if self.lookup(index).is_none() {
+        if self.lookup(index)?.is_none() {
             return Err(VectorError::IndexNotFound(index.into()));
         }
         let row_json = bridge::db_query_raw(&sql::build_count_sql(index), "[]")
