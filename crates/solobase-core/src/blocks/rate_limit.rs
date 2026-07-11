@@ -6,10 +6,10 @@ use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
-use wafer_core::clients::config;
 #[cfg(target_arch = "wasm32")]
 use wafer_core::clients::database as db;
-use wafer_run::{context::Context, OutputStream};
+use wafer_core::clients::{config, database::Record};
+use wafer_run::{context::Context, OutputStream, WaferError};
 
 /// Per-user rate limiter using fixed-window counters.
 ///
@@ -189,7 +189,7 @@ impl UserRateLimiter {
         // structured `OnConflict::WindowedCounter` request.
         use crate::blocks::auth::RATE_LIMITS_TABLE as RATE_LIMITS;
         let id = crate::util::sha256_hex(format!("rl:{key}:{now}").as_bytes());
-        let _ = db::upsert(
+        let upsert_result = db::upsert(
             ctx,
             RATE_LIMITS,
             vec![
@@ -210,7 +210,7 @@ impl UserRateLimiter {
 
         // Read back the current count for this window via the typed client
         // (replaces a hand-rolled `db::query_raw` of `build_select_columns`).
-        let rows = db::list_all(
+        let rows_result = db::list_all(
             ctx,
             RATE_LIMITS,
             vec![
@@ -226,19 +226,23 @@ impl UserRateLimiter {
                 },
             ],
         )
-        .await
-        .unwrap_or_default();
+        .await;
 
-        let count = rows
-            .first()
-            .and_then(|r| r.data.get("count"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as u32;
-
-        if count > limit.max_requests {
-            Err(window_secs as u64)
-        } else {
-            Ok(limit.max_requests - count)
+        match decide_rate_limit(
+            &upsert_result,
+            rows_result,
+            key,
+            limit.max_requests,
+            window_secs as u64,
+        ) {
+            BackendCheckOutcome::Allowed(remaining) => Ok(remaining),
+            BackendCheckOutcome::Limited(retry_after) => Err(retry_after),
+            // Availability is preserved (the request is still allowed), but
+            // `decide_rate_limit` has already emitted a `tracing::warn!` so
+            // this is a loud, distinguishable fail-open — never the silent
+            // `count = 0` allow that left CF rate limiting inert for weeks
+            // (2026-07-10 incident: the `rate_limits` table didn't exist).
+            BackendCheckOutcome::FailedOpen { .. } => Ok(limit.max_requests),
         }
     }
 
@@ -246,6 +250,78 @@ impl UserRateLimiter {
     /// For unauthenticated endpoints (login/signup), use IP as the identity.
     pub fn key(identity: &str, category: &str) -> String {
         format!("{}:{}", identity, category)
+    }
+}
+
+/// Outcome of the wasm32 D1-backed fixed-window decision, factored out of
+/// `UserRateLimiter::check` so the fail-open path is testable on the host —
+/// the `check` arm that calls this only compiles under
+/// `cfg(target_arch = "wasm32")`, so a test placed inside it would never run
+/// in CI. This type and [`decide_rate_limit`] carry no `target_arch` gate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendCheckOutcome {
+    /// Under the limit. Caller should return `Ok(remaining)`.
+    Allowed(u32),
+    /// Over the limit. Caller should return `Err(retry_after_secs)`.
+    Limited(u64),
+    /// The upsert or the read-back against the D1 backend failed.
+    /// Availability is preserved — the request is still allowed — but this
+    /// is a distinct, logged decision, never an unlabeled `count = 0` allow.
+    /// Regression target for the 2026-07-10 incident where a missing
+    /// `rate_limits` table left CF rate limiting silently inert for weeks
+    /// with zero log evidence.
+    FailedOpen { reason: String },
+}
+
+/// Decide the outcome of a D1-backed fixed-window rate-limit check from the
+/// raw upsert/read-back results, without touching the backend itself.
+///
+/// A failure on either the write (`upsert_result`) or the read
+/// (`rows_result`) fails open for availability, but loudly: it emits a
+/// `tracing::warn!` and returns [`BackendCheckOutcome::FailedOpen`] instead
+/// of silently deriving `count = 0` from an empty/absent row set.
+pub fn decide_rate_limit(
+    upsert_result: &Result<i64, WaferError>,
+    rows_result: Result<Vec<Record>, WaferError>,
+    key: &str,
+    max_requests: u32,
+    retry_after_secs: u64,
+) -> BackendCheckOutcome {
+    if let Err(e) = upsert_result {
+        tracing::warn!(
+            error = %e,
+            key = %key,
+            "rate-limit backend upsert failed — failing open (allowing request, count unknown)"
+        );
+        return BackendCheckOutcome::FailedOpen {
+            reason: e.to_string(),
+        };
+    }
+
+    let rows = match rows_result {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                key = %key,
+                "rate-limit backend read-back failed — failing open (allowing request, count unknown)"
+            );
+            return BackendCheckOutcome::FailedOpen {
+                reason: e.to_string(),
+            };
+        }
+    };
+
+    let count = rows
+        .first()
+        .and_then(|r| r.data.get("count"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as u32;
+
+    if count > max_requests {
+        BackendCheckOutcome::Limited(retry_after_secs)
+    } else {
+        BackendCheckOutcome::Allowed(max_requests - count)
     }
 }
 
@@ -652,5 +728,68 @@ mod tests {
         )
         .await
         .is_none());
+    }
+
+    // -- decide_rate_limit (wasm32 D1-backend decision logic) --------------
+    //
+    // `UserRateLimiter::check`'s wasm32 arm only compiles under
+    // `cfg(target_arch = "wasm32")`, so `cargo test` on the host never
+    // exercises it directly. `decide_rate_limit` carries no `target_arch`
+    // gate specifically so these regression tests run on every `cargo test`.
+
+    fn wafer_error(message: &str) -> WaferError {
+        WaferError {
+            code: wafer_run::ErrorCode::Unavailable,
+            message: message.to_string(),
+            meta: vec![],
+        }
+    }
+
+    fn count_row(count: i64) -> Record {
+        let mut data = std::collections::HashMap::new();
+        data.insert("count".to_string(), serde_json::json!(count));
+        Record {
+            id: "row1".to_string(),
+            data,
+        }
+    }
+
+    #[test]
+    fn rate_limit_decision_is_explicit_when_upsert_fails() {
+        // Regression for the CF incident where a missing `rate_limits` table
+        // left limiting silently inert for weeks. A backend write failure
+        // must be a logged, explicit fail-open — not an unlabeled count=0
+        // allow.
+        let outcome = decide_rate_limit(&Err(wafer_error("D1 down")), Ok(vec![]), "k", 5, 60);
+        assert!(matches!(outcome, BackendCheckOutcome::FailedOpen { .. }));
+    }
+
+    #[test]
+    fn rate_limit_decision_is_explicit_when_read_back_fails() {
+        // Same regression, but for the read-back half of the check: the
+        // upsert can succeed while the follow-up `list_all` still fails.
+        let outcome = decide_rate_limit(&Ok(1), Err(wafer_error("D1 down")), "k", 5, 60);
+        assert!(matches!(outcome, BackendCheckOutcome::FailedOpen { .. }));
+    }
+
+    #[test]
+    fn rate_limit_decision_allows_under_limit() {
+        let outcome = decide_rate_limit(&Ok(1), Ok(vec![count_row(2)]), "k", 5, 60);
+        assert_eq!(outcome, BackendCheckOutcome::Allowed(3));
+    }
+
+    #[test]
+    fn rate_limit_decision_limits_over_limit() {
+        let outcome = decide_rate_limit(&Ok(1), Ok(vec![count_row(6)]), "k", 5, 60);
+        assert_eq!(outcome, BackendCheckOutcome::Limited(60));
+    }
+
+    #[test]
+    fn rate_limit_decision_treats_empty_rows_as_zero_count_not_failure() {
+        // No row yet for this window (first request) is a legitimate empty
+        // result, not a backend failure — must stay a normal `Allowed`, not
+        // `FailedOpen`.
+        let outcome = decide_rate_limit(&Ok(1), Ok(vec![]), "k", 5, 60);
+        assert_eq!(outcome, BackendCheckOutcome::Allowed(5));
     }
 }
