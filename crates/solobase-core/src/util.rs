@@ -238,17 +238,21 @@ pub(crate) fn validate_url_value(value: &str) -> Result<(), String> {
 
     let parsed = url::Url::parse(value).map_err(|e| format!("invalid URL: {e}"))?;
 
-    // Must be https:// or http://localhost for dev. `host_str()` is the
+    // Must be https:// or http://localhost for dev. `host()` is the
     // canonical, userinfo-stripped host (e.g. `https://user@localhost/`
-    // still yields `Some("localhost")` here), so there is no separate
-    // prefix test that a crafted authority can dodge.
-    let is_localhost = matches!(
-        parsed.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1")
-    );
+    // still yields `Host::Domain("localhost")` here), so there is no
+    // separate prefix test that a crafted authority can dodge. The dev
+    // exception is scoped to the `localhost` *domain* specifically:
+    // loopback IPs (`127.0.0.1`, `::1`) are intentionally NOT granted it —
+    // they're rejected below by the private/loopback-IP block regardless,
+    // so exempting them here would be misleading. `Host::Ipv6` also never
+    // matches the bare string `"::1"` (it serializes bracketed, `"[::1]"`),
+    // so a string-based check would silently never apply anyway.
+    let is_dev_localhost =
+        matches!(parsed.host(), Some(url::Host::Domain(h)) if h.eq_ignore_ascii_case("localhost"));
     match parsed.scheme() {
         "https" => {}
-        "http" if is_localhost => {}
+        "http" if is_dev_localhost => {}
         _ => {
             return Err("URL must use HTTPS (or http://localhost for development)".to_string());
         }
@@ -679,5 +683,24 @@ mod tests {
     fn still_allows_plain_https_and_real_localhost() {
         assert!(validate_url_value("https://api.example.com/x").is_ok());
         assert!(validate_url_value("http://localhost:8080/x").is_ok());
+    }
+
+    /// The http-localhost dev exception is scoped to the `localhost` domain
+    /// only. Loopback IPs are NOT granted it — they fall through to (and are
+    /// rejected by) the private/loopback-IP block below regardless. IPv6
+    /// loopback in particular would never have matched a bare `"::1"` string
+    /// check anyway, since `Url::host_str()` serializes it bracketed.
+    #[test]
+    fn rejects_loopback_ips_over_http() {
+        assert!(validate_url_value("http://[::1]/x").is_err());
+        assert!(validate_url_value("http://127.0.0.1:8080/x").is_err());
+    }
+
+    /// Userinfo-stripped host must still be `localhost` the domain, not
+    /// merely contain the substring — `http://localhost@evil.com` has host
+    /// `evil.com`, so it must be rejected (not confused with the userinfo).
+    #[test]
+    fn rejects_userinfo_localhost_with_external_host() {
+        assert!(validate_url_value("http://localhost@evil.com").is_err());
     }
 }
