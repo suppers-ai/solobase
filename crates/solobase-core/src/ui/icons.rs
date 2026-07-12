@@ -209,6 +209,15 @@ pub fn info() -> Markup {
     icon(r#"<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>"#)
 }
 
+/// `?`-in-circle glyph. Used by `ui::sidebar::nav_icon` as the visibly
+/// distinct "unknown icon name" marker — don't reuse it for a nav entry's
+/// own icon or the drift signal disappears.
+pub fn help_circle() -> Markup {
+    icon(
+        r#"<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>"#,
+    )
+}
+
 pub fn database() -> Markup {
     icon(
         r#"<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>"#,
