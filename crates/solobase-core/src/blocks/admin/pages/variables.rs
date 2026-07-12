@@ -224,17 +224,19 @@ fn var_table(header: Markup, show_default: bool, body: Markup) -> Markup {
         div .card .mt-4 {
             (header)
             div .card-body {
-                table .table {
-                    thead {
-                        tr {
-                            th { "Key" }
-                            th { "Value" }
-                            @if show_default { th { "Default" } }
-                            th { "Description" }
-                            th style="width:50px" {}
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th { "Key" }
+                                th { "Value" }
+                                @if show_default { th { "Default" } }
+                                th { "Description" }
+                                th style="width:50px" {}
+                            }
                         }
+                        tbody { (body) }
                     }
-                    tbody { (body) }
                 }
             }
         }
