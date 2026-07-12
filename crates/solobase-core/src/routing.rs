@@ -462,7 +462,7 @@ mod tests {
         // sub-routes (`/b/legalpages/admin`, `/b/legalpages/api`) that DO
         // require admin. Those sub-routes are verified by
         // `legalpages_admin_routes_require_admin`.
-        let non_admin_prefixes = vec![
+        let non_admin_prefixes = [
             "/health",
             "/static/",
             "/b/auth/",

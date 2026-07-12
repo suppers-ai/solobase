@@ -71,7 +71,7 @@ async fn admin_get_product() {
         .unwrap()
         .to_string();
 
-    let (get_msg_data, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
+    let (get_msg_data, get_input) = admin_get_msg(&format!("/admin/b/products/products/{id}"));
     let out = dispatch_admin(&ctx, get_msg_data, get_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Widget");
@@ -95,7 +95,7 @@ async fn admin_update_product() {
 
     let (mut update, update_input) = request_msg(
         "update",
-        &format!("/admin/b/products/products/{}", id),
+        &format!("/admin/b/products/products/{id}"),
         "admin_1",
         serde_json::json!({
             "name": "New Name", "base_price": 20
@@ -123,14 +123,14 @@ async fn admin_delete_product() {
         .unwrap()
         .to_string();
 
-    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/products/{}", id), "admin_1");
+    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/products/{id}"), "admin_1");
     del.set_meta("auth.user_roles", "admin");
     let out = dispatch_admin(&ctx, del, del_input).await;
     let body = output_to_json(out).await;
     assert_eq!(body["deleted"], true);
 
     // Verify it's gone
-    let (get, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
+    let (get, get_input) = admin_get_msg(&format!("/admin/b/products/products/{id}"));
     let out = dispatch_admin(&ctx, get, get_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
@@ -207,7 +207,7 @@ async fn admin_pricing_template_crud() {
     // Update
     let (mut update, update_input) = request_msg(
         "update",
-        &format!("/admin/b/products/pricing/{}", id),
+        &format!("/admin/b/products/pricing/{id}"),
         "admin_1",
         serde_json::json!({
             "price_formula": "base * quantity * 0.85"
@@ -222,7 +222,7 @@ async fn admin_pricing_template_crud() {
     );
 
     // Delete
-    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/pricing/{}", id), "admin_1");
+    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/pricing/{id}"), "admin_1");
     del.set_meta("auth.user_roles", "admin");
     let del_out = dispatch_admin(&ctx, del, del_input).await;
     assert_eq!(output_to_json(del_out).await["deleted"], true);
@@ -361,7 +361,7 @@ async fn user_cannot_see_other_users_products() {
         .to_string();
 
     // user_2 tries to get it
-    let (get, get_input) = get_msg(&format!("/b/products/products/{}", prod_id), "user_2");
+    let (get, get_input) = get_msg(&format!("/b/products/products/{prod_id}"), "user_2");
     let out = dispatch_user(&ctx, get, get_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
@@ -384,7 +384,7 @@ async fn user_cannot_update_other_users_products() {
         .to_string();
 
     let (update, update_input) = update_msg(
-        &format!("/b/products/products/{}", prod_id),
+        &format!("/b/products/products/{prod_id}"),
         "user_2",
         serde_json::json!({
             "name": "Hijacked!"
@@ -411,7 +411,7 @@ async fn user_cannot_delete_other_users_products() {
         .unwrap()
         .to_string();
 
-    let (del, del_input) = delete_msg(&format!("/b/products/products/{}", prod_id), "user_2");
+    let (del, del_input) = delete_msg(&format!("/b/products/products/{prod_id}"), "user_2");
     let out = dispatch_user(&ctx, del, del_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }
@@ -462,7 +462,7 @@ async fn user_update_prevents_ownership_change() {
 
     // Try to change created_by — should be stripped
     let (update, update_input) = update_msg(
-        &format!("/b/products/products/{}", prod_id),
+        &format!("/b/products/products/{prod_id}"),
         "user_1",
         serde_json::json!({
             "name": "Updated",
@@ -520,7 +520,7 @@ async fn user_cannot_update_other_users_group() {
         .to_string();
 
     let (update, update_input) = update_msg(
-        &format!("/b/products/groups/{}", group_id),
+        &format!("/b/products/groups/{group_id}"),
         "user_2",
         serde_json::json!({
             "name": "Stolen"
@@ -546,7 +546,7 @@ async fn user_group_update_prevents_ownership_change() {
         .to_string();
 
     let (update, update_input) = update_msg(
-        &format!("/b/products/groups/{}", group_id),
+        &format!("/b/products/groups/{group_id}"),
         "user_1",
         serde_json::json!({
             "name": "Renamed",
@@ -627,10 +627,10 @@ async fn user_group_products_list() {
     dispatch_user(&ctx, cp, cp_input).await;
 
     // List products in group
-    let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_1");
+    let (list, list_input) = get_msg(&format!("/b/products/groups/{gid}/products"), "user_1");
     let out = dispatch_user(&ctx, list, list_input).await;
     let body = output_to_json(out).await;
-    assert!(body["records"].as_array().unwrap().len() >= 1);
+    assert!(!body["records"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -646,7 +646,7 @@ async fn user_cannot_list_other_users_group_products() {
     let gid = output_to_json(gr).await["id"].as_str().unwrap().to_string();
 
     // user_2 tries to list user_1's group products
-    let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
+    let (list, list_input) = get_msg(&format!("/b/products/groups/{gid}/products"), "user_2");
     let out = dispatch_user(&ctx, list, list_input).await;
     assert!(output_is_error(out, ErrorCode::NotFound).await);
 }

@@ -30,18 +30,17 @@ pub fn default_catalog() -> ModelCatalog {
 }
 
 fn janus_pro_caps() -> ModelCapabilities {
-    // `ModelCapabilities` is `#[non_exhaustive]`; construct via Default + field assignment.
     // Janus-Pro is autoregressive (not diffusion). Output is 384×384; `steps`
     // / `guidance_scale` / `negative_prompt` are ignored by the engine. The
     // capability flags here describe what the UI should expose; we set
     // `supports_negative_prompt = false` and leave `max_steps = None` because
     // those knobs don't apply to the autoregressive token loop.
-    let mut c = ModelCapabilities::default();
-    c.max_width = Some(384);
-    c.max_height = Some(384);
-    c.supports_negative_prompt = false;
-    c.max_steps = None;
-    c
+    ModelCapabilities {
+        max_width: Some(384),
+        max_height: Some(384),
+        supports_negative_prompt: false,
+        max_steps: None,
+    }
 }
 
 fn default_models() -> Vec<ModelInfo> {

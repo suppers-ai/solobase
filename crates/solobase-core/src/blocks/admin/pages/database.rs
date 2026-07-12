@@ -241,8 +241,8 @@ async fn schema_panel(ctx: &dyn Context, table: Option<&str>) -> Markup {
                                 tr {
                                     td .font-medium { (c.name) }
                                     td .text-muted { (c.ty) }
-                                    td { @if c.notnull { "✓" } @else { "" } }
-                                    td { @if c.pk { "✓" } @else { "" } }
+                                    td { @if c.notnull { "✓" }  }
+                                    td { @if c.pk { "✓" }  }
                                     td .text-muted .text-sm { (c.default_value.as_deref().unwrap_or("")) }
                                 }
                             }
@@ -336,9 +336,8 @@ fn render_sql_results(rows: &[db::Record], duration_ms: u128) -> Markup {
                         tr {
                             @for c in &columns {
                                 td .text-sm {
-                                    @match r.data.get(c) {
-                                        Some(v) => (format_cell(v)),
-                                        None => "",
+                                    @if let Some(v) = r.data.get(c) {
+                                        (format_cell(v))
                                     }
                                 }
                             }
@@ -426,7 +425,7 @@ pub async fn handle_database_query(
 
     let fragment = match result {
         Ok(rows) => render_sql_results(&rows, elapsed),
-        Err(e) => render_sql_error(&format!("Query error: {}", e)),
+        Err(e) => render_sql_error(&format!("Query error: {e}")),
     };
     html_response(fragment)
 }

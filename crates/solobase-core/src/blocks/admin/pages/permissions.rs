@@ -478,7 +478,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
         } else {
             "can read"
         };
-        let sentence = format!("{} {} {}", grantee_display, verb, resource);
+        let sentence = format!("{grantee_display} {verb} {resource}");
         all_rows.push(PermRow {
             type_label: type_label.to_string(),
             sentence,

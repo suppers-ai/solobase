@@ -90,6 +90,10 @@ pub fn drain_queued_request_logs() -> Vec<QueuedRequestLog> {
 /// returned `OutputStream` as `StreamEvent::Error`. Request-log
 /// persistence failures are intentionally swallowed (best-effort) so a
 /// failing audit-log table never breaks the response.
+// This is the single request-pipeline entry point; each argument is a distinct
+// piece of request/runtime context and a param-struct refactor is out of scope
+// for a lint sweep (behavior-preserving cleanup only).
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_request(
     ctx: &dyn Context,
     mut msg: Message,
@@ -105,7 +109,7 @@ pub async fn handle_request(
     if path == "/openapi.json" || path == "/.well-known/agent.json" {
         let is_openapi = path == "/openapi.json";
         let host = msg.header("host").to_string();
-        let server_url = format!("https://{}", host);
+        let server_url = format!("https://{host}");
         // The project/display name for the discovery documents (OpenAPI
         // `info.title` and the agent-card `name`). Previously this was
         // derived from the `Host` header (`host.split('.').next()`), which
@@ -160,8 +164,7 @@ pub async fn handle_request(
             let expected_iss = crate::blocks::auth::helpers::expected_issuer(ctx).await;
             crate::crypto::extract_auth_meta(ctx, header, jwt_secret, &expected_iss, &mut msg)
                 .await;
-        } else if header.starts_with("ApiKey ") {
-            let api_key = &header["ApiKey ".len()..];
+        } else if let Some(api_key) = header.strip_prefix("ApiKey ") {
             crate::blocks::auth::authenticate_api_key(ctx, api_key, &mut msg).await;
         }
     }

@@ -50,9 +50,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // match check passes even if the live config changed mid-flow.
     let redirect_uri = pkce_row.redirect_uri.clone();
 
-    let spec = match super::spec::lookup(&provider) {
-        Some(s) => s,
-        None => return err_bad_request("Unsupported OAuth provider"),
+    let Some(spec) = super::spec::lookup(&provider) else {
+        return err_bad_request("Unsupported OAuth provider");
     };
 
     let client_id = config::get_default(
@@ -135,7 +134,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &user_id,
         &email,
         &roles,
-        &format!("oauth.{}", provider),
+        &format!("oauth.{provider}"),
         None,
         0,
     )
@@ -525,9 +524,8 @@ fn is_safe_frontend_url(s: &str) -> bool {
     if s.chars().any(|c| c.is_control()) {
         return false;
     }
-    let parsed = match url::Url::parse(s) {
-        Ok(u) => u,
-        Err(_) => return false,
+    let Ok(parsed) = url::Url::parse(s) else {
+        return false;
     };
     let host = match parsed.host_str() {
         Some(h) if !h.is_empty() => h,

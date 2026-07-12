@@ -82,6 +82,12 @@ macro_rules! feature_block_manifest {
         /// Used by `collect_all_config_vars()` to discover declared config
         /// variables, by the inspector route table, and by the routing/auth
         /// policy, before block registration runs.
+        // Each push in the body below is individually gated by an optional
+        // `#[cfg]` from the macro's entry list, so the set of pushed elements
+        // varies by feature flags — a `vec![..]` literal can't express
+        // per-element `#[cfg]` gating, so this can't collapse to the
+        // suggested rewrite.
+        #[allow(clippy::vec_init_then_push)]
         pub fn all_block_infos() -> Vec<wafer_run::BlockInfo> {
             use wafer_run::Block as _;
             #[allow(unused_mut)]
@@ -159,7 +165,12 @@ feature_block_manifest! {
 /// `ProviderLlmService` on native (`feature = "llm"`) or a `NoopProviderAdmin`
 /// on wasm32 (where the browser configures providers inside its own
 /// `BrowserLlmService`).
+// `LlmBlock` holds `Arc<dyn ProviderAdmin>`, which only requires
+// `MaybeSend + MaybeSync` (real `Send + Sync` on native, a no-op marker on
+// wasm32 — see wafer_block::compat), so this `Arc` doesn't promise
+// cross-thread safety on wasm32; wasm32 is single-threaded.
 #[cfg(feature = "block-llm")]
+#[allow(clippy::arc_with_non_send_sync)]
 pub fn register_llm(
     w: &mut wafer_run::Wafer,
     provider_admin: std::sync::Arc<dyn llm::provider_admin::ProviderAdmin>,
@@ -182,6 +193,12 @@ pub fn register_llm(
 /// when the runtime fires the framework AuthBlock's `lifecycle(Init)` event,
 /// which calls into `AuthService::init` and stashes `ctx.clone_arc()` for
 /// later `require_*` dispatches.
+// `AuthServiceImpl` holds a `BlockState` whose `dyn Context` cell only
+// requires `MaybeSend + MaybeSync` (real `Send + Sync` on native, a no-op
+// marker on wasm32 — see wafer_block::compat), so this `Arc` doesn't promise
+// cross-thread safety on wasm32; it's a shared handle, not a thread-safety
+// claim, and wasm32 is single-threaded.
+#[allow(clippy::arc_with_non_send_sync)]
 pub fn register_auth(wafer: &mut wafer_run::Wafer) -> Result<(), wafer_run::RuntimeError> {
     use std::sync::Arc;
     let state = auth::service::BlockState::new();

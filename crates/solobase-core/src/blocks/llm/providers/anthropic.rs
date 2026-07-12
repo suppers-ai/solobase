@@ -517,9 +517,10 @@ mod tests {
 
     fn req_with_max_tokens(msgs: Vec<ChatMessage>) -> ChatRequest {
         let mut req = ChatRequest::new("anthropic-main", "claude-3-5-sonnet", msgs);
-        let mut params = ChatParams::default();
-        params.max_tokens = Some(1024);
-        req.params = params;
+        req.params = ChatParams {
+            max_tokens: Some(1024),
+            ..Default::default()
+        };
         req
     }
 

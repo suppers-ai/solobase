@@ -634,9 +634,8 @@ mod seed_plan_tests {
         // Pick five blocks from ENABLED_DEFAULTS to stage in different states.
         // ENABLED_DEFAULTS has 7 entries; assign one to each lane and let the
         // remaining 2 fall into the "absent → Insert" lane.
-        let names: Vec<&&'static str> = ENABLED_DEFAULTS.iter().map(|(n, _)| n).collect();
         assert!(
-            names.len() >= 5,
+            ENABLED_DEFAULTS.len() >= 5,
             "test assumes at least 5 entries in ENABLED_DEFAULTS"
         );
 

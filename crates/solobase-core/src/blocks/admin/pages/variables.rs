@@ -499,7 +499,7 @@ pub async fn handle_create_variable(
     }
 
     // Re-render the variables page (htmx will swap #content)
-    variables_page(ctx, &msg).await
+    variables_page(ctx, msg).await
 }
 
 /// GET /b/admin/variables/{key}/edit -- return modal edit form content
@@ -508,16 +508,15 @@ pub async fn handle_edit_variable_form(
     _msg: &Message,
     var_key: &str,
 ) -> OutputStream {
-    let record = match db::get_by_field(
+    let Ok(record) = db::get_by_field(
         ctx,
         VARIABLES,
         "key",
         serde_json::Value::String(var_key.to_string()),
     )
     .await
-    {
-        Ok(r) => r,
-        Err(_) => return err_not_found("Variable not found"),
+    else {
+        return err_not_found("Variable not found");
     };
 
     let key = record.str_field("key").to_string();
@@ -602,7 +601,7 @@ pub async fn handle_update_variable(
         return out;
     }
 
-    variables_page(ctx, &msg).await
+    variables_page(ctx, msg).await
 }
 
 #[cfg(test)]

@@ -45,8 +45,8 @@ pub async fn request_to_message(
     let path = url.pathname();
     // search() includes the leading '?' — strip it.
     let search = url.search();
-    let raw_query = if search.starts_with('?') {
-        search[1..].to_string()
+    let raw_query = if let Some(stripped) = search.strip_prefix('?') {
+        stripped.to_string()
     } else {
         search
     };

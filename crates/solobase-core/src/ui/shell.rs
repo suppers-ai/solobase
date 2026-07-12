@@ -281,13 +281,15 @@ mod tests {
     #[test]
     fn shell_can_omit_palette() {
         let groups = one_group(vec![item("X", "/x")]);
-        let mut tb = Topbar::default();
-        tb.show_palette = false;
         // Need at least one declared input to render the topbar at all.
-        tb.crumbs = vec![Crumb {
-            label: "X",
-            href: None,
-        }];
+        let tb = Topbar {
+            show_palette: false,
+            crumbs: vec![Crumb {
+                label: "X",
+                href: None,
+            }],
+            ..Default::default()
+        };
         let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
         assert!(!s.contains("topbar__palette"));
         // The single crumb renders as the page h1 (no ancestor nav needed).
@@ -322,8 +324,10 @@ mod tests {
     #[test]
     fn shell_mobile_header_omits_palette_icon_when_disabled() {
         let groups = one_group(vec![item("X", "/x")]);
-        let mut tb = Topbar::default();
-        tb.show_palette = false;
+        let tb = Topbar {
+            show_palette: false,
+            ..Default::default()
+        };
         let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
         // Mobile header itself is always rendered…
         assert!(s.contains("shell__mobile-header"));
@@ -334,8 +338,10 @@ mod tests {
     #[test]
     fn shell_renders_no_topbar_when_all_inputs_empty() {
         let groups = one_group(vec![item("X", "/x")]);
-        let mut tb = Topbar::default();
-        tb.show_palette = false;
+        let tb = Topbar {
+            show_palette: false,
+            ..Default::default()
+        };
         let s = shell(&groups, None, "/x", "", "", tb, html! { "body" }).into_string();
         // No topbar element at all when there's nothing to render in it.
         assert!(!s.contains(r#"class="topbar""#));

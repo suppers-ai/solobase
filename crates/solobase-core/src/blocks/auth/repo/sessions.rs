@@ -308,17 +308,13 @@ mod tests_phase_4 {
         insert(&ctx, fake_session("user-b", 0x02)).await.unwrap();
 
         // user-a tries to revoke user-b's session — should affect 0 rows.
-        let affected = delete_for_user(&ctx, "user-a", &vec![0x02; 32])
-            .await
-            .unwrap();
+        let affected = delete_for_user(&ctx, "user-a", &[0x02; 32]).await.unwrap();
         assert_eq!(affected, 0);
         // user-b's session is still there.
         assert_eq!(list_for_user(&ctx, "user-b").await.unwrap().len(), 1);
 
         // user-a can revoke their own.
-        let affected = delete_for_user(&ctx, "user-a", &vec![0x01; 32])
-            .await
-            .unwrap();
+        let affected = delete_for_user(&ctx, "user-a", &[0x01; 32]).await.unwrap();
         assert_eq!(affected, 1);
         assert_eq!(list_for_user(&ctx, "user-a").await.unwrap().len(), 0);
     }
@@ -353,14 +349,8 @@ mod tests_phase_4 {
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
-        assert_eq!(
-            delete_by_token_hash(&ctx, &vec![0x99; 32]).await.unwrap(),
-            0
-        );
-        assert_eq!(
-            delete_by_token_hash(&ctx, &vec![0x01; 32]).await.unwrap(),
-            1
-        );
+        assert_eq!(delete_by_token_hash(&ctx, &[0x99; 32]).await.unwrap(), 0);
+        assert_eq!(delete_by_token_hash(&ctx, &[0x01; 32]).await.unwrap(), 1);
         assert_eq!(list_for_user(&ctx, "user-a").await.unwrap().len(), 0);
     }
 

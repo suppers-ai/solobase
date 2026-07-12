@@ -566,14 +566,15 @@ mod tests {
 
     #[test]
     fn encodes_params() {
-        let mut params = ChatParams::default();
-        params.temperature = Some(0.3);
-        params.max_tokens = Some(512);
-        params.top_p = Some(0.9);
-        params.seed = Some(42);
-        params.stop_sequences = vec!["END".into()];
         let mut req = ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
-        req.params = params;
+        req.params = ChatParams {
+            temperature: Some(0.3),
+            max_tokens: Some(512),
+            top_p: Some(0.9),
+            seed: Some(42),
+            stop_sequences: vec!["END".into()],
+            ..Default::default()
+        };
 
         let (_, _, body) = encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();

@@ -249,7 +249,7 @@ impl UserRateLimiter {
     /// Build a composite key from user identity and category.
     /// For unauthenticated endpoints (login/signup), use IP as the identity.
     pub fn key(identity: &str, category: &str) -> String {
-        format!("{}:{}", identity, category)
+        format!("{identity}:{category}")
     }
 }
 
@@ -378,9 +378,8 @@ pub async fn check_rate_limit(
     category: &str,
     default: RateLimit,
 ) -> RateLimitOutcome {
-    let limit = match default.resolve(ctx, category).await {
-        Some(l) => l,
-        None => return RateLimitOutcome::Disabled,
+    let Some(limit) = default.resolve(ctx, category).await else {
+        return RateLimitOutcome::Disabled;
     };
     let key = UserRateLimiter::key(identity, category);
     match limiter.check(ctx, &key, limit).await {

@@ -72,14 +72,11 @@ pub async fn dispatch_request(request: web_sys::Request) -> Result<web_sys::Resp
         }
     });
 
-    let wafer_ptr = match wafer_ptr {
-        Ok(p) => p,
-        Err(()) => {
-            return Ok(build_error_response(
-                503,
-                "solobase-browser: runtime not initialized — call store_wafer() first",
-            )?);
-        }
+    let Ok(wafer_ptr) = wafer_ptr else {
+        return build_error_response(
+            503,
+            "solobase-browser: runtime not initialized — call store_wafer() first",
+        );
     };
 
     let (msg, input) = convert::request_to_message(&request).await?;

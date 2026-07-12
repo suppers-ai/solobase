@@ -59,14 +59,11 @@ pub async fn serve_static(dir: &Path, port: u16) -> Result<()> {
                 .and_then(|l| l.split_whitespace().nth(1))
                 .unwrap_or("/");
 
-            let file_path = match resolve_request_path(&dir, raw_path) {
-                Some(p) => p,
-                None => {
-                    let _ = socket
-                        .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
-                        .await;
-                    return;
-                }
+            let Some(file_path) = resolve_request_path(&dir, raw_path) else {
+                let _ = socket
+                    .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+                return;
             };
 
             let body = tokio::fs::read(&file_path).await;

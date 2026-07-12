@@ -31,11 +31,11 @@ pub fn default_catalog() -> ModelCatalog {
 }
 
 fn caps() -> ModelCapabilities {
-    // `ModelCapabilities` is `#[non_exhaustive]`; construct via Default.
-    let mut c = ModelCapabilities::default();
-    c.streaming = true;
-    c.tools = true;
-    c
+    ModelCapabilities {
+        streaming: true,
+        tools: true,
+        ..Default::default()
+    }
 }
 
 fn default_models() -> Vec<ModelInfo> {

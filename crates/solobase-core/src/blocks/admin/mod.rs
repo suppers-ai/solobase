@@ -154,7 +154,7 @@ crate::solobase_feature_block! {
             AdminRoute::ExtensionsApi => {
                 let blocks: Vec<_> = ctx
                     .registered_blocks()
-                    .into_iter()
+                    .iter()
                     .map(|b| {
                         serde_json::json!({
                             "name": b.name,
@@ -173,11 +173,11 @@ crate::solobase_feature_block! {
                 // did this, but the original re-applied; we mirror by deriving
                 // from path_owned (NOT msg.path() which is now normalized).
                 let api_rest = path_owned.strip_prefix("/b/admin/api").unwrap_or("");
-                msg.set_meta("req.resource", &format!("/admin{}", api_rest));
+                msg.set_meta("req.resource", format!("/admin{api_rest}"));
                 ctx.call_block("suppers-ai/files", msg, input).await
             }
             AdminRoute::CloudStorageDelegate { rest } => {
-                msg.set_meta("req.resource", &format!("/admin/b/cloudstorage{}", rest));
+                msg.set_meta("req.resource", format!("/admin/b/cloudstorage{rest}"));
                 ctx.call_block("suppers-ai/files", msg, input).await
             }
             AdminRoute::ApiNotFound => err_not_found("not found"),
@@ -239,7 +239,7 @@ crate::solobase_feature_block! {
                 if old_tab.is_empty() {
                     redirect_308("/b/admin/settings/permissions")
                 } else {
-                    redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
+                    redirect_308(&format!("/b/admin/settings/permissions?subtab={old_tab}"))
                 }
             }
             AdminRoute::GrantsPage => pages::grants_page(ctx, &msg).await,

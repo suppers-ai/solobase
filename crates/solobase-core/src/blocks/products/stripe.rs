@@ -14,9 +14,8 @@ use crate::{
 };
 
 pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let stripe_key = match config::get(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY").await {
-        Ok(k) => k,
-        Err(_) => return err_internal_no_cause("Stripe is not configured"),
+    let Ok(stripe_key) = config::get(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY").await else {
+        return err_internal_no_cause("Stripe is not configured");
     };
 
     #[derive(serde::Deserialize)]
@@ -32,9 +31,8 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     };
 
     // Get purchase and verify ownership
-    let purchase = match repo::purchases::get(ctx, &body.purchase_id).await {
-        Ok(p) => p,
-        Err(_) => return err_not_found("Purchase not found"),
+    let Ok(purchase) = repo::purchases::get(ctx, &body.purchase_id).await else {
+        return err_not_found("Purchase not found");
     };
     let purchase_user = purchase
         .data
@@ -108,14 +106,11 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     )
     .await;
     let success_url = body.success_url.unwrap_or_else(|| {
-        format!(
-            "{}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
-            base_url
-        )
+        format!("{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}")
     });
     let cancel_url = body
         .cancel_url
-        .unwrap_or_else(|| format!("{}/checkout/cancel", base_url));
+        .unwrap_or_else(|| format!("{base_url}/checkout/cancel"));
 
     // Reject caller-supplied URLs not on the configured frontend origin.
     // Stops attackers from luring users into a Stripe-branded session that
@@ -142,10 +137,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     );
 
     let mut headers = HashMap::new();
-    headers.insert(
-        "Authorization".to_string(),
-        format!("Bearer {}", stripe_key),
-    );
+    headers.insert("Authorization".to_string(), format!("Bearer {stripe_key}"));
     headers.insert(
         "Content-Type".to_string(),
         "application/x-www-form-urlencoded".to_string(),
@@ -157,7 +149,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         "https://api.stripe.com",
     )
     .await;
-    let checkout_url_endpoint = format!("{}/v1/checkout/sessions", stripe_api_url);
+    let checkout_url_endpoint = format!("{stripe_api_url}/v1/checkout/sessions");
 
     let resp = match network::do_request(
         ctx,
@@ -617,9 +609,8 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
             let meta = item
                 .get("metadata")
                 .or_else(|| item.pointer("/price/metadata"));
-            let meta = match meta {
-                Some(m) => m,
-                None => continue,
+            let Some(meta) = meta else {
+                continue;
             };
 
             // Skip non-addon items (the base plan item won't have addon_id)
@@ -685,7 +676,7 @@ mod tests {
         let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
-        let sig_header = format!("t={},v1={}", timestamp, computed_hex);
+        let sig_header = format!("t={timestamp},v1={computed_hex}");
 
         assert!(verify_stripe_signature(payload, &sig_header, secret));
     }
@@ -702,7 +693,7 @@ mod tests {
         let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
-        let sig_header = format!("t={},v1={}", timestamp, computed_hex);
+        let sig_header = format!("t={timestamp},v1={computed_hex}");
         assert!(verify_stripe_signature(payload, &sig_header, secret));
     }
 
@@ -711,8 +702,7 @@ mod tests {
         let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let sig_header = format!(
-            "t={},v1=0000000000000000000000000000000000000000000000000000000000000000",
-            timestamp
+            "t={timestamp},v1=0000000000000000000000000000000000000000000000000000000000000000"
         );
 
         assert!(!verify_stripe_signature(b"payload", &sig_header, "secret"));
@@ -728,7 +718,7 @@ mod tests {
         let computed = primitives::hmac_sha256(secret.as_bytes(), &signed_payload);
         let computed_hex = hex_encode(&computed);
 
-        let sig_header = format!("t={},v1={}", old_timestamp, computed_hex);
+        let sig_header = format!("t={old_timestamp},v1={computed_hex}");
 
         assert!(!verify_stripe_signature(payload, &sig_header, secret));
     }

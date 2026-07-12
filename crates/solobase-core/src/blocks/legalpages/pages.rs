@@ -693,7 +693,7 @@ struct PreviewRequest {
 /// the Preview tab in the editor matches production typography exactly.
 pub(super) fn render_preview_fragment(markdown: &str) -> String {
     let rendered = super::markdown_to_html(markdown);
-    format!(r#"<div class="public-page__content">{}</div>"#, rendered)
+    format!(r#"<div class="public-page__content">{rendered}</div>"#)
 }
 
 /// `POST /b/legalpages/admin/render-preview` — body: `{"content": "<markdown>"}`.

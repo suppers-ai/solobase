@@ -85,7 +85,7 @@ impl Block for SolobaseRouterBlock {
         } else {
             let cookie_token = msg.cookie("auth_token");
             if !cookie_token.is_empty() {
-                Some(format!("Bearer {}", cookie_token))
+                Some(format!("Bearer {cookie_token}"))
             } else {
                 None
             }

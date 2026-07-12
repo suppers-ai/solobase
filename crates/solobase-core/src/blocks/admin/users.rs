@@ -59,7 +59,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
         filters.push(Filter {
             field: "email".to_string(),
             operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", search)),
+            value: serde_json::Value::String(format!("%{search}%")),
         });
     }
 

@@ -278,9 +278,8 @@ fn single_user_row(record: &db::Record, roles: &[String], current_uid: &str) -> 
 
 /// Render a single user table row (used by enable/disable mutations).
 async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
-    let record = match db::get(ctx, USERS, user_id).await {
-        Ok(r) => r,
-        Err(_) => return html! {},
+    let Ok(record) = db::get(ctx, USERS, user_id).await else {
+        return html! {};
     };
 
     // Single-user lookup via the shared roles helper (the `[one]` case).
