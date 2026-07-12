@@ -118,6 +118,12 @@ pub struct StreamingDecoder {
     open_tool_calls: HashMap<u64, OpenToolCall>, // index → { id }
 }
 
+impl Default for StreamingDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamingDecoder {
     pub fn new() -> Self {
         Self {
@@ -171,9 +177,10 @@ impl StreamingDecoder {
 
                     // ToolCallStart — first time we see this index with id + name
                     if let (Some(id), Some(name)) = (entry_id, func_name) {
-                        if !self.open_tool_calls.contains_key(&index) {
-                            self.open_tool_calls
-                                .insert(index, OpenToolCall { id: id.to_string() });
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            self.open_tool_calls.entry(index)
+                        {
+                            e.insert(OpenToolCall { id: id.to_string() });
                             out.push(ChatChunk::delta(ChunkDelta::ToolCallStart {
                                 id: id.to_string(),
                                 name: name.to_string(),
@@ -250,10 +257,11 @@ pub fn parse_finish_reason(s: &str) -> Option<FinishReason> {
 pub fn parse_usage(v: &serde_json::Value) -> Option<TokenUsage> {
     let prompt = v.get("prompt_tokens").and_then(|t| t.as_u64())?;
     let completion = v.get("completion_tokens").and_then(|t| t.as_u64())?;
-    let mut u = TokenUsage::default();
-    u.input_tokens = prompt as u32;
-    u.output_tokens = completion as u32;
-    Some(u)
+    Some(TokenUsage {
+        input_tokens: prompt as u32,
+        output_tokens: completion as u32,
+        ..Default::default()
+    })
 }
 
 // ---------- Tests ----------

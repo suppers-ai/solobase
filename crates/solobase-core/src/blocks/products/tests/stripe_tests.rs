@@ -28,7 +28,7 @@ fn webhook_msg(payload: &serde_json::Value, secret: &str) -> (Message, InputStre
     let sig_bytes = primitives::hmac_sha256(secret.as_bytes(), signed.as_bytes());
     let sig_hex = hex_encode(&sig_bytes);
 
-    let sig_header = format!("t={},v1={}", timestamp, sig_hex);
+    let sig_header = format!("t={timestamp},v1={sig_hex}");
 
     let mut msg = Message::new("http.request");
     msg.set_meta("req.action", "create");
@@ -252,7 +252,7 @@ async fn webhook_rejects_tampered_payload() {
     let signed = format!("{}.{}", timestamp, String::from_utf8_lossy(&original_bytes));
     let sig_bytes = primitives::hmac_sha256(WEBHOOK_SECRET.as_bytes(), signed.as_bytes());
     let sig_hex = hex_encode(&sig_bytes);
-    let sig_header = format!("t={},v1={}", timestamp, sig_hex);
+    let sig_header = format!("t={timestamp},v1={sig_hex}");
 
     // But send a different payload
     let tampered_event = checkout_completed_event("pur_HACKED", "pi_evil");

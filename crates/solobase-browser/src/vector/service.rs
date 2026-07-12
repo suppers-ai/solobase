@@ -447,11 +447,10 @@ impl VectorService for BrowserVectorService {
     }
 }
 
-fn load_all_vectors(
-    index: &str,
-    dims: u32,
-    f: &MetadataFilter,
-) -> VResult<Vec<(String, Vec<f32>, Option<serde_json::Value>)>> {
+/// A loaded vector row: `(id, vector, metadata)`.
+type VectorRow = (String, Vec<f32>, Option<serde_json::Value>);
+
+fn load_all_vectors(index: &str, dims: u32, f: &MetadataFilter) -> VResult<Vec<VectorRow>> {
     let s = format!(r#"SELECT id, vector, metadata FROM "{index}_vectors""#);
     let json = bridge::db_query_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
@@ -541,7 +540,7 @@ fn attach_metadata(
     scored
         .into_iter()
         .map(|(id, score)| VectorMatch {
-            metadata: by_id.get(id.as_str()).cloned().cloned().unwrap_or(None),
+            metadata: by_id.get(id.as_str()).copied().cloned().unwrap_or(None),
             id,
             score,
         })

@@ -80,20 +80,26 @@ pub fn make_kv_cached_database_service(
 /// a `KvStore` handle from `env` on every request. The `/_deploy/init`
 /// endpoint re-derives its own handle via `make_kv_backend` for its
 /// post-funnel config-version bump.
+/// Return type of [`make_kv_cached_database_service_with_backend`]: the
+/// wrapped `DatabaseService` alongside the raw `KvBackend` it was built from.
+type KvCachedDbServiceWithBackend = (
+    Arc<dyn DatabaseService>,
+    Arc<dyn solobase_core::kv::KvBackend>,
+);
+
 fn make_kv_cached_database_service_with_backend(
     env: &worker::Env,
     d1_binding: &str,
     kv_binding: &str,
     mode: kv_cached_db::CacheMode,
-) -> Result<
-    (
-        Arc<dyn DatabaseService>,
-        Arc<dyn solobase_core::kv::KvBackend>,
-    ),
-    worker::Error,
-> {
+) -> Result<KvCachedDbServiceWithBackend, worker::Error> {
     let inner = make_d1_database_service(env, d1_binding)?;
     let backend = make_kv_backend(env, kv_binding)?;
+    // `DatabaseService` only requires `MaybeSend + MaybeSync` (real
+    // `Send + Sync` on native, a no-op marker on wasm32 — see
+    // wafer_block::compat), so this `Arc` doesn't promise cross-thread
+    // safety; this crate only ever targets wasm32, which is single-threaded.
+    #[allow(clippy::arc_with_non_send_sync)]
     let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::with_mode(
         inner,
         backend.clone(),
@@ -528,6 +534,11 @@ where
     // 5. ConfigSource: D1-backed lazy per-block fetch. The overlay layers
     //    worker::Env secrets (PROTECTED_ENV_KEYS) on top of D1 rows so
     //    secrets never need to be mirrored into the variables table.
+    // `ConfigSource` only requires `MaybeSend + MaybeSync` (real
+    // `Send + Sync` on native, a no-op marker on wasm32 — see
+    // wafer_block::compat), so this `Arc` doesn't promise cross-thread
+    // safety; this crate only ever targets wasm32, which is single-threaded.
+    #[allow(clippy::arc_with_non_send_sync)]
     let cfg_source: Arc<dyn wafer_run::ConfigSource> = Arc::new(
         config_source::D1ConfigSource::with_overlay(db.clone(), overlay),
     );

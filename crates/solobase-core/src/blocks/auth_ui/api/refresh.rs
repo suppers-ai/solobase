@@ -39,11 +39,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Verify the JWT signature/expiry. A valid signature alone is not enough
     // — the row lookup below is the source of truth for "this token has not
     // been used or revoked yet".
-    let claims = match crypto::verify(ctx, &body.refresh_token).await {
-        Ok(c) => c,
-        Err(_) => {
-            return error_response(ErrorCode::InvalidToken, "Invalid or expired refresh token")
-        }
+    let Ok(claims) = crypto::verify(ctx, &body.refresh_token).await else {
+        return error_response(ErrorCode::InvalidToken, "Invalid or expired refresh token");
     };
 
     let Some(user_id) = claims

@@ -298,8 +298,10 @@ mod tests {
     #[test]
     fn auth_config_vars_declares_password_min_length() {
         let vars = auth_config_vars();
-        let keys: Vec<&str> = vars.iter().map(|v| v.key.as_str()).collect();
-        assert!(keys.contains(&PASSWORD_MIN_LENGTH_KEY));
+        assert!(vars
+            .iter()
+            .map(|v| v.key.as_str())
+            .any(|k| k == PASSWORD_MIN_LENGTH_KEY));
     }
 
     #[test]

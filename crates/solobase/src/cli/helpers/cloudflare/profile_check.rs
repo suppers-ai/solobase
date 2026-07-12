@@ -58,17 +58,16 @@ pub fn check_release_profile(repo_root: &Path) -> Result<()> {
 /// Measure the produced WASM and warn if it's likely to exceed the
 /// startup-CPU cap. Called after `worker-build` finishes.
 pub fn check_wasm_size(wasm_path: &Path) -> Result<()> {
-    let meta = match std::fs::metadata(wasm_path) {
-        Ok(m) => m,
-        // No file = nothing to check; the build step itself will surface
-        // the actual error. Don't double-report.
-        Err(_) => return Ok(()),
+    // No file = nothing to check; the build step itself will surface
+    // the actual error. Don't double-report.
+    let Ok(meta) = std::fs::metadata(wasm_path) else {
+        return Ok(());
     };
     let size = meta.len();
     let mb = size as f64 / (1024.0 * 1024.0);
 
     if size <= WASM_SIZE_WARN_BYTES {
-        eprintln!("-> WASM: {mb:.2} MB ({} bytes)", size);
+        eprintln!("-> WASM: {mb:.2} MB ({size} bytes)");
         return Ok(());
     }
 

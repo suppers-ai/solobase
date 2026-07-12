@@ -57,9 +57,8 @@ pub async fn extract_auth_meta(
 ) {
     use wafer_run::*;
 
-    let token = match auth_header.strip_prefix("Bearer ") {
-        Some(t) => t,
-        None => return,
+    let Some(token) = auth_header.strip_prefix("Bearer ") else {
+        return;
     };
 
     // Session tokens (access + refresh) are minted by the `suppers-ai/auth-ui`
@@ -79,11 +78,11 @@ pub async fn extract_auth_meta(
         jwt_secret.as_bytes(),
         crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
     );
-    let claims =
-        match primitives::jwt_verify(token, derived_secret.as_bytes(), JwtExpPolicy::Required) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
+    let Ok(claims) =
+        primitives::jwt_verify(token, derived_secret.as_bytes(), JwtExpPolicy::Required)
+    else {
+        return;
+    };
 
     // Allow-list: only an explicit "access" token authenticates. A refresh
     // token — or any token whose `type` is missing or not "access" — is
@@ -142,7 +141,7 @@ pub async fn extract_auth_meta(
         msg.set_meta(META_AUTH_JTI, jti);
     }
     if let Some(exp) = claims.get("exp").and_then(|v| v.as_i64()) {
-        msg.set_meta(META_AUTH_EXP, &exp.to_string());
+        msg.set_meta(META_AUTH_EXP, exp.to_string());
     }
 }
 

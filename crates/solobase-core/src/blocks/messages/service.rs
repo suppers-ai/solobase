@@ -138,6 +138,9 @@ pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), WaferErro
 // Entry operations
 // ---------------------------------------------------------------------------
 
+// One argument per message field the caller must supply; a param-struct
+// refactor is out of scope for a lint sweep (behavior-preserving cleanup only).
+#[allow(clippy::too_many_arguments)]
 pub async fn add_entry(
     ctx: &dyn Context,
     context_id: &str,

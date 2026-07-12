@@ -27,11 +27,11 @@ impl R2StorageService {
     }
 
     fn prefixed_key(&self, folder: &str, key: &str) -> String {
-        format!("{}/{}", folder, key)
+        format!("{folder}/{key}")
     }
 
     fn folder_prefix(&self, folder: &str) -> String {
-        format!("{}/", folder)
+        format!("{folder}/")
     }
 }
 
@@ -138,7 +138,7 @@ impl StorageService for R2StorageService {
                 let key = if full_key.len() > folder_prefix_len {
                     full_key[folder_prefix_len..].to_string()
                 } else {
-                    full_key.clone()
+                    full_key
                 };
 
                 ObjectInfo {

@@ -283,7 +283,7 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
     let body = detail_page(
         DetailHero {
             icon: None,
-            title: &display,
+            title: display,
             subtitle: Some(&subtitle),
             badges: Vec::new(),
             action_menu: None,

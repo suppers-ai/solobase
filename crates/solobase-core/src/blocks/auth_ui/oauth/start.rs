@@ -51,9 +51,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_ID",
         provider.to_uppercase()
     );
-    let client_id = match config::get(ctx, &client_id_key).await {
-        Ok(id) => id,
-        Err(_) => return err_bad_request(&format!("OAuth provider '{}' not configured", provider)),
+    let Ok(client_id) = config::get(ctx, &client_id_key).await else {
+        return err_bad_request(&format!("OAuth provider '{provider}' not configured"));
     };
 
     let redirect_uri = config::get_default(

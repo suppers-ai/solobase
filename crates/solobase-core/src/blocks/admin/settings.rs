@@ -310,7 +310,7 @@ async fn handle_delete(ctx: &dyn Context, path: &str) -> OutputStream {
     }
 
     if key.starts_with("SOLOBASE_SHARED__") {
-        return err_bad_request(&format!("Cannot delete shared system variable: {}", key));
+        return err_bad_request(&format!("Cannot delete shared system variable: {key}"));
     }
 
     match db::get_by_field(
@@ -529,7 +529,7 @@ mod tests {
         warning_changed[0].warning = "careful".into();
         assert_ne!(h_base, seed_payload_hash(&warning_changed));
 
-        let mut sensitive_changed = base.clone();
+        let mut sensitive_changed = base;
         sensitive_changed[0].input_type = InputType::Password;
         assert_ne!(h_base, seed_payload_hash(&sensitive_changed));
     }
@@ -608,8 +608,7 @@ mod tests {
         assert_eq!(
             var_count_after_second, 0,
             "seed_defaults should short-circuit when snapshot hash matches; \
-             expected 0 rows in fresh variables table, got {}",
-            var_count_after_second
+             expected 0 rows in fresh variables table, got {var_count_after_second}"
         );
     }
 

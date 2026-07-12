@@ -307,7 +307,7 @@ async fn handle_send_template(
             let greeting = if name.is_empty() {
                 "Welcome!".to_string()
             } else {
-                format!("Welcome, {}!", name)
+                format!("Welcome, {name}!")
             };
             let pricing_url = format!("{site_url}/pricing/");
             let dashboard_url = format!("{base_url}/b/admin/");
@@ -420,7 +420,7 @@ async fn send_email(
 
     // Base64-encode "api:{api_key}" for HTTP Basic auth.
     use base64ct::Encoding;
-    let credentials = base64ct::Base64::encode_string(format!("api:{}", api_key).as_bytes());
+    let credentials = base64ct::Base64::encode_string(format!("api:{api_key}").as_bytes());
 
     // Call network block via the typed client. The buffered helper consumes
     // the two-frame response (header + body) and returns a typed
@@ -429,10 +429,7 @@ async fn send_email(
     let base = resolve_base_url(&configured);
     let url = format!("{base}/v3/{domain}/messages");
     let mut headers = HashMap::new();
-    headers.insert(
-        "Authorization".to_string(),
-        format!("Basic {}", credentials),
-    );
+    headers.insert("Authorization".to_string(), format!("Basic {credentials}"));
     headers.insert(
         "Content-Type".to_string(),
         "application/x-www-form-urlencoded".to_string(),

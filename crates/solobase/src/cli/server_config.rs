@@ -32,44 +32,39 @@ pub fn filter_to_declared_keys(env_vars: HashMap<String, String>) -> Vec<(String
 /// Reads the `suppers_ai__admin__wrap_grants` table and returns a list of
 /// `ResourceGrant` values that should be injected into the WAFER runtime.
 pub fn load_wrap_grants(db_path: &str) -> Vec<wafer_run::ResourceGrant> {
-    let conn = match rusqlite::Connection::open(db_path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
+    let Ok(conn) = rusqlite::Connection::open(db_path) else {
+        return Vec::new();
     };
 
     let mut grants = Vec::new();
-    let mut stmt = match conn.prepare(
+    let Ok(mut stmt) = conn.prepare(
         "SELECT grantee, resource, write, resource_type FROM suppers_ai__admin__wrap_grants",
-    ) {
-        Ok(s) => s,
-        Err(_) => {
-            // Fall back to query without resource_type (column may not exist yet)
-            let mut stmt = match conn
-                .prepare("SELECT grantee, resource, write FROM suppers_ai__admin__wrap_grants")
-            {
-                Ok(s) => s,
-                Err(_) => return Vec::new(),
-            };
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i32>(2)?,
-                ))
-            });
-            if let Ok(rows) = rows {
-                for row in rows.flatten() {
-                    let (grantee, resource, write) = row;
-                    grants.push(wafer_run::ResourceGrant {
-                        grantee,
-                        resource,
-                        write: write != 0,
-                        resource_type: None,
-                    });
-                }
+    ) else {
+        // Fall back to query without resource_type (column may not exist yet)
+        let Ok(mut stmt) =
+            conn.prepare("SELECT grantee, resource, write FROM suppers_ai__admin__wrap_grants")
+        else {
+            return Vec::new();
+        };
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i32>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for row in rows.flatten() {
+                let (grantee, resource, write) = row;
+                grants.push(wafer_run::ResourceGrant {
+                    grantee,
+                    resource,
+                    write: write != 0,
+                    resource_type: None,
+                });
             }
-            return grants;
         }
+        return grants;
     };
 
     let rows = stmt.query_map([], |row| {

@@ -59,13 +59,10 @@ struct LoadAssetReply {
 #[async_trait::async_trait(?Send)]
 impl LoadAssetCallback for SwAssetLoader {
     async fn load(&self, asset_id: &str) -> AssetLoadStatus {
-        let manifest = match lookup_manifest(asset_id) {
-            Some(m) => m,
-            None => {
-                return AssetLoadStatus::Failed(AssetLoadError::UnknownLoader(format!(
-                    "no external_asset with id='{asset_id}' in any registered block"
-                )));
-            }
+        let Some(manifest) = lookup_manifest(asset_id) else {
+            return AssetLoadStatus::Failed(AssetLoadError::UnknownLoader(format!(
+                "no external_asset with id='{asset_id}' in any registered block"
+            )));
         };
 
         let manifest_json = match serde_json::to_string(&ManifestForJs {

@@ -51,9 +51,8 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         if item.quantity <= 0 {
             return err_bad_request("Quantity must be positive");
         }
-        let product = match db::get(ctx, PRODUCTS_TABLE, &item.product_id).await {
-            Ok(p) => p,
-            Err(_) => return err_not_found(&format!("Product {} not found", item.product_id)),
+        let Ok(product) = db::get(ctx, PRODUCTS_TABLE, &item.product_id).await else {
+            return err_not_found(&format!("Product {} not found", item.product_id));
         };
 
         // Reject draft/deleted/inactive products

@@ -305,7 +305,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let new_users_str = new_users_today.to_string();
     let requests_str = requests_today.to_string();
     let errors_str = errors_today.to_string();
-    let avg_ms_str = format!("{:.0}ms", avg_ms);
+    let avg_ms_str = format!("{avg_ms:.0}ms");
 
     let stats = vec![
         StatTile {

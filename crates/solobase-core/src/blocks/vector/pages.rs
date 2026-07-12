@@ -157,9 +157,8 @@ pub(super) async fn create_index(
     // Borrow the caller's `model` when present; only fall back to the static
     // `DEFAULT_MODEL` literal when absent. Avoids a String allocation per call.
     let model_id: &str = body.model.as_deref().unwrap_or(DEFAULT_MODEL);
-    let model = match get_model(model_id) {
-        Some(m) => m,
-        None => return err_bad_request(&format!("unknown embedding model: {model_id}")),
+    let Some(model) = get_model(model_id) else {
+        return err_bad_request(&format!("unknown embedding model: {model_id}"));
     };
 
     if let Some(requested) = body.dimensions {

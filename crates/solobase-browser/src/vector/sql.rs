@@ -480,7 +480,7 @@ mod tests {
             metadata_json: "{}".into(),
             text: Some("hello".into()),
         };
-        let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", true, &[entry.clone()]);
+        let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", true, &[entry]);
         assert_eq!(stmts.len(), 3, "expected vectors + fts + meta upserts");
         assert!(stmts[0]
             .sql

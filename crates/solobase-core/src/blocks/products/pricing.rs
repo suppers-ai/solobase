@@ -111,9 +111,8 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
     };
 
     // Get product
-    let product = match db::get(ctx, PRODUCTS_TABLE, &body.product_id).await {
-        Ok(p) => p,
-        Err(_) => return err_not_found("Product not found"),
+    let Ok(product) = db::get(ctx, PRODUCTS_TABLE, &body.product_id).await else {
+        return err_not_found("Product not found");
     };
 
     let resolved =
@@ -358,7 +357,7 @@ fn parse_factor(
             let val = parse_factor(tokens, pos, vars)?;
             Ok(-val)
         }
-        _ => Err(format!("Unexpected token at position {}", pos)),
+        _ => Err(format!("Unexpected token at position {pos}")),
     }
 }
 

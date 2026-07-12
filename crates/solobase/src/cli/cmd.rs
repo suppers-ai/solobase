@@ -73,6 +73,10 @@ pub async fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
     )))
 }
 
+/// Re-export to keep call-site imports terse; the rest of the CLI builds
+/// `tokio::process::Command` and passes it to [`run`].
+pub use tokio::process::Command as TokioCommand;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,7 +100,3 @@ mod tests {
         assert!(msg.contains("exit code: <signal>"));
     }
 }
-
-/// Re-export to keep call-site imports terse; the rest of the CLI builds
-/// `tokio::process::Command` and passes it to [`run`].
-pub use tokio::process::Command as TokioCommand;

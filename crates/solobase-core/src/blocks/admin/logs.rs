@@ -53,7 +53,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
         filters.push(Filter {
             field: "resource".to_string(),
             operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", resource)),
+            value: serde_json::Value::String(format!("%{resource}%")),
         });
     }
 
@@ -94,7 +94,7 @@ async fn handle_system_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
         filters.push(Filter {
             field: "path".to_string(),
             operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", path_filter)),
+            value: serde_json::Value::String(format!("%{path_filter}%")),
         });
     }
 

@@ -119,10 +119,7 @@ pub fn css_bundle() -> &'static str {
         let tokens = TOKENS_CSS
             .replace("__ITIM_LATIN_URL__", itim_latin_woff2_url())
             .replace("__ITIM_LATIN_EXT_URL__", itim_latin_ext_woff2_url());
-        format!(
-            "{}\n{}\n{}\n{}\n{}\n",
-            tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS, CHARTS_CSS
-        )
+        format!("{tokens}\n{BASE_CSS}\n{COMPONENTS_CSS}\n{LAYOUT_CSS}\n{CHARTS_CSS}\n")
     })
 }
 

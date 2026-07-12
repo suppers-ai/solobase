@@ -377,6 +377,12 @@ impl SolobaseBuilder {
             llm_router.register(label, svc);
         }
 
+        // `MultiBackendLlmService` holds `dyn LlmService` backends, which only
+        // require `MaybeSend + MaybeSync` (real `Send + Sync` on native, a
+        // no-op marker on wasm32 — see wafer_block::compat), so this `Arc`
+        // doesn't promise cross-thread safety on wasm32; wasm32 is
+        // single-threaded.
+        #[allow(clippy::arc_with_non_send_sync)]
         wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
 
         // 4a-bis. Build the image router and register the service block
@@ -389,6 +395,12 @@ impl SolobaseBuilder {
         for (label, svc) in self.extra_image_services {
             image_router.register(label, svc);
         }
+        // `MultiBackendImageService` holds `dyn ImageService` backends, which
+        // only require `MaybeSend + MaybeSync` (real `Send + Sync` on native,
+        // a no-op marker on wasm32 — see wafer_block::compat), so this `Arc`
+        // doesn't promise cross-thread safety on wasm32; wasm32 is
+        // single-threaded.
+        #[allow(clippy::arc_with_non_send_sync)]
         wafer_core::service_blocks::image::register_with(&mut wafer, Arc::new(image_router))?;
 
         // 4b. Register the `wafer-run/vector` runtime block when the
@@ -412,6 +424,11 @@ impl SolobaseBuilder {
             )?;
             #[cfg(target_arch = "wasm32")]
             {
+                // `TransformersEmbedBlock` only requires `MaybeSend + MaybeSync`
+                // (a no-op marker on wasm32 — see wafer_block::compat), so this
+                // `Arc` doesn't promise cross-thread safety; wasm32 is
+                // single-threaded and this whole block is wasm32-only.
+                #[allow(clippy::arc_with_non_send_sync)]
                 wafer.register_block(
                     "suppers-ai/transformers-embed".to_string(),
                     Arc::new(
@@ -536,6 +553,12 @@ impl SolobaseBuilder {
             block_infos,
             self.extra_routes,
         );
+        // `SolobaseRouterBlock` holds `Arc<dyn FeatureConfig>`, which only
+        // requires `MaybeSend + MaybeSync` (real `Send + Sync` on native, a
+        // no-op marker on wasm32 — see wafer_block::compat), so this `Arc`
+        // doesn't promise cross-thread safety on wasm32; wasm32 is
+        // single-threaded.
+        #[allow(clippy::arc_with_non_send_sync)]
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
         wafer.add_block_config("suppers-ai/router", routes_cfg);
 

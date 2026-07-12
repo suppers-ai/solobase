@@ -250,9 +250,8 @@ pub async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStrea
     if !is_safe_dom_id(id) {
         return err_not_found("Button not found");
     }
-    let record = match db::get(ctx, TABLE, id).await {
-        Ok(r) => r,
-        Err(_) => return err_not_found("Button not found"),
+    let Ok(record) = db::get(ctx, TABLE, id).await else {
+        return err_not_found("Button not found");
     };
 
     let current_icon = record.str_field("icon");

@@ -117,6 +117,60 @@ impl std::fmt::Display for ErrorCode {
     }
 }
 
+/// Helper to create a JSON error response with a structured error code.
+///
+/// Maps the fine-grained solobase [`ErrorCode`] to the coarse wafer
+/// `ErrorCode` (which drives transport/status mapping) and attaches the
+/// precise solobase code as structured `error.code` meta via
+/// [`wafer_run::WaferError::with_detail_code`] — the
+/// `wafer_block::META_ERROR_CODE` convention. The message stays human-only;
+/// the old `"[{code}] {message}"` in-band prefix is gone, so HTTP adapters
+/// surface the machine-readable code as a JSON `code` field from the meta
+/// rather than callers parsing it back out of the message.
+pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream {
+    let wafer_code = solobase_error_code_to_wafer(code);
+    wafer_run::OutputStream::error(
+        wafer_run::WaferError::new(wafer_code, message.to_string()).with_detail_code(code.as_str()),
+    )
+}
+
+/// Map a solobase `ErrorCode` to a wafer `ErrorCode`.
+pub(crate) fn solobase_error_code_to_wafer(code: ErrorCode) -> wafer_run::ErrorCode {
+    match code {
+        ErrorCode::InvalidCredentials
+        | ErrorCode::NotAuthenticated
+        | ErrorCode::InvalidToken
+        | ErrorCode::TokenExpired => wafer_run::ErrorCode::Unauthenticated,
+
+        ErrorCode::Forbidden
+        | ErrorCode::AdminRequired
+        | ErrorCode::AccountDisabled
+        | ErrorCode::EmailNotVerified => wafer_run::ErrorCode::PermissionDenied,
+
+        ErrorCode::NotFound => wafer_run::ErrorCode::NotFound,
+
+        ErrorCode::EmailAlreadyExists | ErrorCode::Conflict => wafer_run::ErrorCode::AlreadyExists,
+
+        ErrorCode::PasswordTooShort
+        | ErrorCode::PasswordTooLong
+        | ErrorCode::InvalidEmail
+        | ErrorCode::InvalidInput
+        | ErrorCode::InvalidPurchaseStatus => wafer_run::ErrorCode::InvalidArgument,
+
+        ErrorCode::QuotaExceeded | ErrorCode::FileTooLarge => {
+            wafer_run::ErrorCode::ResourceExhausted
+        }
+
+        ErrorCode::RateLimitExceeded => wafer_run::ErrorCode::ResourceExhausted,
+
+        ErrorCode::PaymentNotConfigured
+        | ErrorCode::ConfigurationError
+        | ErrorCode::DatabaseError
+        | ErrorCode::InternalError
+        | ErrorCode::RefundFailed => wafer_run::ErrorCode::Internal,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,59 +252,5 @@ mod tests {
             }
             other => panic!("expected an error stream, got {other:?}"),
         }
-    }
-}
-
-/// Helper to create a JSON error response with a structured error code.
-///
-/// Maps the fine-grained solobase [`ErrorCode`] to the coarse wafer
-/// `ErrorCode` (which drives transport/status mapping) and attaches the
-/// precise solobase code as structured `error.code` meta via
-/// [`wafer_run::WaferError::with_detail_code`] — the
-/// `wafer_block::META_ERROR_CODE` convention. The message stays human-only;
-/// the old `"[{code}] {message}"` in-band prefix is gone, so HTTP adapters
-/// surface the machine-readable code as a JSON `code` field from the meta
-/// rather than callers parsing it back out of the message.
-pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream {
-    let wafer_code = solobase_error_code_to_wafer(code);
-    wafer_run::OutputStream::error(
-        wafer_run::WaferError::new(wafer_code, message.to_string()).with_detail_code(code.as_str()),
-    )
-}
-
-/// Map a solobase `ErrorCode` to a wafer `ErrorCode`.
-pub(crate) fn solobase_error_code_to_wafer(code: ErrorCode) -> wafer_run::ErrorCode {
-    match code {
-        ErrorCode::InvalidCredentials
-        | ErrorCode::NotAuthenticated
-        | ErrorCode::InvalidToken
-        | ErrorCode::TokenExpired => wafer_run::ErrorCode::Unauthenticated,
-
-        ErrorCode::Forbidden
-        | ErrorCode::AdminRequired
-        | ErrorCode::AccountDisabled
-        | ErrorCode::EmailNotVerified => wafer_run::ErrorCode::PermissionDenied,
-
-        ErrorCode::NotFound => wafer_run::ErrorCode::NotFound,
-
-        ErrorCode::EmailAlreadyExists | ErrorCode::Conflict => wafer_run::ErrorCode::AlreadyExists,
-
-        ErrorCode::PasswordTooShort
-        | ErrorCode::PasswordTooLong
-        | ErrorCode::InvalidEmail
-        | ErrorCode::InvalidInput
-        | ErrorCode::InvalidPurchaseStatus => wafer_run::ErrorCode::InvalidArgument,
-
-        ErrorCode::QuotaExceeded | ErrorCode::FileTooLarge => {
-            wafer_run::ErrorCode::ResourceExhausted
-        }
-
-        ErrorCode::RateLimitExceeded => wafer_run::ErrorCode::ResourceExhausted,
-
-        ErrorCode::PaymentNotConfigured
-        | ErrorCode::ConfigurationError
-        | ErrorCode::DatabaseError
-        | ErrorCode::InternalError
-        | ErrorCode::RefundFailed => wafer_run::ErrorCode::Internal,
     }
 }

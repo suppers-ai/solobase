@@ -394,10 +394,10 @@ pub fn public_page(opts: PublicPage<'_>, body: Markup) -> Markup {
         (bg, accent) => {
             let mut s = String::from(":root{");
             if let Some(c) = bg {
-                s.push_str(&format!("--public-page-bg:{};", c));
+                s.push_str(&format!("--public-page-bg:{c};"));
             }
             if let Some(c) = accent {
-                s.push_str(&format!("--public-page-accent:{};", c));
+                s.push_str(&format!("--public-page-accent:{c};"));
             }
             s.push('}');
             s
