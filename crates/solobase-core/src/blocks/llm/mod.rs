@@ -552,9 +552,9 @@ impl Block for LlmBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         // Schema migrations first — must run before any row-level work below,
-        // otherwise the legacy-row copy + reload would hit ensure_table
-        // fallback paths instead of the indexed table. `lifecycle_init`
-        // no-ops on non-Init events.
+        // otherwise the provider reload would hit ensure_table fallback
+        // paths instead of the indexed table. `lifecycle_init` no-ops on
+        // non-Init events.
         crate::migration_helper::lifecycle_init(
             ctx,
             &event,
@@ -564,18 +564,6 @@ impl Block for LlmBlock {
         )
         .await?;
         if matches!(event.event_type, LifecycleType::Init) {
-            // One-shot row copy from `suppers_ai__provider_llm__providers`.
-            // Idempotent: if the legacy table is gone, returns immediately.
-            // Any per-row failure is logged, not fatal — admins can inspect
-            // the log and fix individual rows.
-            if let Err(e) = migrations::legacy_providers::migrate_legacy_providers(
-                ctx,
-                self.provider_admin.as_ref(),
-            )
-            .await
-            {
-                tracing::warn!("legacy provider migration reported error: {e}");
-            }
             // Always load enabled providers into the in-memory service on
             // startup so chat dispatch finds them without waiting for an
             // admin CRUD write. Non-fatal if it fails — admins can trigger
