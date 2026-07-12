@@ -130,6 +130,28 @@ async fn response_status(stream: OutputStream) -> i64 {
     }
 }
 
+/// Like [`response_status`], but also returns the `Location` response header
+/// (`resp.header.Location` meta) for redirect assertions. A redirect is always
+/// a Response terminal, so the header only exists on the `Ok` path; Error
+/// terminals (the JSON 403 contract) carry no `Location`.
+async fn response_status_and_location(stream: OutputStream) -> (i64, Option<String>) {
+    match stream.collect_buffered().await {
+        Ok(buf) => {
+            let status = i64::from(http_codec::resolve_status(&buf.meta, 200));
+            let location = buf
+                .meta
+                .iter()
+                .find(|e| e.key == "resp.header.Location")
+                .map(|e| e.value.clone());
+            (status, location)
+        }
+        Err(TerminalNotResponse::Error(err)) => {
+            (i64::from(http_codec::resolve_error_status(&err)), None)
+        }
+        Err(other) => panic!("unexpected terminal: {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -263,6 +285,62 @@ async fn admin_extra_route_allows_admin() {
     assert_eq!(status, 200);
 
     assert_eq!(ctx.calls(), vec!["gizza-ai/admin".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// F3: unauthenticated HTML requests redirect to login instead of a bare 403.
+//
+// Stale-cookie and no-cookie requests both reach `check_access` with an empty
+// `user_id` (crypto.rs silently leaves identity unset on any invalid token), so
+// fixing the anonymous case fixes the stale-session dead-end at the single
+// enforcement point. Browser (HTML) requests get a 302 to the login page with a
+// `?redirect=` return path; API callers keep the JSON 403 contract. The
+// role-failure case (authenticated non-admin) must NOT redirect — that's a real
+// 403, not a "you need to log in".
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn anonymous_html_request_on_authenticated_route_redirects_to_login() {
+    let ctx = RecordingContext::new();
+    let extras = vec![ExtraRoute {
+        prefix: "/b/chat/".into(),
+        access: RouteAccess::Authenticated,
+        block_name: "gizza-ai/chat".into(),
+    }];
+    let mut msg = make_msg("/b/chat/hello");
+    msg.set_meta("http.header.accept", "text/html,application/xhtml+xml");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &[], &extras).await;
+    let (status, location) = response_status_and_location(stream).await;
+    assert_eq!(status, 302);
+    assert_eq!(
+        location.as_deref(),
+        Some("/b/auth/login?redirect=%2Fb%2Fchat%2Fhello")
+    );
+    assert!(ctx.calls().is_empty(), "dispatch must NOT happen");
+}
+
+#[tokio::test]
+async fn authenticated_non_admin_html_request_on_admin_route_still_403s() {
+    let ctx = RecordingContext::new();
+    let extras = vec![ExtraRoute {
+        prefix: "/b/gizza-admin/".into(),
+        access: RouteAccess::Admin,
+        block_name: "gizza-ai/admin".into(),
+    }];
+    // Authenticated (user_id set) but lacking the admin role, asking for HTML.
+    // The role-failure case is a genuine 403 — it must NOT redirect to login.
+    let mut msg = make_msg_with_user("/b/gizza-admin/dash", "user-123");
+    msg.set_meta("http.header.accept", "text/html,application/xhtml+xml");
+    let stream =
+        routing::route_to_block(&ctx, msg, InputStream::empty(), &AllEnabled, &[], &extras).await;
+    let (status, location) = response_status_and_location(stream).await;
+    assert_eq!(status, 403, "role failure must stay 403, not redirect");
+    assert_eq!(
+        location, None,
+        "role failure must not carry a login Location"
+    );
+    assert!(ctx.calls().is_empty());
 }
 
 #[tokio::test]

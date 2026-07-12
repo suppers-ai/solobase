@@ -334,6 +334,28 @@ pub fn forbidden_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
     }
 }
 
+/// Anonymous (or stale-session — identical by the time enforcement runs)
+/// browser request on a protected route: send the user to login with a return
+/// path so they land back where they started after signing in. API callers
+/// (non-HTML `Accept`) keep the JSON 403 contract instead of a redirect.
+///
+/// The return path is form-encoded via [`crate::util::urlencode`] into a
+/// `?redirect=` query param — the exact param name and encoding the login page
+/// consumes (`is_safe_local_redirect` on the consumer side); the producer only
+/// needs to encode.
+pub fn unauthenticated_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
+    let accept = msg.get_meta("http.header.accept");
+    if accept.contains("text/html") && !accept.contains("application/json") {
+        let target = format!(
+            "/b/auth/login?redirect={}",
+            crate::util::urlencode(msg.path())
+        );
+        crate::http::redirect(302, &target)
+    } else {
+        crate::http::err_forbidden("authentication required")
+    }
+}
+
 /// Return styled 404 for browser requests, JSON for API requests.
 pub fn not_found_response(msg: &wafer_run::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
@@ -513,6 +535,51 @@ mod tests {
             body.contains("Sign in"),
             "body should contain Sign in action"
         );
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_response_redirects_html_to_login() {
+        // Browser (HTML) request with an empty identity → 302 to the login page
+        // carrying a form-encoded `?redirect=` return path the login page
+        // consumes via `is_safe_local_redirect`.
+        let mut msg = Message::new("http.request");
+        msg.set_meta("req.resource", "/b/chat/hello");
+        msg.set_meta("http.header.accept", "text/html,application/xhtml+xml");
+        let buf = unauthenticated_response(&msg)
+            .collect_buffered()
+            .await
+            .expect("redirect is a Response terminal");
+        let status = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.status")
+            .map(|e| e.value.as_str());
+        let location = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.header.Location")
+            .map(|e| e.value.as_str());
+        assert_eq!(status, Some("302"));
+        assert_eq!(location, Some("/b/auth/login?redirect=%2Fb%2Fchat%2Fhello"));
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_response_json_accept_stays_403() {
+        // API caller (non-HTML Accept) keeps the JSON 403 contract — status
+        // stays 403 (not 401) so existing API clients/tests don't break.
+        use wafer_block::http_codec;
+        use wafer_run::streams::output::TerminalNotResponse;
+        let mut msg = Message::new("http.request");
+        msg.set_meta("req.resource", "/b/chat/hello");
+        msg.set_meta("http.header.accept", "application/json");
+        let status = match unauthenticated_response(&msg).collect_buffered().await {
+            Ok(buf) => i64::from(http_codec::resolve_status(&buf.meta, 200)),
+            Err(TerminalNotResponse::Error(err)) => {
+                i64::from(http_codec::resolve_error_status(&err))
+            }
+            Err(other) => panic!("unexpected terminal: {other:?}"),
+        };
+        assert_eq!(status, 403);
     }
 
     #[tokio::test]

@@ -255,10 +255,20 @@ fn declared_access(block_infos: &[BlockInfo], block_name: &str, msg: &Message) -
 fn check_access(access: RouteAccess, msg: &Message) -> Option<OutputStream> {
     match access {
         RouteAccess::Public => None,
+        // Missing identity (anonymous OR stale session — crypto.rs leaves
+        // `user_id` empty on any invalid token) → send browsers to login with a
+        // return path; keep the JSON 403 for API callers. Both protected tiers
+        // share this: an `Admin` route hit with no identity is a login problem,
+        // not a role problem.
         RouteAccess::Authenticated if msg.user_id().is_empty() => {
-            Some(crate::ui::forbidden_response(msg))
+            Some(crate::ui::unauthenticated_response(msg))
         }
         RouteAccess::Authenticated => None,
+        RouteAccess::Admin if msg.user_id().is_empty() => {
+            Some(crate::ui::unauthenticated_response(msg))
+        }
+        // Authenticated but lacking the admin role is a genuine 403, not a
+        // "log in" — keep the styled/JSON forbidden response (no redirect).
         RouteAccess::Admin if !crate::util::is_admin(msg) => {
             Some(crate::ui::forbidden_response(msg))
         }
