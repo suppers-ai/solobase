@@ -56,3 +56,124 @@ pub async fn put_version_stamp_with_retry(kv: &dyn KvBackend, stamp: &str) -> Re
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    /// Which `put()` calls a [`MockKvBackend`] fails, to drive both retry
+    /// arms of [`put_version_stamp_with_retry`].
+    enum PutFail {
+        /// Every `put()` succeeds.
+        None,
+        /// Only the first `put()` fails; the retry succeeds.
+        FirstOnly,
+        /// Every `put()` fails.
+        All,
+    }
+
+    /// In-memory [`KvBackend`] that counts `put()` calls and fails them per
+    /// [`PutFail`]. Only `put()` is exercised by the retry helper; the other
+    /// trait methods are unreachable on this path.
+    struct MockKvBackend {
+        puts: AtomicUsize,
+        fail: PutFail,
+    }
+
+    impl MockKvBackend {
+        fn new(fail: PutFail) -> Self {
+            Self {
+                puts: AtomicUsize::new(0),
+                fail,
+            }
+        }
+
+        fn put_count(&self) -> usize {
+            self.puts.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl KvBackend for MockKvBackend {
+        async fn get(&self, _key: &str) -> Result<Option<String>, String> {
+            unreachable!("put_version_stamp_with_retry never reads")
+        }
+
+        async fn put_with_ttl(
+            &self,
+            _key: &str,
+            _value: &str,
+            _ttl_secs: u64,
+        ) -> Result<(), String> {
+            unreachable!("put_version_stamp_with_retry uses put(), not put_with_ttl()")
+        }
+
+        async fn put(&self, _key: &str, _value: &str) -> Result<(), String> {
+            // 0-based index of this call (value before the increment).
+            let n = self.puts.fetch_add(1, Ordering::SeqCst);
+            let fail = match self.fail {
+                PutFail::None => false,
+                PutFail::FirstOnly => n == 0,
+                PutFail::All => true,
+            };
+            if fail {
+                Err(format!("kv transport error on put #{}", n + 1))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn delete(&self, _key: &str) -> Result<(), String> {
+            unreachable!("put_version_stamp_with_retry never deletes")
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_recovers_when_first_put_fails() {
+        let kv = MockKvBackend::new(PutFail::FirstOnly);
+        let result = put_version_stamp_with_retry(&kv, "v-abc123").await;
+        assert!(
+            result.is_ok(),
+            "a single transient failure must be recovered by the retry: {result:?}"
+        );
+        assert_eq!(
+            kv.put_count(),
+            2,
+            "must attempt exactly twice (initial put + one retry)"
+        );
+    }
+
+    #[tokio::test]
+    async fn both_puts_failing_returns_combined_error() {
+        let kv = MockKvBackend::new(PutFail::All);
+        let err = put_version_stamp_with_retry(&kv, "v-abc123")
+            .await
+            .expect_err("both attempts fail → Err");
+        assert!(
+            err.contains("first attempt"),
+            "error must name the first attempt for log correlation: {err}"
+        );
+        assert!(
+            err.contains("retry"),
+            "error must name the retry for log correlation: {err}"
+        );
+        assert_eq!(
+            kv.put_count(),
+            2,
+            "must stop after exactly one retry, not loop"
+        );
+    }
+
+    #[tokio::test]
+    async fn first_put_succeeding_does_not_retry() {
+        let kv = MockKvBackend::new(PutFail::None);
+        let result = put_version_stamp_with_retry(&kv, "v-abc123").await;
+        assert!(result.is_ok());
+        assert_eq!(
+            kv.put_count(),
+            1,
+            "a successful first put must not trigger the retry"
+        );
+    }
+}
