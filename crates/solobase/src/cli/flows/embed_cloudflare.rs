@@ -90,14 +90,22 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
             } else {
                 eprintln!("-> local /_deploy/init reported failures:\n{report}");
                 eprintln!(
-                    "-> retry manually: POST {local_url}/_deploy/init with header \
-                     x-deploy-token: {dev_token}"
+                    "-> retry manually: {}",
+                    manual_seed_hint(&local_url, &dev_token)
                 );
             }
         }
-        Err(e) => eprintln!(
-            "-> local /_deploy/init not reachable ({e}); serving anyway — \
-             POST {local_url}/_deploy/init with header x-deploy-token: {dev_token} to seed manually"
+        // Child already exited: nothing is listening at `local_url`, so
+        // there's nothing to "serve anyway" and no worker to receive a
+        // manual POST. `child.wait()` below re-observes the same exit and
+        // `bail!`s with the real status.
+        Err(LocalInitError::ChildExited(msg)) => eprintln!("-> {msg}"),
+        // Still probing when the retry budget ran out, but the child is
+        // still alive — it may just be slow to start. Serving anyway and
+        // suggesting a manual retry remains reasonable.
+        Err(LocalInitError::Unreachable(e)) => eprintln!(
+            "-> local /_deploy/init not reachable ({e}); serving anyway — {}",
+            manual_seed_hint(&local_url, &dev_token)
         ),
     }
 
@@ -108,17 +116,60 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
     Ok(())
 }
 
+/// Shared "you can trigger deploy-init yourself" hint text, used by both
+/// the funnel-failure branch (the funnel ran but reported failures) and
+/// the unreachable-but-still-alive branch (probing timed out, but wrangler
+/// is still up) so their wording can't drift apart. Do NOT use this for a
+/// `LocalInitError::ChildExited` — nothing is listening at `local_url` to
+/// receive the POST.
+fn manual_seed_hint(local_url: &str, token: &str) -> String {
+    format!("POST {local_url}/_deploy/init with header x-deploy-token: {token} to seed manually")
+}
+
+/// Why the deploy-init funnel didn't run against the local `wrangler dev`
+/// worker. `serve()` needs this distinction to pick an accurate message: a
+/// child that already exited isn't coming back to serve a manual POST,
+/// whereas a child that's merely slow to start might still answer one.
+#[derive(Debug)]
+enum LocalInitError {
+    /// `wrangler dev` exited before `/_deploy/init` became reachable — the
+    /// funnel never ran and nothing is listening to retry against.
+    ChildExited(String),
+    /// The worker never became reachable within the retry budget, but the
+    /// child is still alive.
+    Unreachable(anyhow::Error),
+}
+
+impl std::fmt::Display for LocalInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocalInitError::ChildExited(msg) => write!(f, "{msg}"),
+            LocalInitError::Unreachable(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for LocalInitError {}
+
+impl From<std::io::Error> for LocalInitError {
+    fn from(e: std::io::Error) -> Self {
+        LocalInitError::Unreachable(anyhow::anyhow!(e))
+    }
+}
+
 /// Poll until the local worker answers, then run the deploy-init funnel
 /// against it. Bounded: ~60s of connect retries.
 ///
 /// Checks `child` for an early exit before each retry sleep so a wrangler
-/// crash surfaces as "wrangler dev exited" instead of masquerading as 60s
-/// of generic "not reachable" connect failures.
+/// crash surfaces as a distinct [`LocalInitError::ChildExited`] instead of
+/// masquerading as 60s of generic "not reachable" connect failures — the
+/// exit status is consumed on the first `Ok(Some(_))` from `try_wait()`, so
+/// this is the only place that can observe it.
 async fn wait_and_run_local_init(
     child: &mut tokio::process::Child,
     local_url: &str,
     token: &str,
-) -> Result<(bool, String)> {
+) -> Result<(bool, String), LocalInitError> {
     const ATTEMPTS: u32 = 120;
     const INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
     let mut last_err = None;
@@ -128,16 +179,18 @@ async fn wait_and_run_local_init(
             Err(e) => {
                 last_err = Some(e);
                 if let Some(status) = child.try_wait()? {
-                    return Err(anyhow::anyhow!(
+                    return Err(LocalInitError::ChildExited(format!(
                         "wrangler dev exited ({status}) before /_deploy/init became \
                          reachable — see wrangler output above"
-                    ));
+                    )));
                 }
                 tokio::time::sleep(INTERVAL).await;
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("wrangler dev never became reachable")))
+    Err(LocalInitError::Unreachable(last_err.unwrap_or_else(|| {
+        anyhow::anyhow!("wrangler dev never became reachable")
+    })))
 }
 
 pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
@@ -258,6 +311,26 @@ mod tests {
         assert!(
             err.to_string().contains("wrangler dev exited"),
             "expected a wrangler-death error, got: {err}"
+        );
+    }
+
+    /// The child-death case must be distinguishable from a generic
+    /// "unreachable" timeout — `serve()` picks its message off the enum
+    /// variant, not by pattern-matching the error text, so pin the variant
+    /// directly.
+    #[tokio::test]
+    async fn wait_and_run_local_init_dead_child_yields_child_exited_variant() {
+        let mut child = tokio::process::Command::new("true")
+            .spawn()
+            .expect("spawn `true`");
+
+        let err = wait_and_run_local_init(&mut child, "http://127.0.0.1:1", "token")
+            .await
+            .expect_err("dead child must surface as an error, not a 60s hang");
+
+        assert!(
+            matches!(err, LocalInitError::ChildExited(_)),
+            "expected LocalInitError::ChildExited, got: {err:?}"
         );
     }
 }
