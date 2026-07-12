@@ -415,12 +415,13 @@ mod integration_tests {
     use crate::test_support::{admin_msg, output_html, TestContext};
 
     /// Minimal `wafer-run/vector` stand-in answering `vector.describe_index`
-    /// with the columns of the `_meta` fixture table. The TestContext's
-    /// database service owns a private in-memory connection, so a real
-    /// `SqliteVecService` can't see fixture tables; the real describe
-    /// behavior is covered upstream by wafer-run's sqlite behavior tests and
-    /// handler authorization suites. This fake keeps the page-rendering
-    /// assertions meaningful.
+    /// with the columns of the `_meta` fixture table and `vector.count` by
+    /// counting that same fixture table. The TestContext's database service
+    /// owns a private in-memory connection, so a real `SqliteVecService`
+    /// can't see fixture tables; the real describe/count behavior is covered
+    /// upstream by wafer-run's sqlite behavior tests and handler
+    /// authorization suites. This fake keeps the page-rendering assertions
+    /// meaningful: the rendered count still traces back to the seeded row.
     struct FakeVectorBlock;
 
     #[wafer_block::wafer_async_trait]
@@ -431,11 +432,23 @@ mod integration_tests {
 
         async fn handle(
             &self,
-            _ctx: &dyn Context,
+            ctx: &dyn Context,
             msg: Message,
-            _input: InputStream,
+            input: InputStream,
         ) -> OutputStream {
             match msg.kind.as_str() {
+                "vector.count" => {
+                    let body = input.collect_to_bytes().await;
+                    let req: wafer_block::wire::vector::CountRequest =
+                        wafer_block::codec::decode(&body).expect("decode count request");
+                    let count = db::count(ctx, &format!("{}_meta", req.index), &[])
+                        .await
+                        .expect("count fixture _meta table") as u64;
+                    let resp = wafer_block::wire::vector::CountResponse { count };
+                    OutputStream::respond(
+                        wafer_block::codec::encode(&resp).expect("encode count response"),
+                    )
+                }
                 "vector.describe_index" => {
                     let resp = wafer_block::wire::vector::DescribeIndexResponse {
                         exists: true,
@@ -490,7 +503,8 @@ mod integration_tests {
         // upstream `wafer-run/vector` runtime block via `vclient::create_index`
         // (see vector/migrations/mod.rs header). The runtime no longer
         // auto-creates tables on first insert, so the test materialises it
-        // explicitly with the columns the count loader expects.
+        // explicitly with the columns `FakeVectorBlock`'s count/describe
+        // arms expect.
         db::exec_raw(
             ctx,
             "CREATE TABLE IF NOT EXISTS suppers_ai__vector__docs_meta (id TEXT PRIMARY KEY, vector_id TEXT, created_at TEXT, updated_at TEXT)",
@@ -507,7 +521,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn index_list_page_renders_admin_view() {
-        let ctx = TestContext::with_vector().await;
+        let mut ctx = TestContext::with_vector().await;
+        // Counts now flow through the vector service (`vclient::count`),
+        // so the list page needs the backend block registered to see a
+        // non-zero count.
+        ctx.register_block("wafer-run/vector", Arc::new(FakeVectorBlock));
         seed_docs_index(&ctx).await;
 
         let msg = admin_msg("retrieve", "/b/vector/");
@@ -521,12 +539,32 @@ mod integration_tests {
         assert!(body.contains(">docs<"), "seeded row missing: {body}");
         assert!(body.contains("fastembed"), "missing model column: {body}");
         // The count cell is rendered as `<td data-label="Vectors">1</td>`.
-        // Asserting the exact substring guards against the previously-masked
-        // bug where `db::count` was issued against the registry's
-        // `prefixed_name` (no `_meta` suffix) and silently returned 0.
+        // Asserting the exact substring proves the count traces through
+        // `vclient::count` back to the seeded row (a broken index name or
+        // an unregistered backend would silently render 0).
         assert!(
             body.contains(r#"data-label="Vectors">1<"#),
             "vector count cell should show 1, got: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn index_list_page_count_degrades_to_zero_without_backend() {
+        // No `wafer-run/vector` block registered: `vclient::count` fails
+        // with NotFound and `map_index_row` must degrade the count to 0
+        // (same fallback the API stats route uses) instead of erroring
+        // the whole listing.
+        let ctx = TestContext::with_vector().await;
+        seed_docs_index(&ctx).await;
+
+        let msg = admin_msg("retrieve", "/b/vector/");
+        let resp = index_list_page(&ctx, &msg).await;
+        let body = output_html(resp).await;
+
+        assert!(body.contains(">docs<"), "seeded row missing: {body}");
+        assert!(
+            body.contains(r#"data-label="Vectors">0<"#),
+            "vector count cell should degrade to 0, got: {body}"
         );
     }
 
