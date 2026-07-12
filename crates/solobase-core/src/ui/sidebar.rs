@@ -11,6 +11,12 @@ use super::icons;
 /// misspelled icon in `nav_groups.rs` is a build error rather than a silent
 /// fallback. This resolver survives only for the genuinely-dynamic case
 /// where the name comes from user input at runtime.
+///
+/// Unknown names render the visibly distinct [`icons::help_circle`] glyph
+/// (plus a warn log) rather than silently masquerading as the package icon —
+/// a stored name that no arm matches is a data/`ICON_OPTIONS` drift that
+/// should be seen, not hidden. The `ICON_OPTIONS`-coverage test below keeps
+/// every dropdown-selectable name resolving to a real arm.
 pub fn nav_icon(name: &str) -> Markup {
     match name {
         "layout-dashboard" | "dashboard" => icons::layout_dashboard(),
@@ -31,7 +37,10 @@ pub fn nav_icon(name: &str) -> Markup {
         "bar-chart" | "stats" => icons::bar_chart(),
         "dollar-sign" => icons::dollar_sign(),
         "link" => icons::link(),
-        _ => icons::package(), // fallback
+        _ => {
+            tracing::warn!("unknown nav icon name: {name}");
+            icons::help_circle()
+        }
     }
 }
 
@@ -210,6 +219,39 @@ mod tests {
         }];
         let s = sidebar_grouped(&groups, None, "/b/storage/files/foo.png", "", "").into_string();
         assert!(s.contains("is-active"));
+    }
+
+    /// Every user-selectable icon name (the userportal admin-button editor's
+    /// `ICON_OPTIONS` dropdown) must resolve to a real `nav_icon` arm.
+    /// Rendering the visibly-distinct unknown-icon glyph for a listed option
+    /// means the dropdown and the resolver drifted.
+    #[cfg(feature = "block-userportal")]
+    #[test]
+    fn every_icon_option_resolves_to_a_non_fallback_icon() {
+        let fallback = icons::help_circle().into_string();
+        for (name, display) in crate::blocks::userportal::pages::admin_buttons::ICON_OPTIONS {
+            assert_ne!(
+                nav_icon(name).into_string(),
+                fallback,
+                "ICON_OPTIONS entry '{name}' ({display}) hit the unknown-icon \
+                 fallback — add a matching arm to nav_icon"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_icon_name_renders_the_distinct_help_glyph() {
+        let rendered = nav_icon("definitely-not-an-icon").into_string();
+        assert_eq!(
+            rendered,
+            icons::help_circle().into_string(),
+            "unknown names must render the visibly-distinct help glyph"
+        );
+        assert_ne!(
+            rendered,
+            icons::package().into_string(),
+            "unknown names must NOT silently render the package glyph"
+        );
     }
 
     #[test]

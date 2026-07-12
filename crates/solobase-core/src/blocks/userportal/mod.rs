@@ -13,7 +13,10 @@ use crate::{
 };
 
 pub(crate) mod migrations;
-mod pages;
+// `pub(crate)`: `ui::sidebar`'s ICON_OPTIONS-coverage test reads
+// `pages::admin_buttons::ICON_OPTIONS` to keep the icon dropdown and the
+// `nav_icon` resolver in lockstep.
+pub(crate) mod pages;
 
 const TABLE: &str = "suppers_ai__userportal__buttons";
 

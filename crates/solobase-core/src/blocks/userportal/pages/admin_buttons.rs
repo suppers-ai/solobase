@@ -20,7 +20,12 @@ use crate::{
 };
 
 /// Known icon names available for button configuration.
-const ICON_OPTIONS: &[(&str, &str)] = &[
+///
+/// `pub(crate)`: `ui::sidebar`'s coverage test asserts every entry here
+/// resolves to a real `nav_icon` arm (not the unknown-icon fallback), so
+/// adding an option without a matching arm fails the build's tests instead
+/// of rendering a `?` glyph at runtime.
+pub(crate) const ICON_OPTIONS: &[(&str, &str)] = &[
     ("package", "Package"),
     ("shopping-cart", "Shopping Cart"),
     ("folder", "Folder"),

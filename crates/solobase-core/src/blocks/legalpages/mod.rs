@@ -15,7 +15,6 @@ use crate::{
     endpoint_match::{self, EndpointRoute},
     http::{err_bad_request, err_internal, err_not_found, ok_json, ResponseBuilder},
     ui::{self, templates, SiteConfig},
-    util::json_map,
 };
 
 /// In-block dispatch targets, one per declared HTTP endpoint.
@@ -311,17 +310,17 @@ impl LegalPagesBlock {
             Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
-        let mut data = json_map(serde_json::json!({
-            "doc_type": body.doc_type,
-            "title": body.title,
-            "content": body.content,
-            "status": "draft",
-            "version": 1,
-            "created_by": msg.user_id()
-        }));
-        crate::util::stamp_created(&mut data);
-
-        match db::create(ctx, COLLECTION, data).await {
+        // Draft shape lives in `service::create_draft` (shared with the
+        // admin editor's save handler in `pages.rs`).
+        match service::create_draft(
+            ctx,
+            &body.doc_type,
+            &body.title,
+            &body.content,
+            msg.user_id(),
+        )
+        .await
+        {
             Ok(record) => ok_json(&record),
             Err(e) => err_internal("Database error", e),
         }
@@ -370,7 +369,6 @@ impl LegalPagesBlock {
             return;
         }
 
-        let now = crate::util::now_rfc3339();
         for (doc_type, title, content) in &[
             (
                 "terms",
@@ -383,18 +381,23 @@ impl LegalPagesBlock {
                 "This is the default privacy policy. Please update it in the admin panel.\n",
             ),
         ] {
-            let data = json_map(serde_json::json!({
-                "doc_type": doc_type,
-                "title": title,
-                "content": content,
-                "status": "published",
-                "version": 1,
-                "created_at": now,
-                "updated_at": now,
-                "published_at": now,
-                "created_by": "system"
-            }));
-            if let Err(e) = db::create(ctx, COLLECTION, data).await {
+            // Seed through the same service fn both publish surfaces use —
+            // the published-document shape (status/version/published_at/…)
+            // exists exactly once, in `service.rs`. The table is empty here
+            // (count == 0 above), so the archive pass is a no-op.
+            if let Err(e) = service::publish_document(
+                ctx,
+                service::PublishRequest {
+                    doc_type,
+                    doc_id: "",
+                    title: Some(title),
+                    content: Some(content),
+                    version: 1,
+                    created_by: "system",
+                },
+            )
+            .await
+            {
                 tracing::warn!("Failed to seed default legal page '{doc_type}': {e}");
             }
         }

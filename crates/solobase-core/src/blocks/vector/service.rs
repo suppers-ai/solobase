@@ -6,7 +6,7 @@
 //! boundary — no magic mapping elsewhere in the stack.
 
 use wafer_block::db::SortField;
-use wafer_core::clients::database as db;
+use wafer_core::clients::{database as db, vector as vclient};
 use wafer_run::{context::Context, ErrorCode, WaferError};
 
 use crate::util::RecordExt;
@@ -109,11 +109,11 @@ pub fn validate_index_name(name: &str) -> Result<&str, WaferError> {
     Ok(name)
 }
 
-/// Map one registry record into an `IndexRow`, querying the matching
-/// `_meta` table for the live vector count. Returns `None` if the row
-/// has no `prefixed_name`. Shared between the list and detail loaders
-/// so the column-extraction quirks (TEXT-as-string round-trip from the
-/// SQLite service) live in exactly one place.
+/// Map one registry record into an `IndexRow`, asking the vector service
+/// for the live vector count. Returns `None` if the row has no
+/// `prefixed_name`. Shared between the list and detail loaders so the
+/// column-extraction quirks (TEXT-as-string round-trip from the SQLite
+/// service) live in exactly one place.
 async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> {
     let storage_name = rec
         .data
@@ -136,32 +136,33 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
     let dimensions = rec.u64_field("dimensions") as u32;
     let keyword_search = rec.bool_field("keyword_search");
 
-    // Vectors live in `{prefixed}_meta` (see `pages.rs::ingest`/`reindex`),
-    // not in the registry's `prefixed_name` table. Counting that meta
-    // table is what gives a correct per-index vector count.
-    let meta_table = format!("{storage_name}_meta");
-    // audit-allow: own-block per-index meta table — `storage_name` was just read out of the vector registry (line above), so the owner is always `suppers-ai/vector`. The runtime table name is dynamic; static analysis can't see it.
-    let count = db::count(ctx, &meta_table, &[]).await.unwrap_or(0);
+    // Count through the vector service boundary — the same `vclient::count`
+    // the API `stats()` route uses — instead of reaching around it with a
+    // `db::count` on the backend-private `{storage}_meta` table. An absent
+    // backend or a just-dropped index degrades to a count of 0, matching
+    // the stats route's own fallback.
+    let count = vclient::count(ctx, &storage_name).await.unwrap_or(0);
 
     Some(IndexRow {
         name: storage_name,
         model,
         dimensions,
-        vector_count: count.max(0) as u64,
+        vector_count: count,
         keyword_search,
     })
 }
 
-/// Read every registered vector index plus its current row count from
-/// the meta table. Caller decides what to do with errors — returning
-/// `Result` (rather than swallowing) keeps the helper testable in
-/// isolation, while the page handler maps any failure to the empty
+/// Read every registered vector index plus its current vector count
+/// (via the vector service). Caller decides what to do with errors —
+/// returning `Result` (rather than swallowing) keeps the helper testable
+/// in isolation, while the page handler maps any failure to the empty
 /// state.
 ///
 /// On a fresh database the registry table doesn't exist yet; the
 /// SQLite service returns an empty `RecordList` for unknown
 /// collections, so `db::list` gives us `Ok(empty)` rather than an
-/// error. Same for `db::count` against the per-index meta table.
+/// error. Per-index counts come from `vclient::count`, which degrades
+/// to 0 in `map_index_row` when the backend is absent.
 pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferError> {
     let records = db::list_sorted(
         ctx,
