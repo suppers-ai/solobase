@@ -94,6 +94,33 @@ pub(super) async fn publish_document(
     Ok(Published { record, version })
 }
 
+/// Create a new version-1 draft document.
+///
+/// Single owner of the draft-creation shape (`status: "draft"`,
+/// `version: 1`, creation timestamps, `created_by`) — both create surfaces
+/// delegate here so the shape can't drift:
+///
+/// - the JSON API handler (`POST /b/legalpages/api/documents`)
+/// - the admin-UI editor save (`POST /b/legalpages/admin/save`, create branch)
+pub(super) async fn create_draft(
+    ctx: &dyn Context,
+    doc_type: &str,
+    title: &str,
+    content: &str,
+    created_by: &str,
+) -> Result<db::Record, WaferError> {
+    let mut data = json_map(serde_json::json!({
+        "doc_type": doc_type,
+        "title": title,
+        "content": content,
+        "status": "draft",
+        "version": 1,
+        "created_by": created_by,
+    }));
+    crate::util::stamp_created(&mut data);
+    db::create(ctx, COLLECTION, data).await
+}
+
 /// Read a document's `version` field, tolerating integer or string storage.
 pub(super) fn doc_version(record: &db::Record) -> Option<i64> {
     let v = record.data.get("version")?;
@@ -293,6 +320,72 @@ mod tests {
         assert_eq!(
             archived.data.get("status").and_then(|v| v.as_str()),
             Some("archived")
+        );
+    }
+
+    /// Both create surfaces — the JSON API (`POST /b/legalpages/api/documents`)
+    /// and the admin editor save (`POST /b/legalpages/admin/save`, create
+    /// branch) — must produce version-1 drafts of the identical stored shape,
+    /// because both delegate to the one [`create_draft`] fn.
+    #[tokio::test]
+    async fn both_create_surfaces_produce_version_1_drafts_via_create_draft() {
+        use wafer_run::InputStream;
+
+        use crate::test_support::{admin_msg, output_json};
+
+        let ctx = ctx_with_schema().await;
+        let body = serde_json::to_vec(&serde_json::json!({
+            "doc_type": "terms",
+            "title": "Terms",
+            "content": "the terms",
+        }))
+        .expect("serialize create body");
+
+        // JSON API surface.
+        let block = super::super::LegalPagesBlock::new();
+        let msg = admin_msg("create", "/b/legalpages/api/documents");
+        let out = block
+            .handle_admin_create(&ctx, &msg, InputStream::from_bytes(body.clone()))
+            .await;
+        let api_resp = output_json(out).await;
+        let api_id = api_resp["id"]
+            .as_str()
+            .expect("api create returns the record")
+            .to_string();
+
+        // Admin editor save surface (create branch: no doc_id).
+        let msg = admin_msg("create", "/b/legalpages/admin/save");
+        let out = super::super::pages::handle_save(&ctx, &msg, InputStream::from_bytes(body)).await;
+        let save_resp = output_json(out).await;
+        let save_id = save_resp["doc_id"]
+            .as_str()
+            .expect("save returns doc_id")
+            .to_string();
+
+        let api_doc = db::get(&ctx, COLLECTION, &api_id).await.expect("api doc");
+        let save_doc = db::get(&ctx, COLLECTION, &save_id).await.expect("save doc");
+        for doc in [&api_doc, &save_doc] {
+            assert_eq!(
+                doc.data.get("status").and_then(|v| v.as_str()),
+                Some("draft")
+            );
+            assert_eq!(doc_version(doc), Some(1));
+            assert_eq!(
+                doc.data.get("created_by").and_then(|v| v.as_str()),
+                Some("admin_1")
+            );
+        }
+
+        // Identical stored field set — the draft shape exists exactly once.
+        let keys = |r: &db::Record| {
+            let mut k: Vec<&str> = r.data.keys().map(String::as_str).collect();
+            k.sort_unstable();
+            k.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys(&api_doc),
+            keys(&save_doc),
+            "both surfaces must store the same draft shape"
         );
     }
 

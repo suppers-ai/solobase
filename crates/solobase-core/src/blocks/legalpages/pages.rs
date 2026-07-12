@@ -530,8 +530,6 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
         Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
-    let now = crate::util::now_rfc3339();
-
     // If editing a published document, create a new draft instead of modifying the live version
     let should_create_new = if body.doc_id.is_empty() {
         true
@@ -549,17 +547,17 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
     };
 
     if should_create_new {
-        let data = json_map(serde_json::json!({
-            "doc_type": body.doc_type,
-            "title": body.title,
-            "content": body.content,
-            "status": "draft",
-            "version": 1,
-            "created_at": now,
-            "updated_at": now,
-            "created_by": msg.user_id()
-        }));
-        match db::create(ctx, COLLECTION, data).await {
+        // Draft shape lives in `service::create_draft` (shared with the JSON
+        // API's document-create handler in `mod.rs`).
+        match service::create_draft(
+            ctx,
+            &body.doc_type,
+            &body.title,
+            &body.content,
+            msg.user_id(),
+        )
+        .await
+        {
             Ok(record) => ok_json(&serde_json::json!({
                 "doc_id": record.id,
                 "status": "draft",
@@ -571,7 +569,7 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
         let data = json_map(serde_json::json!({
             "title": body.title,
             "content": body.content,
-            "updated_at": now
+            "updated_at": crate::util::now_rfc3339()
         }));
         match db::update(ctx, COLLECTION, &body.doc_id, data).await {
             Ok(_) => ok_json(&serde_json::json!({
