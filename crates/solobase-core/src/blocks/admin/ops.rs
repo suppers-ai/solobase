@@ -354,9 +354,11 @@ pub(super) struct VariableUpdate<'a> {
 }
 
 /// Update a config variable identified by `key` (upsert on the `key` column),
-/// writing an audit-log row. Enforces the sensitive-empty guard (a `_SECRET` /
-/// `_KEY` value can't be cleared) and the `_URL` SSRF validation on both
-/// surfaces.
+/// writing an audit-log row. Enforces the sensitive-empty guard (a sensitive
+/// value can't be cleared — see [`is_sensitive_key`]: the `_SECRET`/`_KEY`
+/// suffix rule unioned with the row's stored `sensitive` flag, which covers
+/// Password-typed declared vars like `BOOTSTRAP_ADMIN_PASSWORD`) and the
+/// `_URL` SSRF validation on both surfaces.
 ///
 /// Returns the upserted record.
 pub(super) async fn update_variable(
@@ -371,11 +373,32 @@ pub(super) async fn update_variable(
     let admin_id = msg.user_id().to_string();
 
     if let Some(value) = update.value {
-        // Prevent clearing a secret/key (would break auth).
-        if (key.ends_with("_SECRET") || key.ends_with("_KEY")) && value.is_empty() {
-            return Err(err_bad_request(&format!(
-                "Cannot set {key} to an empty value"
-            )));
+        // Prevent clearing a sensitive value (would break auth). Sensitivity
+        // is the same union the read/masking paths use ([`is_sensitive_key`]):
+        // the SEC-060 `_SECRET`/`_KEY` suffix rule OR the row's stored
+        // `sensitive` flag — the flag is what marks Password-typed declared
+        // vars without the suffix (e.g. `BOOTSTRAP_ADMIN_PASSWORD`, `*_TOKEN`)
+        // and ad hoc rows flagged in the UI. The row lookup only happens on
+        // the empty-value path; a missing row (upsert-create branch) has no
+        // stored secret to wipe, so only the suffix rule applies there.
+        if value.is_empty() {
+            let stored_flag = match db::get_by_field(
+                ctx,
+                VARIABLES_TABLE,
+                "key",
+                serde_json::Value::String(key.to_string()),
+            )
+            .await
+            {
+                Ok(record) => record.i64_field("sensitive"),
+                Err(e) if e.code == ErrorCode::NotFound => 0,
+                Err(e) => return Err(err_internal("Database error", e)),
+            };
+            if is_sensitive_key(key, stored_flag) {
+                return Err(err_bad_request(&format!(
+                    "Cannot set {key} to an empty value"
+                )));
+            }
         }
         // Validate URL-type keys (SSRF) on both surfaces.
         if key.ends_with("_URL") {
@@ -630,6 +653,76 @@ mod tests {
         )
         .await
         .is_err());
+    }
+
+    /// The sensitive-empty guard must honor the row's stored `sensitive`
+    /// flag, not only the `_SECRET`/`_KEY` suffix — Password-typed declared
+    /// vars (e.g. `BOOTSTRAP_ADMIN_PASSWORD`, `*_TOKEN`) are stored with
+    /// `sensitive = 1` but carry neither suffix, and clearing one would
+    /// break auth just the same.
+    #[tokio::test]
+    async fn password_typed_var_without_suffix_cannot_be_cleared() {
+        let ctx = admin_ctx().await;
+        let msg = admin_msg("update", "/admin/settings");
+
+        // Seed the row the way the declared-ConfigVar sync does for
+        // `InputType::Password` vars: `sensitive = 1`, suffix-less key.
+        expect_ok(
+            create_variable(
+                &ctx,
+                &msg,
+                "BOOTSTRAP_ADMIN_PASSWORD",
+                "hunter2",
+                None,
+                None,
+                true,
+            )
+            .await,
+        );
+
+        // Clearing it must be rejected...
+        assert!(update_variable(
+            &ctx,
+            &msg,
+            "BOOTSTRAP_ADMIN_PASSWORD",
+            VariableUpdate {
+                value: Some(""),
+                description: None,
+            },
+        )
+        .await
+        .is_err());
+
+        // ...leaving the stored value untouched.
+        let row = db::get_by_field(
+            &ctx,
+            VARIABLES_TABLE,
+            "key",
+            serde_json::Value::String("BOOTSTRAP_ADMIN_PASSWORD".to_string()),
+        )
+        .await
+        .expect("seeded row still present");
+        assert_eq!(
+            row.data.get("value").and_then(|v| v.as_str()),
+            Some("hunter2"),
+            "rejected clear must not overwrite the stored secret"
+        );
+
+        // A var that is neither suffix-sensitive nor flagged can still be
+        // cleared (the guard is a union, not a blanket empty-value ban).
+        expect_ok(create_variable(&ctx, &msg, "SITE_TAGLINE", "x", None, None, false).await);
+        expect_ok(
+            update_variable(
+                &ctx,
+                &msg,
+                "SITE_TAGLINE",
+                VariableUpdate {
+                    value: Some(""),
+                    description: None,
+                },
+            )
+            .await,
+        );
     }
 
     /// Self-disable and self-delete guards hold; a successful user mutation
