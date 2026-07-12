@@ -493,4 +493,124 @@ mod wrap_grants_tests {
             .expect("empty resource_type row kept");
         assert_eq!(g4.resource_type, None);
     }
+
+    use wafer_block::db::Filter;
+    use wafer_core::interfaces::database::service::{
+        Column, DatabaseError, Record, RecordList, Table,
+    };
+
+    /// A [`DatabaseService`] whose existence check fails hard and whose every
+    /// other method is [`unreachable!`]. Isolates the fail-closed `Err` arm of
+    /// [`load_wrap_grants_from_db`]: the only method it should reach is
+    /// `schema_table_exists`, so a real read error there must short-circuit to
+    /// an empty grant set without ever touching `list`.
+    struct ErroringDb;
+
+    #[async_trait::async_trait]
+    impl DatabaseService for ErroringDb {
+        async fn schema_table_exists(&self, _name: &str) -> Result<bool, DatabaseError> {
+            Err(DatabaseError::Internal(
+                "simulated wrap_grants existence-check failure".into(),
+            ))
+        }
+
+        async fn get(&self, _collection: &str, _id: &str) -> Result<Record, DatabaseError> {
+            unreachable!(
+                "load_wrap_grants_from_db must not read rows after an existence-check error"
+            )
+        }
+
+        async fn list(
+            &self,
+            _collection: &str,
+            _opts: &ListOptions,
+        ) -> Result<RecordList, DatabaseError> {
+            unreachable!(
+                "load_wrap_grants_from_db must not list rows after an existence-check error"
+            )
+        }
+
+        async fn create(
+            &self,
+            _collection: &str,
+            _data: HashMap<String, serde_json::Value>,
+        ) -> Result<Record, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn update(
+            &self,
+            _collection: &str,
+            _id: &str,
+            _data: HashMap<String, serde_json::Value>,
+        ) -> Result<Record, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _collection: &str, _id: &str) -> Result<(), DatabaseError> {
+            unreachable!()
+        }
+
+        async fn count(
+            &self,
+            _collection: &str,
+            _filters: &[Filter],
+        ) -> Result<i64, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn sum(
+            &self,
+            _collection: &str,
+            _field: &str,
+            _filters: &[Filter],
+        ) -> Result<f64, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn query_raw(
+            &self,
+            _query: &str,
+            _args: &[serde_json::Value],
+        ) -> Result<Vec<Record>, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn exec_raw(
+            &self,
+            _query: &str,
+            _args: &[serde_json::Value],
+        ) -> Result<i64, DatabaseError> {
+            unreachable!()
+        }
+
+        async fn ensure_schema_table(&self, _table: &Table) -> Result<(), DatabaseError> {
+            unreachable!()
+        }
+
+        async fn schema_drop_table(&self, _name: &str) -> Result<(), DatabaseError> {
+            unreachable!()
+        }
+
+        async fn schema_add_column(
+            &self,
+            _table: &str,
+            _column: &Column,
+        ) -> Result<(), DatabaseError> {
+            unreachable!()
+        }
+    }
+
+    /// A hard read error from the existence check is fail-closed: dynamic
+    /// grants are additive, so a runtime that cannot confirm the table exists
+    /// must build WRAP-denying (empty grants) rather than risk widening access
+    /// on a bad read.
+    #[tokio::test]
+    async fn load_wrap_grants_existence_check_error_fails_closed() {
+        let db: Arc<dyn DatabaseService> = Arc::new(ErroringDb);
+        assert!(
+            load_wrap_grants_from_db(&db).await.is_empty(),
+            "a schema_table_exists error must degrade to an empty grant set"
+        );
+    }
 }

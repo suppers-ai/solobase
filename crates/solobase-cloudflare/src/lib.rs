@@ -85,7 +85,13 @@ fn make_kv_cached_database_service_with_backend(
     d1_binding: &str,
     kv_binding: &str,
     mode: kv_cached_db::CacheMode,
-) -> Result<(Arc<dyn DatabaseService>, Arc<dyn kv_cached_db::KvBackend>), worker::Error> {
+) -> Result<
+    (
+        Arc<dyn DatabaseService>,
+        Arc<dyn solobase_core::kv::KvBackend>,
+    ),
+    worker::Error,
+> {
     let inner = make_d1_database_service(env, d1_binding)?;
     let backend = make_kv_backend(env, kv_binding)?;
     let db = Arc::new(kv_cached_db::KvCachedD1DatabaseService::with_mode(
@@ -96,15 +102,15 @@ fn make_kv_cached_database_service_with_backend(
     Ok((db, backend))
 }
 
-/// Construct a raw [`KvBackend`](kv_cached_db::KvBackend) from a worker `Env`
-/// and a KV binding name. Single construction path shared by the KV-cached DB
-/// factory above and the per-isolate runtime cache's config-version probe
-/// (`runtime_cache::get_or_build`), so both derive the `KvStore` handle the
-/// same way.
+/// Construct a raw [`KvBackend`](solobase_core::kv::KvBackend) from a worker
+/// `Env` and a KV binding name. Single construction path shared by the
+/// KV-cached DB factory above and the per-isolate runtime cache's
+/// config-version probe (`runtime_cache::get_or_build`), so both derive the
+/// `KvStore` handle the same way.
 pub(crate) fn make_kv_backend(
     env: &worker::Env,
     binding: &str,
-) -> Result<Arc<dyn kv_cached_db::KvBackend>, worker::Error> {
+) -> Result<Arc<dyn solobase_core::kv::KvBackend>, worker::Error> {
     let kv_store = env.kv(binding)?;
     Ok(Arc::new(kv_cached_db::WorkerKvBackend(kv_store)))
 }
@@ -395,7 +401,7 @@ struct BuiltRuntime {
     /// KV backend the DB service is cached through — reused by the per-isolate
     /// runtime cache (`runtime_cache`) to probe the config-version stamp
     /// without re-deriving a second `KvStore` handle from `env`.
-    kv: Arc<dyn kv_cached_db::KvBackend>,
+    kv: Arc<dyn solobase_core::kv::KvBackend>,
 }
 
 /// Register any admin-created WRAP grants loaded from D1 onto the built

@@ -24,7 +24,7 @@ pub(crate) struct ReadyRuntime {
     /// KV backend this runtime was built with. Held so the config-version
     /// probe on the request hot path reuses it instead of constructing a fresh
     /// `KvStore` handle from `env` on every request.
-    pub kv: Arc<dyn crate::kv_cached_db::KvBackend>,
+    pub kv: Arc<dyn solobase_core::kv::KvBackend>,
     pub version: String,
 }
 
@@ -49,13 +49,12 @@ pub(crate) fn peek() -> Option<Rc<ReadyRuntime>> {
 
 /// Current KV config-version stamp. Missing key ⇒ stamp a fresh one so all
 /// isolates converge on the same generation.
-async fn current_version(kv: &Arc<dyn crate::kv_cached_db::KvBackend>) -> String {
+async fn current_version(kv: &Arc<dyn solobase_core::kv::KvBackend>) -> String {
     match kv.get(CONFIG_VERSION_KEY).await {
         Ok(Some(v)) => v,
         _ => {
             let v = crate::kv_cached_db::new_version_stamp();
-            if let Err(e) = crate::kv_cached_db::put_version_stamp_with_retry(kv.as_ref(), &v).await
-            {
+            if let Err(e) = solobase_core::kv::put_version_stamp_with_retry(kv.as_ref(), &v).await {
                 tracing::warn!(error = %e, "config-version stamp persist failed; runtime tagged with local stamp only (KV unstamped; re-mints until a put lands)");
             }
             v

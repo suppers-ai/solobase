@@ -3,36 +3,15 @@
 //!
 //! See `docs/superpowers/specs/2026-05-22-kv-cached-d1-config-source-design.md`.
 //!
-//! Pure cache-key derivation lives in `solobase_core::cache_key` so it can
-//! be unit-tested on host (this crate is excluded from `cargo test --workspace`).
+//! Host-testable logic lives in `solobase-core` so it can be unit-tested
+//! (this crate is wasm32-only and excluded from `cargo test --workspace`):
+//! pure cache-key derivation in `solobase_core::cache_key`, and the
+//! [`KvBackend`] trait + [`put_version_stamp_with_retry`] in
+//! `solobase_core::kv`.
 
-use wafer_block::{MaybeSend, MaybeSync};
+use solobase_core::kv::{put_version_stamp_with_retry, KvBackend};
 
-/// Pluggable KV backend. Production uses `worker::kv::KvStore` via
-/// `WorkerKvBackend`; tests use `MockKvBackend` (see `tests/support`).
-///
-/// All errors are returned as `String` and never propagate as a hard
-/// failure to callers — `KvCachedD1DatabaseService` treats every KV
-/// error as a cache miss and falls through to the underlying database.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait KvBackend: MaybeSend + MaybeSync {
-    /// Returns `Ok(Some(value))` on cache hit, `Ok(None)` on miss,
-    /// `Err(msg)` on KV transport error.
-    async fn get(&self, key: &str) -> Result<Option<String>, String>;
-
-    /// Writes `value` under `key` with the given TTL (seconds).
-    async fn put_with_ttl(&self, key: &str, value: &str, ttl_secs: u64) -> Result<(), String>;
-
-    /// Writes `value` under `key` with no expiration. Reserved for the
-    /// config-version stamp — row-cache entries always carry a TTL.
-    async fn put(&self, key: &str, value: &str) -> Result<(), String>;
-
-    /// Deletes `key`. Deleting a non-existent key is not an error.
-    async fn delete(&self, key: &str) -> Result<(), String>;
-}
-
-/// Production `KvBackend` backed by `worker::kv::KvStore`.
+/// Production [`KvBackend`] backed by `worker::kv::KvStore`.
 pub struct WorkerKvBackend(pub worker::kv::KvStore);
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -173,22 +152,6 @@ impl KvCachedD1DatabaseService {
         } else {
             tracing::debug!(table = %collection, version = %stamp, op, "config_version_bump");
         }
-    }
-}
-
-/// PUT `stamp` under [`cache_key::CONFIG_VERSION_KEY`] persistently (no
-/// TTL — a quiet day must not expire the stamp and trigger a fleet-wide
-/// restamp), retrying once on KV transport error.
-pub(crate) async fn put_version_stamp_with_retry(
-    kv: &dyn KvBackend,
-    stamp: &str,
-) -> Result<(), String> {
-    match kv.put(cache_key::CONFIG_VERSION_KEY, stamp).await {
-        Ok(()) => Ok(()),
-        Err(first) => kv
-            .put(cache_key::CONFIG_VERSION_KEY, stamp)
-            .await
-            .map_err(|second| format!("first attempt: {first}; retry: {second}")),
     }
 }
 
