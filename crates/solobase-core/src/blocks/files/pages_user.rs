@@ -98,9 +98,9 @@ pub fn render_new_bucket_modal() -> Markup {
     }
 }
 
-use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
 
+use super::repo;
 use crate::ui::{
     self,
     components::{button, BtnVariant, CtrlSize},
@@ -110,35 +110,15 @@ use crate::ui::{
 
 /// Load the calling user's buckets, decorated with live object counts.
 ///
-/// `created_by` filtering keeps users from seeing each other's buckets.
-/// Object counts come from a single GROUP BY query on the objects table
-/// (one row per bucket) so we avoid the previous N+1 `db::count` per
-/// bucket.
+/// `created_by` filtering (inside [`repo::buckets::list_owned_sorted`])
+/// keeps users from seeing each other's buckets. Object counts come from
+/// a single GROUP BY query on the objects table
+/// ([`repo::objects::count_by_bucket`], one row per bucket) so we avoid
+/// the previous N+1 count query per bucket.
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
     use std::collections::HashMap;
 
-    use wafer_block::{
-        db::{Filter, FilterOp, SortField},
-        wire::database as wire,
-    };
-
-    use super::{BUCKETS_TABLE, OBJECTS_TABLE};
-
-    let recs = match db::list_sorted(
-        ctx,
-        BUCKETS_TABLE,
-        vec![Filter {
-            field: "created_by".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.into()),
-        }],
-        vec![SortField {
-            field: "name".into(),
-            desc: false,
-        }],
-    )
-    .await
-    {
+    let recs = match repo::buckets::list_owned_sorted(ctx, user_id).await {
         Ok(records) => records,
         Err(e) => {
             tracing::warn!(error = %e, "files bucket list failed");
@@ -146,44 +126,22 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         }
     };
 
-    // Build a list of bucket names this user owns; restrict the GROUP BY
-    // to those buckets so the count matches the previous per-bucket
-    // db::count semantics exactly (which counted all objects in the
-    // bucket regardless of `uploaded_by`).
-    let bucket_names: Vec<serde_json::Value> = recs
+    // Restrict the GROUP BY to the buckets this user owns so the count
+    // matches the previous per-bucket count semantics exactly (which
+    // counted all objects in the bucket regardless of `uploaded_by`).
+    let bucket_names: Vec<String> = recs
         .iter()
         .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
-        .map(|s| serde_json::Value::String(s.to_string()))
+        .map(str::to_string)
         .collect();
-    let req = wire::AggregateRequest {
-        collection: OBJECTS_TABLE.to_string(),
-        select_columns: vec!["bucket".into()],
-        aggregates: vec![wire::AggregateColumnDef::Count {
-            alias: "cnt".into(),
-        }],
-        filters: vec![wire::FilterNode::Leaf(wire::FilterDef {
-            field: "bucket".into(),
-            operator: "in".into(),
-            value: serde_json::Value::Array(bucket_names),
-        })],
-        group_by: vec![wire::GroupByDef::Column("bucket".into())],
-        sort: vec![],
-        limit: 0,
-    };
-    let counts_by_bucket: HashMap<String, i64> = match db::aggregate(ctx, req).await {
-        Ok(rows) => rows
-            .into_iter()
-            .filter_map(|r| {
-                let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
-                let cnt = r.i64_field("cnt");
-                Some((bucket, cnt))
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!(error = %e, "files bucket object counts failed");
-            HashMap::new()
-        }
-    };
+    let counts_by_bucket: HashMap<String, i64> =
+        match repo::objects::count_by_bucket(ctx, &bucket_names).await {
+            Ok(counts) => counts,
+            Err(e) => {
+                tracing::warn!(error = %e, "files bucket object counts failed");
+                HashMap::new()
+            }
+        };
 
     let mut rows: Vec<BucketRow> = Vec::with_capacity(recs.len());
     for r in recs {
@@ -451,25 +409,7 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
 }
 
 async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
-    use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-
-    use super::OBJECTS_TABLE;
-
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "bucket".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(bucket.into()),
-        }],
-        sort: vec![SortField {
-            field: "key".into(),
-            desc: false,
-        }],
-        limit: 1000,
-        ..Default::default()
-    };
-
-    match db::list(ctx, OBJECTS_TABLE, &opts).await {
+    match repo::objects::list_for_bucket(ctx, bucket, 1000).await {
         Ok(rl) => rl
             .records
             .into_iter()
@@ -676,24 +616,7 @@ pub fn render_shares_table(rows: &[ShareRow]) -> Markup {
 }
 
 async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow> {
-    use wafer_block::db::{Filter, FilterOp, SortField};
-
-    use super::SHARES_TABLE;
-    match db::list_sorted(
-        ctx,
-        SHARES_TABLE,
-        vec![Filter {
-            field: "created_by".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.into()),
-        }],
-        vec![SortField {
-            field: "created_at".into(),
-            desc: true,
-        }],
-    )
-    .await
-    {
+    match repo::shares::list_all_for_user(ctx, user_id).await {
         Ok(records) => records
             .into_iter()
             .map(|r| ShareRow {
@@ -1173,13 +1096,9 @@ mod integration_tests {
     use std::collections::HashMap;
 
     use serde_json::json;
-    use wafer_core::clients::database as db;
 
     use super::*;
-    use crate::{
-        blocks::files::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE},
-        test_support::{admin_msg, output_html, TestContext},
-    };
+    use crate::test_support::{admin_msg, output_html, TestContext};
 
     /// Seed two buckets + two objects in `photos`, none in `docs`.
     async fn seed_two_buckets(ctx: &TestContext, owner: &str) {
@@ -1188,9 +1107,7 @@ mod integration_tests {
             row.insert("name".into(), json!(name));
             row.insert("public".into(), json!(public));
             row.insert("created_by".into(), json!(owner));
-            db::create(ctx, BUCKETS_TABLE, row)
-                .await
-                .expect("seed bucket");
+            repo::buckets::seed(ctx, row).await.expect("seed bucket");
         }
         for key in ["a.png", "nested/b.png"] {
             let mut row: HashMap<String, serde_json::Value> = HashMap::new();
@@ -1198,9 +1115,7 @@ mod integration_tests {
             row.insert("key".into(), json!(key));
             row.insert("size".into(), json!(1024));
             row.insert("uploaded_by".into(), json!(owner));
-            db::create(ctx, OBJECTS_TABLE, row)
-                .await
-                .expect("seed object");
+            repo::objects::seed(ctx, row).await.expect("seed object");
         }
     }
 
@@ -1248,7 +1163,7 @@ mod integration_tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
         row.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, BUCKETS_TABLE, row)
+        repo::buckets::seed(&ctx, row)
             .await
             .expect("seed cross-user bucket");
 
@@ -1388,7 +1303,7 @@ mod integration_tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
         row.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, BUCKETS_TABLE, row).await.expect("seed");
+        repo::buckets::seed(&ctx, row).await.expect("seed");
 
         let mut msg = admin_msg("retrieve", "/b/storage/secrets/");
         msg.set_meta("http.header.accept", "text/html");
@@ -1427,16 +1342,12 @@ mod integration_tests {
         share.insert("key".into(), json!("a.png"));
         share.insert("created_by".into(), json!("admin_1"));
         share.insert("access_count".into(), json!(2));
-        db::create(&ctx, SHARES_TABLE, share)
-            .await
-            .expect("seed share");
+        repo::shares::seed(&ctx, share).await.expect("seed share");
 
         let mut quota: HashMap<String, serde_json::Value> = HashMap::new();
         quota.insert("user_id".into(), json!("admin_1"));
         quota.insert("max_storage_bytes".into(), json!(1_073_741_824i64));
-        db::create(&ctx, QUOTAS_TABLE, quota)
-            .await
-            .expect("seed quota");
+        repo::quota::seed(&ctx, quota).await.expect("seed quota");
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let resp = cloudstorage_page(&ctx, &msg).await;
@@ -1460,18 +1371,14 @@ mod integration_tests {
         let mut quota: HashMap<String, serde_json::Value> = HashMap::new();
         quota.insert("user_id".into(), json!("admin_1"));
         quota.insert("max_storage_bytes".into(), json!(2048));
-        db::create(&ctx, QUOTAS_TABLE, quota)
-            .await
-            .expect("seed quota");
+        repo::quota::seed(&ctx, quota).await.expect("seed quota");
 
         let mut obj: HashMap<String, serde_json::Value> = HashMap::new();
         obj.insert("bucket".into(), json!("photos"));
         obj.insert("key".into(), json!("a.png"));
         obj.insert("size".into(), json!(1024));
         obj.insert("uploaded_by".into(), json!("admin_1"));
-        db::create(&ctx, OBJECTS_TABLE, obj)
-            .await
-            .expect("seed obj");
+        repo::objects::seed(&ctx, obj).await.expect("seed obj");
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
@@ -1490,18 +1397,14 @@ mod integration_tests {
         mine.insert("bucket".into(), json!("photos"));
         mine.insert("key".into(), json!("a.png"));
         mine.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, SHARES_TABLE, mine)
-            .await
-            .expect("seed mine");
+        repo::shares::seed(&ctx, mine).await.expect("seed mine");
         // Seed another user's share.
         let mut theirs: HashMap<String, serde_json::Value> = HashMap::new();
         theirs.insert("token".into(), json!("theirs"));
         theirs.insert("bucket".into(), json!("secrets"));
         theirs.insert("key".into(), json!("k"));
         theirs.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, SHARES_TABLE, theirs)
-            .await
-            .expect("seed theirs");
+        repo::shares::seed(&ctx, theirs).await.expect("seed theirs");
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
@@ -1562,7 +1465,7 @@ mod integration_tests {
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("photos"));
         bucket.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, BUCKETS_TABLE, bucket)
+        repo::buckets::seed(&ctx, bucket)
             .await
             .expect("seed bucket");
 
@@ -1574,9 +1477,7 @@ mod integration_tests {
         // must accept both shapes.
         obj.insert("size".into(), json!(2048));
         obj.insert("uploaded_by".into(), json!("admin_1"));
-        db::create(&ctx, OBJECTS_TABLE, obj)
-            .await
-            .expect("seed obj");
+        repo::objects::seed(&ctx, obj).await.expect("seed obj");
 
         let msg = admin_msg("retrieve", "/b/storage/photos/");
         let body = output_html(object_list_page(&ctx, &msg, "photos", "").await).await;
@@ -1597,7 +1498,7 @@ mod integration_tests {
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("foo</script>bar"));
         bucket.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, BUCKETS_TABLE, bucket).await.expect("seed");
+        repo::buckets::seed(&ctx, bucket).await.expect("seed");
 
         let msg = admin_msg("retrieve", "/b/storage/foo</script>bar/");
         let body = output_html(object_list_page(&ctx, &msg, "foo</script>bar", "").await).await;
