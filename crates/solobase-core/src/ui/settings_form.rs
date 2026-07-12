@@ -108,7 +108,9 @@ fn render_field(var: &ConfigVar, value: &str) -> Markup {
                             placeholder=(if has_value { "******** (set)" } else { "Not configured" })
                             style="flex:1";
                         button type="button" .btn .btn-ghost .btn-sm
-                            onclick={"var i=document.getElementById('" (var.key) "');i.type=i.type==='password'?'text':'password'"}
+                            onclick={"var i=document.getElementById('" (var.key) "');if(i.type==='password'){i.type='text';this.title='Hide';this.setAttribute('aria-label','Hide value')}else{i.type='password';this.title='Reveal';this.setAttribute('aria-label','Reveal value')}"}
+                            title="Reveal"
+                            aria-label="Reveal value"
                         { (super::icons::eye()) }
                     }
                     @if !var.description.is_empty() {
@@ -337,8 +339,15 @@ mod tests {
             "value must render empty: {set}"
         );
         assert!(set.contains("(set)"));
-        // eye toggle present
-        assert!(set.contains("i.type=i.type==='password'?'text':'password'"));
+        // Eye toggle present, with an accessible name that the handler keeps
+        // in sync with the shown/hidden state (2026-07-11 a11y review).
+        assert!(set.contains(r#"aria-label="Reveal value""#));
+        assert!(set.contains(
+            "i.type='text';this.title='Hide';this.setAttribute('aria-label','Hide value')"
+        ));
+        assert!(set.contains(
+            "i.type='password';this.title='Reveal';this.setAttribute('aria-label','Reveal value')"
+        ));
 
         let empty = render_field(&v, "").into_string();
         assert!(empty.contains("Not configured"));

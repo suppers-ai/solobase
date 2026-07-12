@@ -22,7 +22,8 @@ fn render_header(h: &PageHeader<'_>) -> Markup {
     html! {
         header .page-header {
             div .page-header__text {
-                @if !h.title.is_empty() { h1 .page-header__title { (h.title) } }
+                // h2, not h1: the shell topbar owns the page's single h1.
+                @if !h.title.is_empty() { h2 .page-header__title { (h.title) } }
                 @if let Some(s) = h.subtitle { p .page-header__subtitle { (s) } }
             }
             @if let Some(a) = &h.primary_action {
@@ -81,7 +82,10 @@ pub fn detail_page(
             header .detail-hero {
                 @if let Some(icon) = hero.icon { div .detail-hero__icon { (icon) } }
                 div .detail-hero__text {
-                    h1 .detail-hero__title { (hero.title) }
+                    // h2, not h1: the shell topbar owns the page's single h1
+                    // (the vector index detail page renders this hero inside
+                    // a shell whose last crumb is already the index name).
+                    h2 .detail-hero__title { (hero.title) }
                     @if let Some(s) = hero.subtitle { p .detail-hero__subtitle { (s) } }
                     @if !hero.badges.is_empty() {
                         div .detail-hero__badges { @for b in &hero.badges { (b.clone()) } }

@@ -150,8 +150,9 @@ mod tests {
             "the API key field must render as a masked password input: {html}"
         );
         assert!(
-            html.contains("i.type=i.type==='password'?'text':'password'"),
-            "the reveal/edit eye toggle must be present: {html}"
+            html.contains(r#"aria-label="Reveal value""#)
+                && html.contains("i.type='text';this.title='Hide'"),
+            "the reveal/edit eye toggle must be present, with an accessible name: {html}"
         );
         assert!(
             html.contains("(set)"),

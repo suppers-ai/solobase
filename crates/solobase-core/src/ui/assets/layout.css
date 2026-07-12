@@ -268,11 +268,11 @@
 	position: absolute; right: 0.5rem; top: 50%;
 	transform: translateY(-50%);
 	background: none; border: none; cursor: pointer;
-	padding: 0.25rem; color: #94a3b8;
+	padding: 0.25rem; color: var(--text-muted);
 	display: flex; align-items: center;
 }
 
-.pw-toggle:hover { color: #64748b; }
+.pw-toggle:hover { color: var(--text-primary); }
 .pw-toggle svg { width: 1.125rem; height: 1.125rem; }
 
 .login-button {
@@ -589,7 +589,15 @@
 .topbar__crumbs li + li::before { content: "›"; padding: 0 0.3rem; color: var(--text-muted); }
 .topbar__crumbs a { color: var(--text-secondary); text-decoration: none; }
 .topbar__crumbs a:hover { color: var(--primary-color); text-decoration: underline; }
-.topbar__crumbs [aria-current="page"] { color: var(--text-primary); }
+/* Current page — an `h1` rendered AFTER the breadcrumb nav. Font copies what
+   the last crumb used to get (16px from the ol rule, normal weight,
+   text-primary from the old [aria-current="page"] rule) so the visual output
+   is unchanged. */
+.topbar__title { font-size: 16px; font-weight: 400; color: var(--text-primary); margin: 0; }
+/* Separator between the last ancestor crumb and the h1 (was li+li::before
+   when the current page still lived inside the nav; the extra 0.4rem on the
+   left stands in for the ol's flex gap the old li got). */
+.topbar__crumbs li:last-child::after { content: "›"; padding: 0 0.3rem 0 0.7rem; color: var(--text-muted); }
 .topbar__right { margin-left: auto; display: flex; align-items: center; gap: var(--spacing-sm); }
 .topbar__palette {
 	display: inline-flex; align-items: center; gap: 0.4rem;

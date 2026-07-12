@@ -41,7 +41,10 @@ pub fn entry_card(record: &db::Record) -> Markup {
                 "background:#eff6ff;border-left:3px solid #3b82f6",
                 "badge-info",
             ),
-            "agent" | "assistant" => ("background:#f8fafc;border-left:3px solid #94a3b8", "badge"),
+            "agent" | "assistant" => (
+                "background:#f8fafc;border-left:3px solid var(--text-muted)",
+                "badge",
+            ),
             "system" => (
                 "background:#fefce8;border-left:3px solid #eab308",
                 "badge-warning",
@@ -314,7 +317,7 @@ fn render_default_view(context: &db::Record, entries: &[db::Record], context_id:
     html! {
         div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem" {
             a .btn .btn-ghost .btn-sm href="/b/messages/" { "\u{2190} Back" }
-            h1 .page-title style="margin:0" { (display_title) }
+            h2 .page-title style="margin:0" { (display_title) }
             span .badge style="text-transform:capitalize" { (context_type) }
             span .badge { (context_status) }
         }

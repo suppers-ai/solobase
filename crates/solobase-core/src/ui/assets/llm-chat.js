@@ -44,7 +44,7 @@
       bg = 'background:#eff6ff;border-left:3px solid #3b82f6';
       badge = 'badge-info';
     } else if (role === 'assistant') {
-      bg = 'background:#f8fafc;border-left:3px solid #94a3b8';
+      bg = 'background:#f8fafc;border-left:3px solid var(--text-muted)';
       badge = 'badge';
     } else if (role === 'system') {
       bg = 'background:#fefce8;border-left:3px solid #eab308';

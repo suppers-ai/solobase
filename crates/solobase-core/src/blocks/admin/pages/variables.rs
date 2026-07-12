@@ -186,6 +186,7 @@ fn var_row(row: &VarRow) -> Markup {
                     hx-target="#edit-var-modal"
                     hx-swap="innerHTML"
                     title="Edit"
+                    aria-label=(format!("Edit {}", row.key))
                 { (icons::edit()) }
             }
         }
@@ -223,17 +224,19 @@ fn var_table(header: Markup, show_default: bool, body: Markup) -> Markup {
         div .card .mt-4 {
             (header)
             div .card-body {
-                table .table {
-                    thead {
-                        tr {
-                            th { "Key" }
-                            th { "Value" }
-                            @if show_default { th { "Default" } }
-                            th { "Description" }
-                            th style="width:50px" {}
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th { "Key" }
+                                th { "Value" }
+                                @if show_default { th { "Default" } }
+                                th { "Description" }
+                                th style="width:50px" {}
+                            }
                         }
+                        tbody { (body) }
                     }
-                    tbody { (body) }
                 }
             }
         }
@@ -291,6 +294,7 @@ async fn config_all_tab(ctx: &dyn Context) -> Markup {
                                             hx-target="#edit-var-modal"
                                             hx-swap="innerHTML"
                                             title="Edit"
+                                            aria-label=(format!("Edit {key}"))
                                         { (icons::edit()) }
                                     }
                                 }
@@ -547,8 +551,9 @@ pub async fn handle_edit_variable_form(
                             button .btn .btn-ghost .btn-icon
                                 type="button"
                                 style="position:absolute;right:0.25rem;top:50%;transform:translateY(-50%)"
-                                onclick="var i=document.getElementById('edit-value');if(i.type==='password'){i.type='text';this.title='Hide'}else{i.type='password';this.title='Reveal'}"
+                                onclick="var i=document.getElementById('edit-value');if(i.type==='password'){i.type='text';this.title='Hide';this.setAttribute('aria-label','Hide value')}else{i.type='password';this.title='Reveal';this.setAttribute('aria-label','Reveal value')}"
                                 title="Reveal"
+                                aria-label="Reveal value"
                             { (icons::eye()) }
                         }
                     } @else {
@@ -598,4 +603,31 @@ pub async fn handle_update_variable(
     }
 
     variables_page(ctx, &msg).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The icon-only edit button must carry an accessible name derived from
+    /// the row key (2026-07-11 review: 49 unlabeled icon buttons on the
+    /// Variables page alone).
+    #[test]
+    fn var_row_edit_button_carries_accessible_name() {
+        let s = var_row(&VarRow {
+            key: "SOLOBASE_SHARED__APP_NAME",
+            name: None,
+            value: ValueState::Plain("Solobase".to_string()),
+            default: None,
+            auto_generate: false,
+            description: "App name",
+            warning: "",
+            show_default: false,
+        })
+        .into_string();
+        assert!(
+            s.contains(r#"aria-label="Edit SOLOBASE_SHARED__APP_NAME""#),
+            "edit button must expose an aria-label with the row key: {s}"
+        );
+    }
 }

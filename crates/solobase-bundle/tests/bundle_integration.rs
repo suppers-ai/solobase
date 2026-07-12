@@ -73,8 +73,7 @@ fn end_to_end_renames_rewrites_and_templates() {
         entries
             .iter()
             .any(|n| n.starts_with("app-") && n.ends_with(".js")),
-        "missing hashed JS in {:?}",
-        entries
+        "missing hashed JS in {entries:?}"
     );
     assert!(entries
         .iter()

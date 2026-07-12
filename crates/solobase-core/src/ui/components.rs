@@ -207,11 +207,14 @@ pub fn modal(id: &str, title: &str, body: Markup) -> Markup {
 // ---------------------------------------------------------------------------
 
 /// Render a page header with title, optional subtitle, and optional action slot.
+///
+/// The title is an `h2`: the shell's topbar owns the page's single `h1`
+/// (see `ui::shell::render_topbar`), so body headers are section headings.
 pub fn page_header(title: &str, subtitle: Option<&str>, action: Option<Markup>) -> Markup {
     html! {
         div .flex .items-center .justify-between .mb-4 {
             div {
-                h1 .page-title { (title) }
+                h2 .page-title { (title) }
                 @if let Some(sub) = subtitle {
                     p .page-subtitle { (sub) }
                 }

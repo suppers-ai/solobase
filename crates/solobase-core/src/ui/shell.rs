@@ -42,20 +42,31 @@ fn render_topbar(t: &Topbar<'_>) -> Markup {
     {
         return html! {};
     }
+    // The current page (last crumb) renders as the page's single `h1` AFTER
+    // the breadcrumb nav — an h1 inside a breadcrumb nav is semantically
+    // wrong, and the ancestors stay ordinary breadcrumb `li`s.
+    let (current, ancestors) = match t.crumbs.split_last() {
+        Some((last, rest)) => (Some(last), rest),
+        None => (None, &[][..]),
+    };
     html! {
         header .topbar {
-            nav .topbar__crumbs aria-label="Breadcrumb" {
-                ol {
-                    @for (i, c) in t.crumbs.iter().enumerate() {
-                        @let last = i + 1 == t.crumbs.len();
-                        li {
-                            @match c.href {
-                                Some(h) if !last => a href=(h) { (c.label) },
-                                _ => span aria-current=[last.then_some("page")] { (c.label) },
+            @if !ancestors.is_empty() {
+                nav .topbar__crumbs aria-label="Breadcrumb" {
+                    ol {
+                        @for c in ancestors {
+                            li {
+                                @match c.href {
+                                    Some(h) => a href=(h) { (c.label) },
+                                    None => span { (c.label) },
+                                }
                             }
                         }
                     }
                 }
+            }
+            @if let Some(c) = current {
+                h1 .topbar__title { (c.label) }
             }
             @if let Some(s) = t.subtitle {
                 span .topbar__sep aria-hidden="true" { "|" }
@@ -97,6 +108,7 @@ pub fn shell(
 ) -> Markup {
     html! {
         div .shell {
+            a .skip-link href="#content" { "Skip to content" }
             header .shell__mobile-header {
                 button .shell__drawer-toggle type="button"
                     data-action="drawer-open"
@@ -170,9 +182,100 @@ mod tests {
         let s = shell(&groups, None, "/b/admin/users", "", "", topbar, body).into_string();
         assert!(s.contains("topbar__crumbs"));
         assert!(s.contains(">Workspace<"));
-        assert!(s.contains(r#"aria-current="page""#));
+        // The current page renders as the h1, after the breadcrumb nav.
+        assert!(s.contains(r#"<h1 class="topbar__title">Users</h1>"#));
         assert!(s.contains(r#"data-action="palette-open""#));
         assert!(s.contains("page body"));
+    }
+
+    #[test]
+    fn shell_renders_exactly_one_h1_and_skip_link() {
+        let groups = one_group(vec![item("Users", "/b/admin/users")]);
+        let topbar = Topbar {
+            crumbs: vec![
+                Crumb {
+                    label: "Workspace",
+                    href: Some("/b/admin"),
+                },
+                Crumb {
+                    label: "Users",
+                    href: None,
+                },
+            ],
+            primary_action: None,
+            subtitle: None,
+            show_palette: true,
+        };
+        let s = shell(
+            &groups,
+            None,
+            "/b/admin/users",
+            "",
+            "",
+            topbar,
+            html! { p { "body" } },
+        )
+        .into_string();
+        assert_eq!(s.matches("<h1").count(), 1, "expected exactly one h1");
+        assert!(s.contains(r#"<h1 class="topbar__title">Users</h1>"#));
+        // The ancestor crumb stays a breadcrumb link inside the nav…
+        assert!(s.contains(r#"<a href="/b/admin">Workspace</a>"#));
+        // …and the h1 sits AFTER the nav, not inside it.
+        let nav_end = s.find("</nav>").expect("breadcrumb nav present");
+        let h1_at = s.find("<h1").expect("h1 present");
+        assert!(h1_at > nav_end, "h1 must render after the breadcrumb nav");
+        // Skip link is the shell's first focusable element.
+        assert!(s.contains(r##"<a class="skip-link" href="#content">Skip to content</a>"##));
+        let skip_at = s.find("skip-link").unwrap();
+        assert!(
+            skip_at < s.find("shell__mobile-header").unwrap(),
+            "skip link must come before the rest of the chrome"
+        );
+    }
+
+    #[test]
+    fn shell_single_crumb_renders_h1_without_breadcrumb_nav() {
+        let groups = one_group(vec![item("X", "/x")]);
+        let tb = Topbar {
+            crumbs: vec![Crumb {
+                label: "Dashboard",
+                href: None,
+            }],
+            ..Topbar::default()
+        };
+        let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
+        assert!(s.contains(r#"<h1 class="topbar__title">Dashboard</h1>"#));
+        // No ancestors -> no empty breadcrumb nav.
+        assert!(!s.contains("topbar__crumbs"));
+    }
+
+    /// Regression guard for the double-h1 review finding: pages that render
+    /// `components::page_header(...)` in their body (products, llm,
+    /// legalpages/auth_ui settings, userportal branding, ...) must not add a
+    /// second h1 next to the topbar's — the body header is an h2.
+    #[test]
+    fn shell_page_with_body_page_header_still_has_exactly_one_h1() {
+        let groups = one_group(vec![item("Products", "/b/products/")]);
+        let tb = Topbar {
+            crumbs: vec![Crumb {
+                label: "Products",
+                href: None,
+            }],
+            ..Topbar::default()
+        };
+        let body = crate::ui::components::page_header(
+            "Products Overview",
+            Some("Product catalog statistics"),
+            None,
+        );
+        let s = shell(&groups, None, "/b/products/", "", "", tb, body).into_string();
+        assert_eq!(
+            s.matches("<h1").count(),
+            1,
+            "the shell topbar owns the only h1; body page_header must be h2: {s}"
+        );
+        assert!(s.contains(r#"<h1 class="topbar__title">Products</h1>"#));
+        assert!(s.contains(r#"<h2 class="page-title">Products Overview</h2>"#));
     }
 
     #[test]
@@ -187,7 +290,8 @@ mod tests {
         }];
         let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
         assert!(!s.contains("topbar__palette"));
-        assert!(s.contains("topbar__crumbs"));
+        // The single crumb renders as the page h1 (no ancestor nav needed).
+        assert!(s.contains(r#"<h1 class="topbar__title">X</h1>"#));
     }
 
     #[test]
