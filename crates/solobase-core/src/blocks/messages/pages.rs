@@ -317,7 +317,7 @@ fn render_default_view(context: &db::Record, entries: &[db::Record], context_id:
     html! {
         div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem" {
             a .btn .btn-ghost .btn-sm href="/b/messages/" { "\u{2190} Back" }
-            h1 .page-title style="margin:0" { (display_title) }
+            h2 .page-title style="margin:0" { (display_title) }
             span .badge style="text-transform:capitalize" { (context_type) }
             span .badge { (context_status) }
         }

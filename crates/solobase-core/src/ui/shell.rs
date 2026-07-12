@@ -249,6 +249,35 @@ mod tests {
         assert!(!s.contains("topbar__crumbs"));
     }
 
+    /// Regression guard for the double-h1 review finding: pages that render
+    /// `components::page_header(...)` in their body (products, llm,
+    /// legalpages/auth_ui settings, userportal branding, ...) must not add a
+    /// second h1 next to the topbar's — the body header is an h2.
+    #[test]
+    fn shell_page_with_body_page_header_still_has_exactly_one_h1() {
+        let groups = one_group(vec![item("Products", "/b/products/")]);
+        let tb = Topbar {
+            crumbs: vec![Crumb {
+                label: "Products",
+                href: None,
+            }],
+            ..Topbar::default()
+        };
+        let body = crate::ui::components::page_header(
+            "Products Overview",
+            Some("Product catalog statistics"),
+            None,
+        );
+        let s = shell(&groups, None, "/b/products/", "", "", tb, body).into_string();
+        assert_eq!(
+            s.matches("<h1").count(),
+            1,
+            "the shell topbar owns the only h1; body page_header must be h2: {s}"
+        );
+        assert!(s.contains(r#"<h1 class="topbar__title">Products</h1>"#));
+        assert!(s.contains(r#"<h2 class="page-title">Products Overview</h2>"#));
+    }
+
     #[test]
     fn shell_can_omit_palette() {
         let groups = one_group(vec![item("X", "/x")]);
