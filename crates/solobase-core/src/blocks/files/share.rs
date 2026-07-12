@@ -3,6 +3,7 @@ use std::time::Duration;
 use wafer_core::clients::{crypto, database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
+use super::{ACCESS_LOGS_TABLE, SHARES_TABLE};
 use crate::{
     blocks::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
     http::{
@@ -11,12 +12,6 @@ use crate::{
     },
     util::{json_map, now_rfc3339, RecordExt},
 };
-
-/// Public share-link table — one row per generated token.
-pub(crate) const SHARES_TABLE: &str = "suppers_ai__files__cloud_shares";
-
-/// Access log table — one row per recorded share access (audit trail).
-pub(crate) const ACCESS_LOGS_TABLE: &str = "suppers_ai__files__cloud_access_logs";
 
 pub async fn generate_share_token(
     ctx: &dyn Context,

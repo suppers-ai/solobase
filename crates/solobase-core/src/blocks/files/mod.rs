@@ -4,17 +4,14 @@ pub(crate) mod models;
 mod pages_admin;
 pub(crate) mod pages_user;
 mod quota;
+pub(crate) mod repo;
 mod share;
 pub(crate) mod storage;
 
-pub(crate) use quota::TABLE as QUOTAS_TABLE;
-pub(crate) use share::{ACCESS_LOGS_TABLE, SHARES_TABLE};
-pub(crate) use storage::{BUCKETS_TABLE, OBJECTS_TABLE};
-
-/// Object-view audit table. Has no dedicated owner module — only the
-/// schema declaration here and a single insert site in `storage.rs`
-/// (`record_view`) — so the constant lives in mod.rs.
-pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
+pub(crate) use repo::{
+    buckets::TABLE as BUCKETS_TABLE, objects::TABLE as OBJECTS_TABLE, quota::TABLE as QUOTAS_TABLE,
+    shares::ACCESS_LOGS_TABLE, shares::TABLE as SHARES_TABLE, views::TABLE as VIEWS_TABLE,
+};
 
 use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 

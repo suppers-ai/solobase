@@ -2,12 +2,8 @@ use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, OutputStream};
 
-use super::{models::QuotaConfig, OBJECTS_TABLE};
+use super::{models::QuotaConfig, QUOTAS_TABLE as TABLE, OBJECTS_TABLE};
 use crate::{http::err_bad_request, util::RecordExt};
-
-/// Per-user quota override table. Stores explicit byte/file caps that
-/// override the block defaults for individual users.
-pub(crate) const TABLE: &str = "suppers_ai__files__cloud_quotas";
 
 /// Map a quota-override row onto a `QuotaConfig`, falling back to the
 /// block defaults field-by-field. Numeric fields accept both JSON numbers

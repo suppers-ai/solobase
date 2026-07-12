@@ -2,18 +2,11 @@ use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::{database as db, storage as store};
 use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
+use super::{BUCKETS_TABLE, OBJECTS_TABLE};
 use crate::{
     endpoint_match::{self, EndpointRoute},
     http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder},
 };
-
-/// Buckets table — user-created storage containers (one row per bucket).
-pub(crate) const BUCKETS_TABLE: &str = "suppers_ai__files__buckets";
-
-/// Object metadata table — one row per uploaded file (sibling of the raw
-/// storage blob in `wafer-run/storage`). Tracks size, content type, status,
-/// uploader and timestamps.
-pub(crate) const OBJECTS_TABLE: &str = "suppers_ai__files__objects";
 
 /// In-block dispatch targets for the user storage API.
 #[derive(Clone, Copy)]

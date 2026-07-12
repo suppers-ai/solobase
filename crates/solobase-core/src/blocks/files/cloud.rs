@@ -437,7 +437,7 @@ mod tests {
             "created_by": owner,
             "created_at": crate::util::now_rfc3339(),
         }));
-        db::create(&ctx, crate::blocks::files::storage::BUCKETS_TABLE, data)
+        db::create(&ctx, crate::blocks::files::BUCKETS_TABLE, data)
             .await
             .expect("seed bucket");
 
