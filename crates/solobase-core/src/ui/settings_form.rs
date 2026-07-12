@@ -109,6 +109,8 @@ fn render_field(var: &ConfigVar, value: &str) -> Markup {
                             style="flex:1";
                         button type="button" .btn .btn-ghost .btn-sm
                             onclick={"var i=document.getElementById('" (var.key) "');i.type=i.type==='password'?'text':'password'"}
+                            title="Reveal"
+                            aria-label="Reveal value"
                         { (super::icons::eye()) }
                     }
                     @if !var.description.is_empty() {
