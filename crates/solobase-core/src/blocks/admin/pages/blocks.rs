@@ -302,7 +302,7 @@ pub async fn handle_block_detail(
                         span .toggle-slider {}
                     }
                 }
-                p style="font-size:0.875rem;color:#94a3b8;margin-top:1rem" {
+                p style="font-size:0.875rem;color:var(--text-muted);margin-top:1rem" {
                     @if is_enabled {
                         "Restart the server to see its full details."
                     } @else {

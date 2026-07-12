@@ -41,7 +41,10 @@ pub fn entry_card(record: &db::Record) -> Markup {
                 "background:#eff6ff;border-left:3px solid #3b82f6",
                 "badge-info",
             ),
-            "agent" | "assistant" => ("background:#f8fafc;border-left:3px solid #94a3b8", "badge"),
+            "agent" | "assistant" => (
+                "background:#f8fafc;border-left:3px solid var(--text-muted)",
+                "badge",
+            ),
             "system" => (
                 "background:#fefce8;border-left:3px solid #eab308",
                 "badge-warning",

@@ -362,7 +362,7 @@ fn email_shell(
     if let Some(note) = footnote {
         out.push('\n');
         out.push_str(&format!(
-            r#"<p style="color:#94a3b8;font-size:0.813rem">{note}</p>"#
+            r#"<p style="color:#64748b;font-size:0.813rem">{note}</p>"#
         ));
     }
     out.push_str("\n</div>");
