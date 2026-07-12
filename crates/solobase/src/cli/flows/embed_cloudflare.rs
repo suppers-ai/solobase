@@ -83,12 +83,16 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
     let mut child = dev.spawn()?;
 
     let local_url = format!("http://localhost:{local_port}");
-    match wait_and_run_local_init(&local_url, &dev_token).await {
+    match wait_and_run_local_init(&mut child, &local_url, &dev_token).await {
         Ok((ok, report)) => {
             if ok {
                 println!("-> local /_deploy/init ok (migrations + seeds applied)");
             } else {
                 eprintln!("-> local /_deploy/init reported failures:\n{report}");
+                eprintln!(
+                    "-> retry manually: POST {local_url}/_deploy/init with header \
+                     x-deploy-token: {dev_token}"
+                );
             }
         }
         Err(e) => eprintln!(
@@ -106,7 +110,15 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
 
 /// Poll until the local worker answers, then run the deploy-init funnel
 /// against it. Bounded: ~60s of connect retries.
-async fn wait_and_run_local_init(local_url: &str, token: &str) -> Result<(bool, String)> {
+///
+/// Checks `child` for an early exit before each retry sleep so a wrangler
+/// crash surfaces as "wrangler dev exited" instead of masquerading as 60s
+/// of generic "not reachable" connect failures.
+async fn wait_and_run_local_init(
+    child: &mut tokio::process::Child,
+    local_url: &str,
+    token: &str,
+) -> Result<(bool, String)> {
     const ATTEMPTS: u32 = 120;
     const INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
     let mut last_err = None;
@@ -115,6 +127,12 @@ async fn wait_and_run_local_init(local_url: &str, token: &str) -> Result<(bool, 
             Ok(out) => return Ok(out),
             Err(e) => {
                 last_err = Some(e);
+                if let Some(status) = child.try_wait()? {
+                    return Err(anyhow::anyhow!(
+                        "wrangler dev exited ({status}) before /_deploy/init became \
+                         reachable — see wrangler output above"
+                    ));
+                }
                 tokio::time::sleep(INTERVAL).await;
             }
         }
@@ -214,4 +232,32 @@ pub async fn deploy_secret(repo_root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A child that exits immediately (no wrangler binary needed) must be
+    /// detected between connect retries: `wait_and_run_local_init` should
+    /// report "wrangler dev exited" rather than exhausting all ~60s of
+    /// retries against a port nothing is listening on.
+    #[tokio::test]
+    async fn wait_and_run_local_init_detects_dead_child() {
+        let mut child = tokio::process::Command::new("true")
+            .spawn()
+            .expect("spawn `true`");
+
+        // Port 1 is unassigned on loopback — connections are refused near-
+        // instantly rather than timing out, so a dead child is what makes
+        // the loop exit quickly instead of the 60s retry budget.
+        let err = wait_and_run_local_init(&mut child, "http://127.0.0.1:1", "token")
+            .await
+            .expect_err("dead child must surface as an error, not a 60s hang");
+
+        assert!(
+            err.to_string().contains("wrangler dev exited"),
+            "expected a wrangler-death error, got: {err}"
+        );
+    }
 }

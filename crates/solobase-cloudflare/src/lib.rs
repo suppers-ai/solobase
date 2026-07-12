@@ -298,6 +298,37 @@ where
         return worker::Response::error("unauthorized", 401);
     }
 
+    // Deploy-time JWT guard: fail fast with an actionable error when the
+    // JWT secret is missing or too short, rather than letting the funnel
+    // run and every downstream auth op start failing. Read the secret the
+    // same way `build_runtime` does (`env.secret(JWT_SECRET_KEY)`, empty
+    // default on error).
+    //
+    // This is deliberately narrower than the request path: `crypto_service`'s
+    // `jwt()` surfaces a missing/short secret per-operation instead of at
+    // worker boot, because a broken-auth deployment beats a boot-looping
+    // one (see crypto_service.rs:34-38). That adjudication is unchanged
+    // here — this guard only runs inside the operator-driven `/_deploy/init`
+    // funnel (a production deploy or `solobase serve --target cloudflare`),
+    // where the operator is watching and fail-fast is the native-parity
+    // point; it never runs on the request path.
+    let jwt_secret_len = env
+        .secret(solobase_core::blocks::auth::JWT_SECRET_KEY)
+        .map(|s| s.to_string().len())
+        .unwrap_or(0);
+    if jwt_secret_len < wafer_block_crypto::primitives::MIN_JWT_SECRET_LEN {
+        return worker::Response::error(
+            format!(
+                "{} is missing or too short ({jwt_secret_len} bytes, need at least {}); \
+                 set it with: wrangler secret put {}",
+                solobase_core::blocks::auth::JWT_SECRET_KEY,
+                wafer_block_crypto::primitives::MIN_JWT_SECRET_LEN,
+                solobase_core::blocks::auth::JWT_SECRET_KEY,
+            ),
+            500,
+        );
+    }
+
     // Fresh runtime (never the request cache) with run_migrations forced on,
     // so slot-cached pre-migration outcomes can't leak into the funnel.
     let out = async {

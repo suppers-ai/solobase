@@ -49,7 +49,7 @@ fn generate_writes_wrangler_toml_with_required_fields() {
     assert!(
         !body.contains("migrations_dir"),
         "deploy toml must not declare a wrangler migrations ledger — \
-         schema funds through /_deploy/init"
+         schema funnels through /_deploy/init"
     );
 }
 
