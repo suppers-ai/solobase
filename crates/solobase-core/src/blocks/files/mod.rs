@@ -8,11 +8,6 @@ pub(crate) mod repo;
 mod share;
 pub(crate) mod storage;
 
-pub(crate) use repo::{
-    buckets::TABLE as BUCKETS_TABLE, objects::TABLE as OBJECTS_TABLE, quota::TABLE as QUOTAS_TABLE,
-    shares::ACCESS_LOGS_TABLE, shares::TABLE as SHARES_TABLE, views::TABLE as VIEWS_TABLE,
-};
-
 use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
 use super::rate_limit::{check_user_rate_limit_with, RateLimit, RateLimitOutcome, UserRateLimiter};
@@ -39,12 +34,12 @@ crate::solobase_feature_block! {
             // single source for both runtime `migrations::apply()` and the
             // Cloudflare D1 build).
             .collections(vec![
-                CollectionSchema::new(BUCKETS_TABLE),
-                CollectionSchema::new(OBJECTS_TABLE),
-                CollectionSchema::new(VIEWS_TABLE),
-                CollectionSchema::new(SHARES_TABLE),
-                CollectionSchema::new(ACCESS_LOGS_TABLE),
-                CollectionSchema::new(QUOTAS_TABLE),
+                CollectionSchema::new(repo::buckets::TABLE),
+                CollectionSchema::new(repo::objects::TABLE),
+                CollectionSchema::new(repo::views::TABLE),
+                CollectionSchema::new(repo::shares::TABLE),
+                CollectionSchema::new(repo::shares::ACCESS_LOGS_TABLE),
+                CollectionSchema::new(repo::quota::TABLE),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")

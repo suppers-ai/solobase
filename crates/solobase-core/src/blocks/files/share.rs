@@ -1,16 +1,16 @@
 use std::time::Duration;
 
-use wafer_core::clients::{crypto, database as db, storage as store};
+use wafer_core::clients::{crypto, storage as store};
 use wafer_run::{context::Context, ErrorCode, Message, OutputStream};
 
-use super::{ACCESS_LOGS_TABLE, SHARES_TABLE};
+use super::repo;
 use crate::{
     blocks::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
     http::{
         err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
         ResponseBuilder,
     },
-    util::{json_map, now_rfc3339, RecordExt},
+    util::{json_map, RecordExt},
 };
 
 pub async fn generate_share_token(
@@ -70,20 +70,13 @@ pub async fn handle_direct_access(
     // Verify the token's HMAC before touching the DB. Tokens are JWT-signed
     // at issue time (`generate_share_token`), so an invalid signature means
     // the token wasn't minted by us — short-circuit before the DB lookup so
-    // attackers can't enumerate the SHARES_TABLE via random tokens.
+    // attackers can't enumerate the shares table via random tokens.
     if crypto::verify(ctx, token).await.is_err() {
         return err_not_found("Share not found or expired");
     }
 
     // Look up share by token
-    let share = match db::get_by_field(
-        ctx,
-        SHARES_TABLE,
-        "token",
-        serde_json::Value::String(token.to_string()),
-    )
-    .await
-    {
+    let share = match repo::shares::find_by_token(ctx, token).await {
         Ok(s) => s,
         Err(_) => return err_not_found("Share not found or expired"),
     };
@@ -107,7 +100,7 @@ pub async fn handle_direct_access(
     // serve the file. With the cap inside the WHERE clause, at most one
     // updater wins per row and rowcount 0 ⇒ cap reached.
     let max = share.i64_field("max_access_count");
-    match increment_access_count_atomic(ctx, &share.id, max).await {
+    match repo::shares::increment_access_count_capped(ctx, &share.id, max).await {
         Ok(true) => {}
         Ok(false) => return err_forbidden("Share link access limit reached"),
         Err(e) => {
@@ -131,13 +124,9 @@ pub async fn handle_direct_access(
     }
 
     // Log access
-    let log_data = json_map(serde_json::json!({
-        "share_id": share.id,
-        "accessed_at": now_rfc3339(),
-        "ip_address": msg.remote_addr(),
-        "user_agent": msg.header("User-Agent"),
-    }));
-    if let Err(e) = db::create(ctx, ACCESS_LOGS_TABLE, log_data).await {
+    if let Err(e) =
+        repo::shares::log_access(ctx, &share.id, msg.remote_addr(), msg.header("User-Agent")).await
+    {
         tracing::warn!("Failed to log share access: {e}");
     }
 
@@ -156,34 +145,4 @@ pub async fn handle_direct_access(
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("File not found"),
         Err(e) => err_internal("Storage error", e),
     }
-}
-
-/// CAS-style increment of `access_count` for a share row. Returns `Ok(true)`
-/// if a row was updated (and the cap, if any, still allowed the access),
-/// `Ok(false)` if the row was already at its cap, or `Err` on DB failure.
-///
-/// `max <= 0` means unlimited — we only filter on id. Otherwise we add
-/// `access_count < max` to the WHERE so two concurrent accesses can't both
-/// pass a 1-access cap.
-async fn increment_access_count_atomic(
-    ctx: &dyn Context,
-    share_id: &str,
-    max: i64,
-) -> Result<bool, wafer_run::WaferError> {
-    use wafer_block::db::{Filter, FilterOp};
-
-    let mut filters: Vec<Filter> = vec![Filter {
-        field: "id".into(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(share_id.to_string()),
-    }];
-    if max > 0 {
-        filters.push(Filter {
-            field: "access_count".into(),
-            operator: FilterOp::LessThan,
-            value: serde_json::json!(max),
-        });
-    }
-    let rows = db::increment_field_where(ctx, SHARES_TABLE, "access_count", 1, &filters).await?;
-    Ok(rows > 0)
 }
