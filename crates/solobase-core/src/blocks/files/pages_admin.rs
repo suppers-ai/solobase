@@ -1,11 +1,9 @@
 //! SSR admin pages for the files block.
 
 use maud::{html, Markup};
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::database as db;
 use wafer_run::{context::Context, Message, OutputStream};
 
-use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
+use super::repo;
 use crate::{
     ui::{self, components, icons, shell::Crumb},
     util::{format_bytes, RecordExt},
@@ -172,37 +170,29 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
-    let buckets = db::count(ctx, BUCKETS_TABLE, &[])
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e.message, "admin overview: bucket count failed");
-            0
-        });
+    let buckets = repo::buckets::count_all(ctx).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e.message, "admin overview: bucket count failed");
+        0
+    });
 
-    let complete_filter = [Filter {
-        field: "status".into(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String("complete".into()),
-    }];
-
-    let files = db::count(ctx, OBJECTS_TABLE, &complete_filter)
+    let files = repo::objects::count_completed(ctx)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: files count failed");
             0
         });
 
-    let shares = db::count(ctx, SHARES_TABLE, &[]).await.unwrap_or_else(|e| {
+    let shares = repo::shares::count_all(ctx).await.unwrap_or_else(|e| {
         tracing::warn!(error = %e.message, "admin overview: shares count failed");
         0
     });
 
-    let quotas_count = db::count(ctx, QUOTAS_TABLE, &[]).await.unwrap_or_else(|e| {
+    let quotas_count = repo::quota::count_all(ctx).await.unwrap_or_else(|e| {
         tracing::warn!(error = %e.message, "admin overview: quotas count failed");
         0
     });
 
-    let total_size_bytes = db::sum(ctx, OBJECTS_TABLE, "size", &complete_filter)
+    let total_size_bytes = repo::objects::sum_size_completed(ctx)
         .await
         .map(|s| s as i64)
         .unwrap_or_else(|e| {
@@ -265,16 +255,7 @@ pub fn render_admin_buckets_table(rows: &[AdminBucketRow]) -> Markup {
 pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "created_at".into(),
-            desc: true,
-        }],
-        limit: 100,
-        ..Default::default()
-    };
-
-    let rows: Vec<AdminBucketRow> = match db::list(ctx, BUCKETS_TABLE, &opts).await {
+    let rows: Vec<AdminBucketRow> = match repo::buckets::list_recent(ctx, 100).await {
         Ok(list) => list
             .records
             .into_iter()
@@ -399,16 +380,7 @@ pub fn render_admin_shares_table(rows: &[AdminShareRow]) -> Markup {
 pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "created_at".into(),
-            desc: true,
-        }],
-        limit: 100,
-        ..Default::default()
-    };
-
-    let rows: Vec<AdminShareRow> = match db::list(ctx, SHARES_TABLE, &opts).await {
+    let rows: Vec<AdminShareRow> = match repo::shares::list_recent(ctx, 100, 0).await {
         Ok(list) => list
             .records
             .into_iter()
@@ -516,16 +488,7 @@ pub fn render_admin_quotas_table(rows: &[AdminQuotaRow]) -> Markup {
 pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use crate::ui::templates::{list_page, PageHeader};
 
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "created_at".into(),
-            desc: true,
-        }],
-        limit: 100,
-        ..Default::default()
-    };
-
-    let rows: Vec<AdminQuotaRow> = match db::list(ctx, QUOTAS_TABLE, &opts).await {
+    let rows: Vec<AdminQuotaRow> = match repo::quota::list_recent(ctx, 100).await {
         Ok(list) => list
             .records
             .into_iter()
@@ -635,9 +598,7 @@ mod tests {
             std::collections::HashMap::new();
         row.insert("name".into(), serde_json::json!("photos"));
         row.insert("created_by".into(), serde_json::json!("admin_1"));
-        db::create(&ctx, BUCKETS_TABLE, row)
-            .await
-            .expect("seed bucket");
+        repo::buckets::seed(&ctx, row).await.expect("seed bucket");
 
         let msg = admin_msg("retrieve", "/b/storage/admin/");
         let html = output_html(overview(&ctx, &msg).await).await;

@@ -1,13 +1,8 @@
-use wafer_block::db::{Filter, FilterOp};
-use wafer_core::clients::database::{self as db, Record};
+use wafer_core::clients::database::Record;
 use wafer_run::{context::Context, OutputStream};
 
-use super::{models::QuotaConfig, OBJECTS_TABLE};
+use super::{models::QuotaConfig, repo};
 use crate::{http::err_bad_request, util::RecordExt};
-
-/// Per-user quota override table. Stores explicit byte/file caps that
-/// override the block defaults for individual users.
-pub(crate) const TABLE: &str = "suppers_ai__files__cloud_quotas";
 
 /// Map a quota-override row onto a `QuotaConfig`, falling back to the
 /// block defaults field-by-field. Numeric fields accept both JSON numbers
@@ -34,40 +29,24 @@ fn quota_from_record(record: &Record) -> QuotaConfig {
 
 pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     // Check for user-specific override
-    match db::get_by_field(
-        ctx,
-        TABLE,
-        "user_id",
-        serde_json::Value::String(user_id.to_string()),
-    )
-    .await
-    {
+    match repo::quota::find_for_user(ctx, user_id).await {
         Ok(record) => quota_from_record(&record),
         Err(_) => QuotaConfig::default(),
     }
 }
 
-/// Filter matching all objects uploaded by `user_id` (the rows that count
-/// toward that user's quota, including in-flight `pending` reservations).
-fn owned_objects_filter(user_id: &str) -> Vec<Filter> {
-    vec![Filter {
-        field: "uploaded_by".to_string(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String(user_id.to_string()),
-    }]
-}
-
 /// Total bytes used by `user_id`, computed as `SUM(size)` over the user's
-/// object rows via the `db::sum` aggregate (no row materialization).
+/// object rows ([`repo::objects::sum_size_for_uploader`], no row
+/// materialization).
 pub async fn get_used_bytes(ctx: &dyn Context, user_id: &str) -> i64 {
-    db::sum(ctx, OBJECTS_TABLE, "size", &owned_objects_filter(user_id))
+    repo::objects::sum_size_for_uploader(ctx, user_id)
         .await
         .unwrap_or(0.0) as i64
 }
 
 /// Number of object rows owned by `user_id`.
 pub async fn get_file_count(ctx: &dyn Context, user_id: &str) -> i64 {
-    db::count(ctx, OBJECTS_TABLE, &owned_objects_filter(user_id))
+    repo::objects::count_for_uploader(ctx, user_id)
         .await
         .unwrap_or(0)
 }
@@ -123,24 +102,7 @@ pub async fn check_quota(
 /// certainly an orphan.
 pub async fn sweep_stale_pending(ctx: &dyn Context, user_id: &str, older_than_seconds: i64) {
     let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(older_than_seconds)).to_rfc3339();
-    let filters = vec![
-        Filter {
-            field: "uploaded_by".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.to_string()),
-        },
-        Filter {
-            field: "status".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String("pending".into()),
-        },
-        Filter {
-            field: "uploaded_at".into(),
-            operator: FilterOp::LessThan,
-            value: serde_json::Value::String(cutoff),
-        },
-    ];
-    if let Err(e) = db::delete_by_filters(ctx, OBJECTS_TABLE, filters).await {
+    if let Err(e) = repo::objects::delete_stale_pending(ctx, user_id, &cutoff).await {
         tracing::warn!(error = %e, user_id = %user_id, "failed to sweep stale pending uploads");
     }
 }
@@ -236,7 +198,7 @@ mod tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("user_id".into(), json!("u1"));
         row.insert("max_storage_bytes".into(), json!(2048));
-        db::create(&ctx, TABLE, row).await.expect("seed quota");
+        repo::quota::seed(&ctx, row).await.expect("seed quota");
 
         let quota = get_user_quota(&ctx, "u1").await;
         assert_eq!(quota.max_storage_bytes, 2048);
@@ -258,7 +220,7 @@ mod tests {
             row.insert("key".into(), json!(key));
             row.insert("size".into(), json!(size));
             row.insert("uploaded_by".into(), json!(owner));
-            db::create(&ctx, OBJECTS_TABLE, row).await.expect("seed");
+            repo::objects::seed(&ctx, row).await.expect("seed");
         }
 
         assert_eq!(get_used_bytes(&ctx, "u1").await, 2048);
@@ -275,7 +237,7 @@ mod tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("user_id".into(), json!("u1"));
         row.insert("max_storage_bytes".into(), json!(2048));
-        db::create(&ctx, TABLE, row).await.expect("seed quota");
+        repo::quota::seed(&ctx, row).await.expect("seed quota");
 
         assert!(check_quota(&ctx, "u1", 1024).await.is_ok());
         assert!(

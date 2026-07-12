@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::database as db;
 use wafer_run::{context::Context, ErrorCode, InputStream, Message, OutputStream};
 
-use super::{ACCESS_LOGS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
+use super::repo;
 use crate::http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
 
 pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
@@ -31,23 +29,7 @@ pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> Outp
 }
 
 async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "created_by".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id),
-        }],
-        sort: vec![SortField {
-            field: "created_at".to_string(),
-            desc: true,
-        }],
-        limit: 100,
-        ..Default::default()
-    };
-
-    match db::list(ctx, SHARES_TABLE, &opts).await {
+    match repo::shares::list_for_user(ctx, msg.user_id(), 100).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -92,7 +74,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
     // Verify the user owns this bucket (or is admin) — shared helper from
     // storage.rs so the two modules stay in lockstep on what "access
     // denied" means.
-    if super::storage::is_bucket_access_denied(ctx, &msg, &body.bucket).await {
+    if super::storage::is_bucket_access_denied(ctx, msg, &body.bucket).await {
         return err_forbidden("Access denied to this bucket");
     }
 
@@ -136,25 +118,17 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         }
     };
 
-    let mut data = crate::util::json_map(serde_json::json!({
-        "token": token,
-        "bucket": body.bucket,
-        "key": body.key,
-        "created_by": msg.user_id(),
-        "created_at": now.to_rfc3339(),
-        "access_count": 0,
-    }));
-    if let Some(exp) = &expires_at {
-        data.insert(
-            "expires_at".to_string(),
-            serde_json::Value::String(exp.clone()),
-        );
-    }
-    if let Some(max) = body.max_access_count {
-        data.insert("max_access_count".to_string(), serde_json::json!(max));
-    }
-
-    match db::create(ctx, SHARES_TABLE, data).await {
+    let created_at = now.to_rfc3339();
+    let new_share = repo::shares::NewShare {
+        token: &token,
+        bucket: &body.bucket,
+        key: &body.key,
+        created_by: msg.user_id(),
+        created_at: &created_at,
+        expires_at: expires_at.as_deref(),
+        max_access_count: body.max_access_count,
+    };
+    match repo::shares::insert(ctx, new_share).await {
         Ok(record) => ok_json(&serde_json::json!({
             "id": record.id,
             "token": token,
@@ -172,18 +146,18 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Verify ownership
-    if let Ok(share) = db::get(ctx, SHARES_TABLE, id).await {
+    if let Ok(share) = repo::shares::find_by_id(ctx, id).await {
         let owner = share
             .data
             .get("created_by")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if owner != msg.user_id() && !crate::util::is_admin(&msg) {
+        if owner != msg.user_id() && !crate::util::is_admin(msg) {
             return err_forbidden("Cannot delete another user's share");
         }
     }
 
-    match db::delete(ctx, SHARES_TABLE, id).await {
+    match repo::shares::delete(ctx, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Share not found"),
         Err(e) => err_internal("Database error", e),
@@ -201,16 +175,8 @@ async fn handle_get_quota(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
 async fn handle_admin_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(20);
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "created_at".to_string(),
-            desc: true,
-        }],
-        limit: page_size as i64,
-        offset: ((page - 1) * page_size) as i64,
-        ..Default::default()
-    };
-    match db::list(ctx, SHARES_TABLE, &opts).await {
+    let offset = ((page - 1) * page_size) as i64;
+    match repo::shares::list_recent(ctx, page_size as i64, offset).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -218,41 +184,18 @@ async fn handle_admin_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStr
 
 async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(50);
-
-    let mut filters = Vec::new();
     let share_id = msg.query("share_id").to_string();
-    if !share_id.is_empty() {
-        filters.push(Filter {
-            field: "share_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(share_id),
-        });
-    }
+    let share_id = (!share_id.is_empty()).then_some(share_id.as_str());
+    let offset = ((page - 1) * page_size) as i64;
 
-    let opts = ListOptions {
-        filters,
-        sort: vec![SortField {
-            field: "accessed_at".to_string(),
-            desc: true,
-        }],
-        limit: page_size as i64,
-        offset: ((page - 1) * page_size) as i64,
-        skip_count: false,
-        ..Default::default()
-    };
-
-    match db::list(ctx, ACCESS_LOGS_TABLE, &opts).await {
+    match repo::shares::list_access_logs(ctx, share_id, page_size as i64, offset).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
 }
 
 async fn handle_admin_quotas(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, QUOTAS_TABLE, &opts).await {
+    match repo::quota::list(ctx, 1000).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -274,8 +217,9 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
     };
 
     // SEC-059: whitelist accepted quota fields — never forward arbitrary
-    // caller-controlled keys to `db::upsert`. Reject anything outside the
-    // known quota schema.
+    // caller-controlled keys to the upsert. Reject anything outside the
+    // known quota schema. (`user_id` + `updated_at` are stamped by
+    // `repo::quota::upsert_for_user`.)
     const ALLOWED_QUOTA_FIELDS: &[&str] = &[
         "max_storage_bytes",
         "max_file_size_bytes",
@@ -288,25 +232,7 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
         }
     }
 
-    let mut data = body;
-    data.insert(
-        "user_id".to_string(),
-        serde_json::Value::String(user_id.to_string()),
-    );
-    data.insert(
-        "updated_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-
-    match db::upsert_by_field(
-        ctx,
-        QUOTAS_TABLE,
-        "user_id",
-        serde_json::Value::String(user_id.to_string()),
-        data,
-    )
-    .await
-    {
+    match repo::quota::upsert_for_user(ctx, user_id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal("Database error", e),
     }
@@ -437,9 +363,7 @@ mod tests {
             "created_by": owner,
             "created_at": crate::util::now_rfc3339(),
         }));
-        db::create(&ctx, crate::blocks::files::storage::BUCKETS_TABLE, data)
-            .await
-            .expect("seed bucket");
+        repo::buckets::seed(&ctx, data).await.expect("seed bucket");
 
         ctx
     }
@@ -576,7 +500,9 @@ mod tests {
             .expect("successful create_share returns an id")
             .to_string();
 
-        let record = db::get(&ctx, SHARES_TABLE, &id).await.expect("share row");
+        let record = repo::shares::find_by_id(&ctx, &id)
+            .await
+            .expect("share row");
         let expires_at = record
             .data
             .get("expires_at")

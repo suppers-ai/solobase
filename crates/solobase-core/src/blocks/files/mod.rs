@@ -4,17 +4,9 @@ pub(crate) mod models;
 mod pages_admin;
 pub(crate) mod pages_user;
 mod quota;
+pub(crate) mod repo;
 mod share;
 pub(crate) mod storage;
-
-pub(crate) use quota::TABLE as QUOTAS_TABLE;
-pub(crate) use share::{ACCESS_LOGS_TABLE, SHARES_TABLE};
-pub(crate) use storage::{BUCKETS_TABLE, OBJECTS_TABLE};
-
-/// Object-view audit table. Has no dedicated owner module — only the
-/// schema declaration here and a single insert site in `storage.rs`
-/// (`record_view`) — so the constant lives in mod.rs.
-pub(crate) const VIEWS_TABLE: &str = "suppers_ai__files__views";
 
 use wafer_run::{BlockEndpoint, BlockInfo, InstanceMode};
 
@@ -42,12 +34,12 @@ crate::solobase_feature_block! {
             // single source for both runtime `migrations::apply()` and the
             // Cloudflare D1 build).
             .collections(vec![
-                CollectionSchema::new(BUCKETS_TABLE),
-                CollectionSchema::new(OBJECTS_TABLE),
-                CollectionSchema::new(VIEWS_TABLE),
-                CollectionSchema::new(SHARES_TABLE),
-                CollectionSchema::new(ACCESS_LOGS_TABLE),
-                CollectionSchema::new(QUOTAS_TABLE),
+                CollectionSchema::new(repo::buckets::TABLE),
+                CollectionSchema::new(repo::objects::TABLE),
+                CollectionSchema::new(repo::views::TABLE),
+                CollectionSchema::new(repo::shares::TABLE),
+                CollectionSchema::new(repo::shares::ACCESS_LOGS_TABLE),
+                CollectionSchema::new(repo::quota::TABLE),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")

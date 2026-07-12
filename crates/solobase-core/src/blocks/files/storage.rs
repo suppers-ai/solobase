@@ -1,19 +1,11 @@
-use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::{database as db, storage as store};
+use wafer_core::clients::storage as store;
 use wafer_run::{context::Context, ErrorCode, HttpMethod, InputStream, Message, OutputStream};
 
+use super::repo;
 use crate::{
     endpoint_match::{self, EndpointRoute},
     http::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder},
 };
-
-/// Buckets table — user-created storage containers (one row per bucket).
-pub(crate) const BUCKETS_TABLE: &str = "suppers_ai__files__buckets";
-
-/// Object metadata table — one row per uploaded file (sibling of the raw
-/// storage blob in `wafer-run/storage`). Tracks size, content type, status,
-/// uploader and timestamps.
-pub(crate) const OBJECTS_TABLE: &str = "suppers_ai__files__objects";
 
 /// In-block dispatch targets for the user storage API.
 #[derive(Clone, Copy)]
@@ -137,9 +129,9 @@ fn extract_object_key(msg: &Message) -> String {
     }
 }
 
-/// True when `user_id` owns a bucket named `bucket` (i.e. a matching row
-/// exists in [`BUCKETS_TABLE`]). DB errors are logged and treated as "not
-/// owned" (fail closed).
+/// True when `user_id` owns a bucket named `bucket` (i.e.
+/// [`repo::buckets::find_owned`] finds a matching row). DB errors are
+/// logged and treated as "not owned" (fail closed).
 ///
 /// This is the single ownership predicate for the files block. Callers
 /// decide the admin policy on top of it:
@@ -150,20 +142,8 @@ fn extract_object_key(msg: &Message) -> String {
 ///   admin browsing `/b/storage/` sees only their own buckets; cross-user
 ///   inspection happens via the admin pages instead.
 pub(super) async fn bucket_owned_by(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    let filters = vec![
-        Filter {
-            field: "name".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(bucket.to_string()),
-        },
-        Filter {
-            field: "created_by".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.to_string()),
-        },
-    ];
-    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-        Ok(records) => !records.is_empty(),
+    match repo::buckets::find_owned(ctx, bucket, user_id).await {
+        Ok(record) => record.is_some(),
         Err(e) => {
             tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
             false
@@ -262,49 +242,18 @@ async fn collect_with_cap(
     Ok(out)
 }
 
-/// Escape SQL LIKE wildcards (`%`, `_`) and the escape char itself (`\`) in
-/// user-supplied search terms so a user searching for `100% off` doesn't
-/// also match arbitrary characters.
-///
-/// SQLite's `LIKE` has *no* default escape character — a bare backslash is
-/// just a literal byte, so escaping here would be silently inert on its own.
-/// What makes it effective is the `wafer-sql-utils` `FilterOp::Like` builder
-/// (used by [`handle_search`]'s query below), which renders an explicit
-/// `ESCAPE '\'` clause on every backend (SQLite/D1 and Postgres) — see
-/// `wafer-sql-utils::query::leaf_expr`. Without that clause, a query
-/// containing `_` or `%` would match as a wildcard instead of a literal
-/// character.
-fn escape_like(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for c in input.chars() {
-        match c {
-            '\\' | '%' | '_' => {
-                out.push('\\');
-                out.push(c);
-            }
-            other => out.push(other),
-        }
-    }
-    out
-}
-
 async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    // [`BUCKETS_TABLE`] is the single source of truth for bucket existence /
-    // ownership / visibility. Both the admin and user branches read it (the
-    // admin sees every bucket, the user only their own) — storage folders are
-    // a blob namespace, not a directory we enumerate here, so the admin list
-    // no longer diverges from `store::list_folders`.
-    let user_id = msg.user_id();
-    let filters = if crate::util::is_admin(msg) {
-        Vec::new()
+    // [`repo::buckets::TABLE`] is the single source of truth for bucket
+    // existence / ownership / visibility. Both the admin and user branches
+    // read it (the admin sees every bucket, the user only their own) —
+    // storage folders are a blob namespace, not a directory we enumerate
+    // here, so the admin list no longer diverges from `store::list_folders`.
+    let owner = if crate::util::is_admin(msg) {
+        None
     } else {
-        vec![Filter {
-            field: "created_by".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.to_string()),
-        }]
+        Some(msg.user_id())
     };
-    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
+    match repo::buckets::list_visible(ctx, owner).await {
         Ok(records) => {
             let names: Vec<&str> = records
                 .iter()
@@ -345,18 +294,12 @@ async fn handle_create_bucket(
         return err_internal("Failed to create bucket", e);
     }
 
-    // [`BUCKETS_TABLE`] is the source of truth for bucket existence, so the
-    // metadata insert must succeed for the bucket to count as created. If it
-    // fails, compensate by deleting the just-created folder rather than
+    // [`repo::buckets::TABLE`] is the source of truth for bucket existence,
+    // so the metadata insert must succeed for the bucket to count as created.
+    // If it fails, compensate by deleting the just-created folder rather than
     // warn-and-continue (which would leave an orphan folder invisible to every
     // listing path, which now all read the table).
-    let data = crate::util::json_map(serde_json::json!({
-        "name": body.name,
-        "public": body.public,
-        "created_by": msg.user_id(),
-        "created_at": crate::util::now_rfc3339(),
-    }));
-    if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
+    if let Err(e) = repo::buckets::insert(ctx, &body.name, body.public, msg.user_id()).await {
         if let Err(cleanup) = store::delete_folder(ctx, &body.name).await {
             tracing::error!(
                 bucket = %body.name,
@@ -385,22 +328,8 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream 
     match store::delete_folder(ctx, bucket).await {
         Ok(()) => {
             // Clean up DB metadata for the bucket and its objects
-            db::delete_by_field(
-                ctx,
-                BUCKETS_TABLE,
-                "name",
-                serde_json::Value::String(bucket.to_string()),
-            )
-            .await
-            .ok();
-            db::delete_by_field(
-                ctx,
-                OBJECTS_TABLE,
-                "bucket",
-                serde_json::Value::String(bucket.to_string()),
-            )
-            .await
-            .ok();
+            repo::buckets::delete_by_name(ctx, bucket).await.ok();
+            repo::objects::delete_for_bucket(ctx, bucket).await.ok();
             ok_json(&serde_json::json!({"deleted": true}))
         }
         Err(e) => err_internal("Failed to delete bucket", e),
@@ -451,13 +380,7 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Track view in DB
-    let data = crate::util::json_map(serde_json::json!({
-        "bucket": bucket,
-        "key": key,
-        "user_id": msg.user_id(),
-        "viewed_at": crate::util::now_rfc3339(),
-    }));
-    if let Err(e) = db::create(ctx, super::VIEWS_TABLE, data).await {
+    if let Err(e) = repo::views::insert(ctx, bucket, key, msg.user_id()).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
 
@@ -567,17 +490,16 @@ async fn handle_upload_object(
 
     // Insert a pending record BEFORE uploading so concurrent quota checks see it.
     // This closes the TOCTOU race between check_quota and the actual upload.
-    let pending_data = crate::util::json_map(serde_json::json!({
-        "bucket": bucket,
-        "key": key,
-        "size": content.len(),
-        "content_type": content_type,
-        "status": "pending",
-        "uploaded_by": msg.user_id(),
-        "uploaded_at": crate::util::now_rfc3339(),
-    }));
-
-    let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
+    let pending_record = match repo::objects::insert_pending(
+        ctx,
+        bucket,
+        &key,
+        content.len(),
+        &content_type,
+        msg.user_id(),
+    )
+    .await
+    {
         Ok(record) => record,
         Err(e) => return err_internal("Failed to reserve upload slot", e),
     };
@@ -585,15 +507,14 @@ async fn handle_upload_object(
     match store::put(ctx, bucket, &key, &content, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
-            let update_data = crate::util::json_map(serde_json::json!({ "status": "complete" }));
-            if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
+            if let Err(e) = repo::objects::mark_complete(ctx, &pending_record.id).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
             ok_json(&serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
         Err(e) => {
             // Upload failed — delete the pending record so it doesn't block quota.
-            if let Err(del_err) = db::delete(ctx, OBJECTS_TABLE, &pending_record.id).await {
+            if let Err(del_err) = repo::objects::delete(ctx, &pending_record.id).await {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }
             err_internal("Upload failed", e)
@@ -619,24 +540,9 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream 
     match store::delete(ctx, bucket, key).await {
         Ok(()) => {
             // Clean up metadata
-            db::delete_by_filters(
-                ctx,
-                OBJECTS_TABLE,
-                vec![
-                    Filter {
-                        field: "bucket".to_string(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::Value::String(bucket.to_string()),
-                    },
-                    Filter {
-                        field: "key".to_string(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::Value::String(key.to_string()),
-                    },
-                ],
-            )
-            .await
-            .ok();
+            repo::objects::delete_by_bucket_key(ctx, bucket, key)
+                .await
+                .ok();
             ok_json(&serde_json::json!({"deleted": true}))
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
@@ -651,60 +557,22 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     let (_, page_size, offset) = msg.pagination_params(20);
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "key".to_string(),
-                operator: FilterOp::Like,
-                value: serde_json::Value::String(format!("%{}%", escape_like(&query))),
-            },
-            // Only show the current user's files
-            Filter {
-                field: "uploaded_by".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(msg.user_id().to_string()),
-            },
-            // Exclude pending uploads
-            Filter {
-                field: "status".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String("complete".to_string()),
-            },
-        ],
-        sort: vec![SortField {
-            field: "uploaded_at".to_string(),
-            desc: true,
-        }],
-        limit: page_size as i64,
-        offset: offset as i64,
-        skip_count: false,
-        ..Default::default()
-    };
-
-    match db::list(ctx, OBJECTS_TABLE, &opts).await {
+    match repo::objects::search_completed(
+        ctx,
+        msg.user_id(),
+        &query,
+        page_size as i64,
+        offset as i64,
+    )
+    .await
+    {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Search failed", e),
     }
 }
 
 async fn handle_recent(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let user_id = msg.user_id().to_string();
-
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "user_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id),
-        }],
-        sort: vec![SortField {
-            field: "viewed_at".to_string(),
-            desc: true,
-        }],
-        limit: 20,
-        ..Default::default()
-    };
-
-    match db::list(ctx, super::VIEWS_TABLE, &opts).await {
+    match repo::views::list_recent_for_user(ctx, msg.user_id(), 20).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal("Database error", e),
     }
@@ -994,10 +862,10 @@ mod integration_tests {
         msg
     }
 
-    /// Fetch the single OBJECTS_TABLE metadata row (asserting there is
-    /// exactly one) and return its `(size, content_type, status)`.
+    /// Fetch the single object-metadata row (asserting there is exactly
+    /// one) and return its `(size, content_type, status)`.
     async fn sole_object_row(ctx: &TestContext) -> (i64, String, String) {
-        let rows = db::list_all(ctx, OBJECTS_TABLE, vec![])
+        let rows = repo::objects::list_all(ctx)
             .await
             .expect("list object rows");
         assert_eq!(rows.len(), 1, "expected exactly one object metadata row");
@@ -1143,9 +1011,7 @@ mod integration_tests {
             "created_by": owner,
             "created_at": crate::util::now_rfc3339(),
         }));
-        db::create(ctx, BUCKETS_TABLE, data)
-            .await
-            .expect("seed bucket");
+        repo::buckets::seed(ctx, data).await.expect("seed bucket");
     }
 
     fn bucket_names(v: &serde_json::Value) -> Vec<String> {
@@ -1159,7 +1025,7 @@ mod integration_tests {
             .unwrap_or_default()
     }
 
-    /// Seed an [`OBJECTS_TABLE`] row directly (bypassing `handle_upload_object`
+    /// Seed an object-metadata row directly (bypassing `handle_upload_object`
     /// / the real storage backend, same as [`seed_bucket`] does for buckets) —
     /// enough to exercise `handle_search`'s DB query.
     async fn seed_object(ctx: &TestContext, bucket: &str, key: &str, owner: &str) {
@@ -1172,9 +1038,7 @@ mod integration_tests {
             "uploaded_by": owner,
             "uploaded_at": crate::util::now_rfc3339(),
         }));
-        db::create(ctx, OBJECTS_TABLE, data)
-            .await
-            .expect("seed object");
+        repo::objects::seed(ctx, data).await.expect("seed object");
     }
 
     fn search_result_keys(v: &serde_json::Value) -> Vec<String> {
@@ -1194,7 +1058,7 @@ mod integration_tests {
     }
 
     /// Single source of truth: the admin bucket listing now reads
-    /// [`BUCKETS_TABLE`] (every bucket) instead of `store::list_folders`, so it
+    /// [`repo::buckets::TABLE`] (every bucket) instead of `store::list_folders`,
     /// can no longer diverge from the per-user listing that already read the
     /// table. An admin sees all buckets regardless of owner.
     #[tokio::test]
@@ -1222,7 +1086,7 @@ mod integration_tests {
         assert_eq!(names, vec!["alice-bucket"]);
     }
 
-    /// `handle_stats` counts buckets from [`BUCKETS_TABLE`] (the same source the
+    /// `handle_stats` counts buckets from [`repo::buckets::TABLE`] (the same source
     /// admin SSR overview uses), not by enumerating storage folders.
     #[tokio::test]
     async fn stats_counts_buckets_from_metadata_table() {
@@ -1274,20 +1138,11 @@ mod integration_tests {
 }
 
 async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let complete_filter = &[Filter {
-        field: "status".to_string(),
-        operator: FilterOp::Equal,
-        value: serde_json::Value::String("complete".to_string()),
-    }];
-    let total_objects = db::count(ctx, OBJECTS_TABLE, complete_filter)
-        .await
-        .unwrap_or(0);
-    let total_size = db::sum(ctx, OBJECTS_TABLE, "size", complete_filter)
-        .await
-        .unwrap_or(0.0);
+    let total_objects = repo::objects::count_completed(ctx).await.unwrap_or(0);
+    let total_size = repo::objects::sum_size_completed(ctx).await.unwrap_or(0.0);
     // Count buckets from the metadata table (single source of truth), the same
     // way the admin SSR overview does, rather than enumerating storage folders.
-    let bucket_count = db::count(ctx, BUCKETS_TABLE, &[]).await.unwrap_or(0);
+    let bucket_count = repo::buckets::count_all(ctx).await.unwrap_or(0);
 
     ok_json(&serde_json::json!({
         "total_objects": total_objects,
