@@ -230,9 +230,8 @@ pub fn run(pkg_dir: &Path, repo_dir: &Path, app: AppConfig) -> Result<()> {
 /// scan) and safe — the regex matches only the exact short-hash format we
 /// emit, so user files like `app-1.js` or `app_bg-final.wasm` are untouched.
 fn remove_previously_hashed(pkg_dir: &Path) -> Result<()> {
-    let entries = match std::fs::read_dir(pkg_dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(()),
+    let Ok(entries) = std::fs::read_dir(pkg_dir) else {
+        return Ok(());
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -309,7 +308,7 @@ fn build_template_vars(
             let escaped = path.replace('\\', "\\\\").replace('\'', "\\'");
             out.push_str(" || url.pathname === '");
             out.push_str(&escaped);
-            out.push_str("'");
+            out.push('\'');
         }
         out
     };

@@ -11,7 +11,7 @@ pub struct Asset {
 }
 
 pub fn static_assets() -> &'static [Asset] {
-    &ASSETS
+    ASSETS
 }
 
 pub fn write_to(dir: &Path) -> std::io::Result<()> {

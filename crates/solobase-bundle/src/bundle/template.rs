@@ -14,7 +14,7 @@ pub fn render_to_file(
         .with_context(|| format!("reading template {}", template_src.display()))?;
     let mut rendered = body;
     for (key, value) in vars {
-        let token = format!("__{}__", key);
+        let token = format!("__{key}__");
         rendered = rendered.replace(&token, value);
     }
     if let Some(stray) = find_unresolved_placeholder(&rendered) {
