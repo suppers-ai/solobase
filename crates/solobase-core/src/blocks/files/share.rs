@@ -76,9 +76,8 @@ pub async fn handle_direct_access(
     }
 
     // Look up share by token
-    let share = match repo::shares::find_by_token(ctx, token).await {
-        Ok(s) => s,
-        Err(_) => return err_not_found("Share not found or expired"),
+    let Ok(share) = repo::shares::find_by_token(ctx, token).await else {
+        return err_not_found("Share not found or expired");
     };
 
     // Check expiry

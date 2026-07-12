@@ -74,7 +74,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
     // Verify the user owns this bucket (or is admin) — shared helper from
     // storage.rs so the two modules stay in lockstep on what "access
     // denied" means.
-    if super::storage::is_bucket_access_denied(ctx, &msg, &body.bucket).await {
+    if super::storage::is_bucket_access_denied(ctx, msg, &body.bucket).await {
         return err_forbidden("Access denied to this bucket");
     }
 
@@ -152,7 +152,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
             .get("created_by")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if owner != msg.user_id() && !crate::util::is_admin(&msg) {
+        if owner != msg.user_id() && !crate::util::is_admin(msg) {
             return err_forbidden("Cannot delete another user's share");
         }
     }
@@ -500,7 +500,9 @@ mod tests {
             .expect("successful create_share returns an id")
             .to_string();
 
-        let record = repo::shares::find_by_id(&ctx, &id).await.expect("share row");
+        let record = repo::shares::find_by_id(&ctx, &id)
+            .await
+            .expect("share row");
         let expires_at = record
             .data
             .get("expires_at")

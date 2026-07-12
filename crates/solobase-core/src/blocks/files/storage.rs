@@ -540,7 +540,9 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream 
     match store::delete(ctx, bucket, key).await {
         Ok(()) => {
             // Clean up metadata
-            repo::objects::delete_by_bucket_key(ctx, bucket, key).await.ok();
+            repo::objects::delete_by_bucket_key(ctx, bucket, key)
+                .await
+                .ok();
             ok_json(&serde_json::json!({"deleted": true}))
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
@@ -863,7 +865,9 @@ mod integration_tests {
     /// Fetch the single object-metadata row (asserting there is exactly
     /// one) and return its `(size, content_type, status)`.
     async fn sole_object_row(ctx: &TestContext) -> (i64, String, String) {
-        let rows = repo::objects::list_all(ctx).await.expect("list object rows");
+        let rows = repo::objects::list_all(ctx)
+            .await
+            .expect("list object rows");
         assert_eq!(rows.len(), 1, "expected exactly one object metadata row");
         let data = &rows[0].data;
         (
