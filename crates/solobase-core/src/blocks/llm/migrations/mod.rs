@@ -6,14 +6,6 @@
 //! `ensure_table` materialisation that previously created these tables on
 //! first insert (TEXT-only columns, no indexes — see solobase
 //! `ensure-table-removal-in-progress`).
-//!
-//! The sibling [`legacy_providers`] module hosts the one-shot row-copy
-//! migration from the retired `suppers_ai__provider_llm__providers` table
-//! into the new `suppers_ai__llm__providers` table. It is invoked
-//! separately from `LlmBlock::lifecycle(Init)` because it needs the block's
-//! `ProviderAdmin` handle (to refresh the in-memory provider set post-copy).
-
-pub(in crate::blocks::llm) mod legacy_providers;
 
 const SQL_001_SQLITE: &str = include_str!("001_llm_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_llm_schema.postgres.sql");
@@ -23,8 +15,9 @@ const SQL_001_POSTGRES: &str = include_str!("001_llm_schema.postgres.sql");
 ///
 /// Application is gated by the shared migration-state gate
 /// ([`crate::migration_helper::apply_if_blessed`]): idempotent across cold
-/// starts, and schema changes require a `--run-migrations` redeploy (see
-/// `migration-state-workflow` in user memory).
+/// starts, and schema changes require a redeploy that re-runs migrations
+/// (native: `--run-migrations`; Cloudflare: the `/_deploy/init` funnel
+/// applies them on every deploy).
 pub(crate) const SQLITE_MIGRATIONS: &[(&str, &str)] = &[("001_llm_schema", SQL_001_SQLITE)];
 
 /// Ordered PostgreSQL migration scripts, matching [`SQLITE_MIGRATIONS`].
