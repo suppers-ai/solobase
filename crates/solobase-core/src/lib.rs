@@ -19,6 +19,7 @@ pub mod endpoint_match;
 pub mod features;
 pub mod flows;
 pub mod http;
+pub mod kv;
 pub mod messages_schema;
 pub mod migration_helper;
 pub mod multipart;
